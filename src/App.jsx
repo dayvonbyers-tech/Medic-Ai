@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { memo, useState, useMemo, useEffect, useCallback, useRef } from "react";
 import heroImage from "./assets/hero.png";
 
 /* ═══════════════════════════════════════════════════════
@@ -33,9 +33,11 @@ const CHK = {
   hyperkal:  { id:"hkrsk",label:"Risk factors for hyperkalemia? (crush, renal failure, burns >24h)", type:"yesno" },
   metalk:    { id:"metalk",label:"Known or suspected metabolic alkalosis?",                       type:"yesno" },
   hypergly:  { id:"hypgl",    label:"Confirmed hyperglycemia (BGL >200 mg/dL)?",                  type:"yesno" },
+  ams:        { id:"ams",      label:"Altered Mental Status present?",                             type:"yesno" },
+  airwayprot: { id:"airprot",  label:"Protected airway in place?",                                 type:"yesno" },
   lungsounds:  { id:"lngsnd",  label:"Wheezing or diminished lung sounds present on auscultation?",    type:"yesno" },
   aspirinallergy:{ id:"aspalrg", label:"Known allergy to aspirin or NSAIDs?",                           type:"yesno" },
-  aspirinprior:  { id:"aspprior",label:"Number of aspirin tablets (81 mg) taken prior to our arrival",  type:"value", unit:"tablets", placeholder:"0 if none" },
+  aspirinprior:  { id:"aspprior",label:"Number of aspirin tablets taken prior to our arrival (1 tablet = 81 mg)",  type:"value", unit:"tablets", placeholder:"0 if none" },
   pulse:         { id:"pulse",   label:"Pulse present?",                                                type:"yesno" },
 };
 const mk = (id, ov={}) => ({ ...CHK[id], ...ov });
@@ -140,6 +142,10 @@ const INIT_CHECKS = {
   ],
   "Sodium Bicarbonate": [
     mk("metalk",{ required:true, blockIf:v=>v==="Yes", blockMsg:"Metabolic alkalosis — CONTRAINDICATED" }),
+  ],
+  "Activated Charcoal": [
+    mk("ams",{ required:true, warnIf:v=>v==="Yes", warnMsg:"AMS present — confirm protected airway before giving charcoal" }),
+    mk("airwayprot",{ required:true, safeYes:true, visibleIf:vals=>vals.ams==="Yes", blockIf:v=>v==="No", blockMsg:"Unprotected airway with AMS — Activated Charcoal CONTRAINDICATED" }),
   ],
   "Dopamine": [
     mk("sbp",{ required:true, warnIf:v=>+v>90,  warnMsg:"SBP >90 — reassess indication for Dopamine" }),
@@ -417,6 +423,50 @@ const DRUG_LOCATION_MAP = new Map();
 
 function calcDose(d,wt){if(!d.wt||!d.mpk||!wt||wt<=0)return null;let mg=d.mpk*wt;if(d.maxd!=null&&mg>d.maxd)mg=d.maxd;if(d.mind!=null&&mg<d.mind)mg=d.mind;const display=parseFloat(((d.dmult||1)*mg).toFixed(2));const mL=d.cmpml?parseFloat((mg/d.cmpml).toFixed(2)):null;return{display,unit:d.unit||"mg",mL};}
 
+function inferDoseUnit(drug){
+  if(drug.unit) return drug.unit;
+  const text=`${drug.dose||""} ${drug.maxDoseNote||""}`.toLowerCase();
+  if(/\bmcg\b/.test(text)) return "mcg";
+  if(/\bmeq\b/.test(text)) return "mEq";
+  if(/\bunits?\b/.test(text)) return "units";
+  if(/\bml\b/.test(text)) return "mL";
+  if(/\bg\b/.test(text)&&!/\bmg\b/.test(text)) return "g";
+  if(/\bmg\b/.test(text)) return "mg";
+  return "amount";
+}
+
+function getNumericMaxTotal(drug,wt){
+  const unit=inferDoseUnit(drug);
+  if(drug.doseSteps?.length){
+    const total=drug.doseSteps.reduce((sum,step)=>sum+(Number(step.mg)||0),0);
+    if(total>0) return { total, unit:"mg" };
+  }
+  if(drug.wt&&drug.maxd!=null&&drug.maxDoses){
+    return { total:parseFloat((drug.maxd*(drug.dmult||1)*drug.maxDoses).toFixed(2)), unit };
+  }
+  const note=`${drug.maxDoseNote||""} ${drug.dose||""}`;
+  const match=note.match(/max(?:\s+cumulative|\s+total)?\s+(\d+(?:\.\d+)?)\s*(mcg|mg|g|mEq|units?|mL)\b/i);
+  if(match) return { total:Number(match[1]), unit:match[2] };
+  if(drug.maxDoses===1){
+    const fixed=(drug.dose||"").match(/(\d+(?:\.\d+)?)\s*(mcg|mg|g|mEq|units?|mL)\b/i);
+    if(fixed) return { total:Number(fixed[1]), unit:fixed[2] };
+  }
+  return null;
+}
+
+function getPrecheckPtaInfo(drug,vals={}){
+  if(drug.name==="Aspirin"){
+    const tablets=Number(vals.aspprior);
+    if(!Number.isNaN(tablets)&&tablets>0){
+      const total=tablets*81;
+      return { total, label:`${tablets} tablet${tablets===1?"":"s"} (${total} mg)` };
+    }
+  }
+  const raw=Number(vals.ptaAmount??vals.ptaDose??vals.priorAmount);
+  if(!Number.isNaN(raw)&&raw>0) return { total:raw, label:String(raw) };
+  return { total:0, label:"0" };
+}
+
 function getMaxDoseDisplay(drug) {
   // Explicit override already set (e.g. Epi 1:10,000, Amiodarone, peds Amiodarone)
   if (drug.maxDoseNote) return { text: drug.maxDoseNote, color:"#93c5fd" };
@@ -502,11 +552,11 @@ const fmtE=s=>{const m=Math.floor(s/60),sc=s%60;return m>0?`${m}m ${sc}s ago`:`$
 const fmtTime=(ts,hour12=true)=>new Date(ts).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12});
 
 function evalChecks(checks,vals={}){
-  return checks.map(c=>{
+  return checks.filter(c=>!c.visibleIf||c.visibleIf(vals)).map(c=>{
     const v=vals[c.id]??"";
     const filled=v!==""&&v!=null;
-    const isBlock=filled&&c.blockIf?.(v);
-    const isWarn=filled&&!isBlock&&c.warnIf?.(v);
+    const isBlock=filled&&c.blockIf?.(v,vals);
+    const isWarn=filled&&!isBlock&&c.warnIf?.(v,vals);
     const isOk=filled&&!isBlock&&!isWarn;
     return{...c,v,filled,isBlock,isWarn,isOk};
   });
@@ -516,7 +566,7 @@ function evalChecks(checks,vals={}){
 function CheckForm({checks,vals,onUpdate,label,accentColor="#60a5fa",subtitle,isDarkMode=true}){
   const results=evalChecks(checks,vals);
   return(
-    <div>
+    <div style={{textAlign:"left"}}>
       {label&&(
         <div style={{background:isDarkMode?"#0f1622":"#f0f4ff",border:`1px solid ${accentColor}33`,borderRadius:6,padding:"7px 10px",marginBottom:8,display:"flex",alignItems:"center",gap:7}}>
           <span style={{fontSize:14}}>🔄</span>
@@ -532,13 +582,13 @@ function CheckForm({checks,vals,onUpdate,label,accentColor="#60a5fa",subtitle,is
         else if(r.isWarn){rowBg=isDarkMode?"#1f1408":"#fffbeb";bCol=isDarkMode?"#92400e":"#fbbf24";}
         else if(r.isOk){rowBg=isDarkMode?"#071a0e":"#f0fdf4";bCol=isDarkMode?"#14532d":"#86efac";}
         return(
-          <div key={r.id} style={{background:rowBg,border:`1px solid ${bCol}`,borderRadius:7,padding:"9px 11px",marginBottom:6}}>
+          <div key={r.id} style={{background:rowBg,border:`1px solid ${bCol}`,borderRadius:7,padding:"9px 11px",marginBottom:6,textAlign:"left"}}>
             <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
               <div style={{width:17,height:17,borderRadius:"50%",flexShrink:0,marginTop:1,background:r.isBlock?"#ef4444":r.isWarn?"#f59e0b":r.isOk?"#22c55e":"var(--c-border)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:900,color:"#fff"}}>
                 {r.isBlock?"✕":r.isWarn?"!":r.isOk?"✓":""}
               </div>
-              <div style={{flex:1}}>
-                <div style={{color:"var(--c-text3)",fontSize:12,lineHeight:1.4}}>{r.label}</div>
+              <div style={{flex:1,textAlign:"left"}}>
+                <div style={{color:"var(--c-text3)",fontSize:12,lineHeight:1.4,textAlign:"left"}}>{r.label}</div>
                 {(r.isBlock||r.isWarn)&&<div style={{marginTop:3,fontSize:11,fontWeight:600,color:r.isBlock?(isDarkMode?"#fca5a5":"#b91c1c"):(isDarkMode?"#fcd34d":"#92400e"),lineHeight:1.4}}>{r.isBlock?`⛔ ${r.blockMsg}`:`⚠ ${typeof r.warnMsg==="function"?r.warnMsg(r.v):r.warnMsg}`}</div>}
               </div>
             </div>
@@ -563,7 +613,7 @@ function CheckForm({checks,vals,onUpdate,label,accentColor="#60a5fa",subtitle,is
             {r.type==="yesno"&&(
               <div style={{display:"flex",gap:6,paddingLeft:25,marginTop:6}}>
                 {["Yes","No"].map(opt=>(
-                  <button key={opt} onClick={e=>{e.stopPropagation();onUpdate(r.id,opt);}} style={{padding:"5px 16px",borderRadius:5,border:"none",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:700,background:r.v===opt?(opt==="No"?(isDarkMode?"#166534":"#dcfce7"):(isDarkMode?"#9a1f0f":"#fee2e2")):(isDarkMode?"#1e2f4a":"#e8eef8"),color:r.v===opt?(opt==="No"?(isDarkMode?"#86efac":"#166534"):(isDarkMode?"#fca5a5":"#991b1b")):(isDarkMode?"#7090b8":"#3a5070"),border:r.v===opt?`1px solid ${opt==="No"?(isDarkMode?"#22c55e40":"#86efac"):(isDarkMode?"#ef444440":"#fca5a5")}`:`1px solid ${isDarkMode?"#2a3f60":"#b8c8dc"}`,transition:"all 0.1s"}}>{opt}</button>
+                  <button key={opt} onClick={e=>{e.stopPropagation();onUpdate(r.id,opt);}} style={{padding:"5px 16px",borderRadius:5,border:"none",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:700,background:r.v===opt?(opt===(r.safeYes?"Yes":"No")?(isDarkMode?"#166534":"#dcfce7"):(isDarkMode?"#9a1f0f":"#fee2e2")):(isDarkMode?"#1e2f4a":"#e8eef8"),color:r.v===opt?(opt===(r.safeYes?"Yes":"No")?(isDarkMode?"#86efac":"#166534"):(isDarkMode?"#fca5a5":"#991b1b")):(isDarkMode?"#7090b8":"#3a5070"),border:r.v===opt?`1px solid ${opt===(r.safeYes?"Yes":"No")?(isDarkMode?"#22c55e40":"#86efac"):(isDarkMode?"#ef444440":"#fca5a5")}`:`1px solid ${isDarkMode?"#2a3f60":"#b8c8dc"}`,transition:"all 0.1s"}}>{opt}</button>
                 ))}
               </div>
             )}
@@ -575,9 +625,12 @@ function CheckForm({checks,vals,onUpdate,label,accentColor="#60a5fa",subtitle,is
 }
 
 /* ═══ DRUG CARD ═══ */
-const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,onReset,initVals,onInitUpdate,reVals,onReUpdate,onClearRe,highlighted,isDarkMode=true,scopeFilter="all"}){
+const DrugCard=memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,onReset,initVals,onInitUpdate,reVals,onReUpdate,onClearRe,highlighted,isDarkMode=true,scopeFilter="all"}){
   const[open,setOpen]=useState(false);
   const[tab,setTab]=useState("info");
+  const[warnAck,setWarnAck]=useState(false);
+  const[reWarnAck,setReWarnAck]=useState(false);
+  const[providerAmount,setProviderAmount]=useState("");
   const alarmRef=useRef({warn:false,due:false,lastDoseCount:0});
   const cardRef=useRef(null);
 
@@ -601,6 +654,19 @@ const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,
   const log=adminLog[drug.name];
   const doseCount=log?log.times.length:0;
   const lastAt=log?log.times[log.times.length-1]:null;
+  const doseUnit=calc?.unit||inferDoseUnit(drug);
+  const isAspirin=drug.name==="Aspirin";
+  const maxTotal=getNumericMaxTotal(drug,wt);
+  const precheckPta=getPrecheckPtaInfo(drug,initVals);
+  const ptaTotal=precheckPta.total;
+  const providerRaw=Number(providerAmount);
+  const providerDose=isAspirin?providerRaw*81:providerRaw;
+  const providerAmountFilled=providerAmount!==""&&!Number.isNaN(providerRaw)&&providerRaw>0;
+  const providerAmountLabel=isAspirin?`${providerRaw} tablet${providerRaw===1?"":"s"} (${providerDose} mg)`:`${providerDose} ${doseUnit}`;
+  const providerInputUnit=isAspirin?"tabs":doseUnit;
+  const projectedTotal=ptaTotal+(providerAmountFilled?providerDose:0);
+  const amountOverMax=maxTotal&&providerAmountFilled&&projectedTotal>maxTotal.total;
+  const amountGate=providerAmountFilled&&!amountOverMax;
   const hasActivity=doseCount>0;
   const maxReached=drug.maxDoses!=null&&doseCount>=drug.maxDoses;
   const isMultiDose=!maxReached&&drug.maxDoses!==1;
@@ -633,6 +699,7 @@ const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,
   const iWarn=iR.some(r=>r.isWarn);
   const iOk=!hasInitChecks||(iAllFill&&!iBlocked);
   const iMissing=iR.filter(r=>!r.filled).length;
+  const initWarnSig=iR.filter(r=>r.isWarn).map(r=>`${r.id}:${r.v}`).join("|");
 
   /* reassessment check eval — vitals only */
   const needsRe=hasActivity&&isDue&&!maxReached&&hasReChecks&&isMultiDose;
@@ -642,16 +709,23 @@ const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,
   const rWarn=rR.some(r=>r.isWarn);
   const rOk=rAllFill&&!rBlocked;
   const rMissing=rR.filter(r=>!r.filled).length;
+  const reWarnSig=rR.filter(r=>r.isWarn).map(r=>`${r.id}:${r.v}`).join("|");
+
+  useEffect(()=>{setWarnAck(false);},[drug.name,initWarnSig,doseCount]);
+  useEffect(()=>{setReWarnAck(false);},[drug.name,reWarnSig,doseCount]);
 
   const timerReady=!hasActivity||remainSecs===null||isDue;
   const checkGate=!hasActivity?iOk:(needsRe?rOk:true);
-  const canGive=!maxReached&&timerReady&&checkGate&&(hasActivity?!rBlocked:!iBlocked);
+  const needsInitWarnAck=!hasActivity&&iOk&&iWarn&&!warnAck;
+  const needsReWarnAck=needsRe&&rOk&&rWarn&&!reWarnAck;
+  const warningAckOk=!needsInitWarnAck&&!needsReWarnAck;
+  const canGive=!maxReached&&timerReady&&checkGate&&warningAckOk&&amountGate&&(hasActivity?!rBlocked:!iBlocked);
 
-  let timerCol="#4ade80";
-  if(maxReached)timerCol="#ef4444";
-  else if(iBlocked||(needsRe&&rBlocked))timerCol="#ef4444";
-  else if(isDue&&hasActivity)timerCol="#f97316";
-  else if(isWarning)timerCol="#facc15";
+  let timerCol=isDarkMode?"#4ade80":"#15803d";
+  if(maxReached)timerCol=isDarkMode?"#ef4444":"#b91c1c";
+  else if(iBlocked||(needsRe&&rBlocked))timerCol=isDarkMode?"#ef4444":"#b91c1c";
+  else if(isDue&&hasActivity)timerCol=isDarkMode?"#f97316":"#c2410c";
+  else if(isWarning)timerCol=isDarkMode?"#facc15":"#854d0e";
 
   const hdrBorder=hasActivity?timerCol:(iBlocked?"#ef4444":color);
 
@@ -811,6 +885,10 @@ const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,
                           ?<div style={{background:"#1a1000",border:"1px solid #f59e0b44",borderRadius:6,padding:"8px 12px",marginTop:8}}>
                              <div style={{color:"#fcd34d",fontSize:11,fontWeight:600}}>⚠ Warnings — review before re-administering</div>
                              {rR.filter(r=>r.isWarn).map((r,i)=><div key={i} style={{color:"#a07030",fontSize:11,marginTop:2}}>• {r.warnMsg}</div>)}
+                             <label onClick={e=>e.stopPropagation()} style={{display:"flex",alignItems:"center",gap:7,marginTop:8,color:"#fcd34d",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                               <input type="checkbox" checked={reWarnAck} onChange={e=>setReWarnAck(e.target.checked)} style={{width:14,height:14,accentColor:"#f59e0b"}}/>
+                               <span>I reviewed these warnings and want to proceed.</span>
+                             </label>
                            </div>
                           :<div style={{background:"#071a0e",border:"1px solid #14532d",borderRadius:6,padding:"7px 12px",marginTop:8,display:"flex",alignItems:"center",gap:6}}>
                              <span>✓</span>
@@ -824,7 +902,7 @@ const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,
                 {maxReached&&<div style={{background:"#2a0808",border:"1px solid #7f1d1d",borderRadius:7,padding:"10px 12px",marginBottom:10,textAlign:"center"}}><div style={{color:"#f87171",fontSize:13,fontWeight:700}}>MAX DOSE REACHED</div><div style={{color:"#6b1414",fontSize:11,marginTop:3}}>{drug.maxDoses} dose{drug.maxDoses>1?"s":""} administered</div></div>}
 
                 {/* First dose pass/warn */}
-                {!hasActivity&&iOk&&iWarn&&<div style={{background:"#1a1000",border:"1px solid #f59e0b44",borderRadius:6,padding:"8px 12px",marginBottom:10}}><div style={{color:"#fcd34d",fontSize:11,fontWeight:600}}>⚠ Warnings — review before giving</div>{iR.filter(r=>r.isWarn).map((r,i)=><div key={i} style={{color:"#a07030",fontSize:11,marginTop:2}}>• {r.warnMsg}</div>)}</div>}
+                {!hasActivity&&iOk&&iWarn&&<div onClick={e=>{e.stopPropagation();setTab("precheck");}} role="button" title="Open Pre-Check" style={{background:"#1a1000",border:"1px solid #f59e0b44",borderRadius:6,padding:"8px 12px",marginBottom:10,cursor:"pointer"}}><div style={{color:"#fcd34d",fontSize:11,fontWeight:600}}>⚠ Warnings — review before giving</div>{iR.filter(r=>r.isWarn).map((r,i)=><div key={i} style={{color:"#a07030",fontSize:11,marginTop:2}}>• {r.warnMsg}</div>)}<label onClick={e=>e.stopPropagation()} style={{display:"flex",alignItems:"center",gap:7,marginTop:8,color:"#fcd34d",fontSize:11,fontWeight:700,cursor:"pointer"}}><input type="checkbox" checked={warnAck} onChange={e=>setWarnAck(e.target.checked)} style={{width:14,height:14,accentColor:"#f59e0b"}}/><span>I reviewed these warnings and want to proceed.</span></label></div>}
                 {!hasActivity&&iOk&&!iWarn&&hasInitChecks&&<div style={{background:"#071a0e",border:"1px solid #14532d",borderRadius:6,padding:"7px 12px",marginBottom:10,display:"flex",alignItems:"center",gap:6}}><span>✓</span><span style={{color:"#4ade80",fontSize:12,fontWeight:600}}>All checks cleared — ready to administer</span></div>}
 
                 {/* Dose progress dots */}
@@ -848,22 +926,46 @@ const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,
                   );
                 })()}
 
+                {/* PROVIDER DOSE AMOUNT */}
+                <div style={{background:amountOverMax?"#2a0808":"var(--c-input)",border:`1px solid ${amountOverMax?"#7f1d1d":"var(--c-border-sub)"}`,borderRadius:7,padding:"8px 10px",marginBottom:10}}>
+                  <div style={{color:amountOverMax?"#fca5a5":"var(--c-text3)",fontSize:10,fontWeight:700,fontFamily:"'IBM Plex Mono',monospace",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.06em"}}>Provider dose amount</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:7,alignItems:"center"}}>
+                    <input
+                      type="number"
+                      value={providerAmount}
+                      onChange={e=>setProviderAmount(e.target.value)}
+                      onClick={e=>e.stopPropagation()}
+                      placeholder={isAspirin?"Tablets to give":calc&&wt>0?String(calc.display):"Amount to give"}
+                      min="0"
+                      step="any"
+                      style={{minWidth:0,padding:"7px 8px",background:"var(--c-surface)",border:`1px solid ${amountOverMax?"#7f1d1d":"var(--c-border)"}`,borderRadius:6,color:"var(--c-text)",fontSize:12,fontFamily:"'IBM Plex Mono',monospace",outline:"none"}}
+                    />
+                    <span style={{color:"var(--c-text4)",fontSize:11,fontWeight:700,fontFamily:"'IBM Plex Mono',monospace"}}>{providerInputUnit}</span>
+                  </div>
+                  <div style={{color:amountOverMax?"#fca5a5":"var(--c-text4)",fontSize:10,marginTop:6,lineHeight:1.4}}>
+                    Pre-check PTA total: {precheckPta.label} {drug.name==="Aspirin"?"":doseUnit}
+                    {isAspirin?" · 1 tablet = 81 mg":""}
+                    {maxTotal?` · After this: ${providerAmountFilled?projectedTotal:ptaTotal} / ${maxTotal.total} ${maxTotal.unit} max`:" · Enter amount before administering"}
+                  </div>
+                  {amountOverMax&&<div style={{color:"#fca5a5",fontSize:11,fontWeight:700,marginTop:4}}>Dose blocked: PTA + provider amount exceeds max dose.</div>}
+                </div>
+
                 {/* MAIN BUTTON */}
                 <div style={{display:"flex",gap:7}}>
                   <button
-                    onClick={e=>{e.stopPropagation();if(canGive){onGive(drug.name);if(needsRe)onClearRe(drug.name);}}}
+                    onClick={e=>{e.stopPropagation();if(canGive){onGive(drug.name,{amount:providerAmountLabel,amountValue:providerDose,unit:isAspirin?"mg":doseUnit});setProviderAmount("");if(needsRe)onClearRe(drug.name);}}}
                     disabled={!canGive}
                     style={{
                       flex:1,padding:"10px 0",borderRadius:7,border:"none",
                       cursor:canGive?"pointer":"not-allowed",
                       fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:700,letterSpacing:"0.05em",
-                      background:maxReached?"#1a2030":iBlocked?"#2a0808":!iOk?"#0d1728":needsRe&&rBlocked?"#2a0808":needsRe&&!rAllFill?"#1a1200":needsRe&&rOk?"#7a3500":hasActivity&&remainSecs!=null&&!isDue?"var(--c-nav)":hasActivity?"#7a3500":"#0f3a1f",
-                      color:maxReached?"#2a3a55":iBlocked?"#6b1414":!iOk?"#1e3a8a":needsRe&&rBlocked?"#6b1414":needsRe&&!rAllFill?"#7a5020":needsRe&&rOk?"#fff":hasActivity&&remainSecs!=null&&!isDue?"#2a3a55":hasActivity?"#fff":"#4ade80",
-                      border:"1px solid "+(maxReached?"#1a2030":iBlocked?"#7f1d1d":!iOk?"#1e3a8a":needsRe&&(rBlocked||!rAllFill)?(rBlocked?"#7f1d1d":"#92400e"):hasActivity&&remainSecs!=null&&!isDue?"var(--c-border)":hasActivity?"#f9731660":"#1a5c2a"),
+                      background:maxReached?"#1a2030":iBlocked?"#2a0808":!iOk?"#0d1728":needsInitWarnAck||needsReWarnAck?"#1a1200":amountOverMax?"#2a0808":!providerAmountFilled?"#0d1728":needsRe&&rBlocked?"#2a0808":needsRe&&!rAllFill?"#1a1200":needsRe&&rOk?"#7a3500":hasActivity&&remainSecs!=null&&!isDue?"var(--c-nav)":hasActivity?"#7a3500":"#0f3a1f",
+                      color:maxReached?"#2a3a55":iBlocked?"#6b1414":!iOk?"#1e3a8a":needsInitWarnAck||needsReWarnAck?"#f59e0b":amountOverMax?"#fca5a5":!providerAmountFilled?"#1e3a8a":needsRe&&rBlocked?"#6b1414":needsRe&&!rAllFill?"#7a5020":needsRe&&rOk?"#fff":hasActivity&&remainSecs!=null&&!isDue?"#2a3a55":hasActivity?"#fff":"#4ade80",
+                      border:"1px solid "+(maxReached?"#1a2030":iBlocked?"#7f1d1d":!iOk?"#1e3a8a":needsInitWarnAck||needsReWarnAck?"#92400e":amountOverMax?"#7f1d1d":!providerAmountFilled?"#1e3a8a":needsRe&&(rBlocked||!rAllFill)?(rBlocked?"#7f1d1d":"#92400e"):hasActivity&&remainSecs!=null&&!isDue?"var(--c-border)":hasActivity?"#f9731660":"#1a5c2a"),
                       opacity:canGive?1:0.65,transition:"all 0.15s",
                     }}
                   >
-                    {maxReached?"MAX DOSE REACHED":iBlocked?"⛔ BLOCKED — SEE PRE-CHECK TAB":!iOk?`⚕ COMPLETE PRE-CHECK (${iMissing} left)`:needsRe&&rBlocked?"⛔ BLOCKED — CONTRAINDICATION IN VITALS":needsRe&&!rAllFill?`📋 ENTER VITALS FIRST (${rMissing} left)`:needsRe&&rWarn?`⟹ RE-ADMINISTER DOSE ${doseCount+1} (warnings)`:needsRe&&rOk?`⟹ RE-ADMINISTER — DOSE ${doseCount+1}`:hasActivity&&remainSecs!=null&&!isDue?`TIMER ACTIVE — ${fmt(remainSecs)}`:hasActivity?"⟹ RE-ADMINISTER":`✓ MARK AS GIVEN — DOSE 1`}
+                    {maxReached?"MAX DOSE REACHED":iBlocked?"⛔ BLOCKED — SEE PRE-CHECK TAB":!iOk?`⚕ COMPLETE PRE-CHECK (${iMissing} left)`:needsInitWarnAck?"☐ CONFIRM WARNING REVIEW":amountOverMax?"⛔ PTA + PROVIDER EXCEEDS MAX":!providerAmountFilled?"ENTER PROVIDER DOSE AMOUNT":needsRe&&rBlocked?"⛔ BLOCKED — CONTRAINDICATION IN VITALS":needsRe&&!rAllFill?`📋 ENTER VITALS FIRST (${rMissing} left)`:needsReWarnAck?"☐ CONFIRM WARNING REVIEW":needsRe&&rWarn?`⟹ RE-ADMINISTER DOSE ${doseCount+1} (warnings)`:needsRe&&rOk?`⟹ RE-ADMINISTER — DOSE ${doseCount+1}`:hasActivity&&remainSecs!=null&&!isDue?`TIMER ACTIVE — ${fmt(remainSecs)}`:hasActivity?"⟹ RE-ADMINISTER":`✓ MARK AS GIVEN — DOSE 1`}
                   </button>
                   {hasActivity&&<button onClick={e=>{e.stopPropagation();onReset(drug.name);onClearRe(drug.name);}} style={{padding:"10px 12px",borderRadius:7,border:"1px solid #1a2540",background:"transparent",color:"#3a4f70",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontSize:11}}>↺</button>}
                 </div>
@@ -3243,7 +3345,9 @@ function MedLog({ adminLog, findDrugLocation, onJump, onClearAll, onResetDrug, w
   const events = [];
   Object.entries(adminLog).forEach(([drugName, data]) => {
     data.times.forEach((ts, i) => {
-      events.push({ drug: drugName, ts, doseNum: i + 1, total: data.times.length });
+      const pta=(data.pta||[]).find(x=>x.ts===ts);
+      const given=(data.given||[]).find(x=>x.ts===ts);
+      events.push({ drug: drugName, ts, doseNum: i + 1, total: data.times.length, pta, given });
     });
   });
   events.sort((a, b) => b.ts - a.ts); // newest first
@@ -3252,7 +3356,7 @@ function MedLog({ adminLog, findDrugLocation, onJump, onClearAll, onResetDrug, w
 
   const copyLog = () => {
     const text = events.slice().reverse().map(e =>
-      `${fmtTimeLog(e.ts)}  ${e.drug}  (dose ${e.doseNum}/${e.total})`
+      `${fmtTimeLog(e.ts)}  ${e.drug}  (dose ${e.doseNum}/${e.total}${e.pta?`, PTA ${e.pta.amount}`:e.given?`, provider ${e.given.amount}`:""})`
     ).join('\n');
     if (navigator.clipboard) {
       navigator.clipboard.writeText(text).catch(()=>{});
@@ -3353,15 +3457,17 @@ function MedLog({ adminLog, findDrugLocation, onJump, onClearAll, onResetDrug, w
               <div style={{ color:"var(--c-text4)", fontSize:10.5, marginTop:2 }}>
                 Dose {e.doseNum} of {e.total}
                 {wkg > 0 ? ` · ${wkg} kg` : ""}
+                {e.pta ? ` · PTA ${e.pta.amount}` : ""}
+                {e.given ? ` · Provider ${e.given.amount}` : ""}
               </div>
             </div>
             <div style={{
-              background:"#1a1208", border:"1px solid #f9731640",
-              color:"#fb923c", borderRadius:5, padding:"3px 7px",
+              background:e.pta?"#2a1608":"#1a1208", border:e.pta?"1px solid #facc1555":"1px solid #f9731640",
+              color:e.pta?"#facc15":"#fb923c", borderRadius:5, padding:"3px 7px",
               fontSize:10, fontFamily:"'IBM Plex Mono',monospace", fontWeight:700,
               flexShrink:0
             }}>
-              #{e.doseNum}
+              {e.pta?"PTA":`#${e.doseNum}`}
             </div>
           </div>
         );
@@ -3718,7 +3824,9 @@ function buildNarrative(p, adminLog, vitalsEntries, wkg, wlb, mode) {
   const medEvents = [];
   Object.entries(adminLog).forEach(([drugName, data]) => {
     data.times.forEach((ts, i) => {
-      medEvents.push({ drug: drugName, ts, doseNum: i + 1, total: data.times.length });
+      const pta=(data.pta||[]).find(x=>x.ts===ts);
+      const given=(data.given||[]).find(x=>x.ts===ts);
+      medEvents.push({ drug: drugName, ts, doseNum: i + 1, total: data.times.length, pta, given });
     });
   });
   medEvents.sort((a, b) => a.ts - b.ts);
@@ -3731,7 +3839,7 @@ function buildNarrative(p, adminLog, vitalsEntries, wkg, wlb, mode) {
   const medsBlock = medEvents.length === 0
     ? "  No medications administered."
     : medEvents.map(e =>
-        `  ${fmtT(e.ts)}  ${e.drug.padEnd(28).slice(0,28)}  (dose ${e.doseNum}/${e.total})`
+        `  ${fmtT(e.ts)}  ${e.drug.padEnd(28).slice(0,28)}  (dose ${e.doseNum}/${e.total}${e.pta?`, PTA amount ${e.pta.amount}`:e.given?`, provider amount ${e.given.amount}`:""})`
       ).join("\n");
 
   // Vitals trend block
@@ -4020,8 +4128,9 @@ export default function App(){
   useEffect(()=>{const id=setInterval(()=>setTick(t=>t+1),1000);return()=>clearInterval(id);},[]);
   useEffect(()=>setSearch(""),[mode,aSys,pSys]);
 
-  const handleGive=useCallback((name)=>{
-    setAdminLog(p=>{const e=p[name]||{times:[]};return{...p,[name]:{times:[...e.times,Date.now()]}};});
+  const handleGive=useCallback((name,doseInfo=null)=>{
+    const ts=Date.now();
+    setAdminLog(p=>{const e=p[name]||{times:[]};return{...p,[name]:{...e,times:[...e.times,ts],given:[...(e.given||[]),...(doseInfo?[{ts,...doseInfo}]:[])]}};});
   },[]);
   const handleReset=useCallback(name=>{setAdminLog(p=>{const n={...p};delete n[name];return n;});setInitChecks(p=>{const n={...p};delete n[name];return n;});setReChecks(p=>{const n={...p};delete n[name];return n;});},[]);
   const handleInitUpdate=useCallback((dn,id,v)=>setInitChecks(p=>({...p,[dn]:{...(p[dn]||{}),[id]:v}})),[]);
@@ -4053,6 +4162,10 @@ export default function App(){
     return raw.filter(d=>(!q||d.name.toLowerCase().includes(q)||(d.sub||"").toLowerCase().includes(q))&&(scope==="all"||scopeRank[d.scope]<=scopeRank[scope]));
   },[bank,activeSys,search,scope]);
 
+  const numInp=useCallback((v,fn,ph,max,step)=>({type:"number",value:v||"",onChange:e=>fn(parseFloat(e.target.value)||0),placeholder:ph,min:0,max,step,style:{width:58,padding:"5px 7px",background:colors.surface,border:`1px solid ${colors.border}`,borderRadius:6,color:colors.text,fontSize:13,fontFamily:"'IBM Plex Mono',monospace",textAlign:"right",outline:"none"}}),[colors]);
+  const activeDrugs=useMemo(()=>Object.entries(adminLog).map(([name,log])=>({name,count:log.times.length,lastAt:log.times[log.times.length-1]})),[adminLog]);
+  const totalDoses=useMemo(()=>activeDrugs.reduce((sum,d)=>sum+d.count,0),[activeDrugs]);
+
   if(appView==="home"){
     return <HomeScreen isDarkMode={isDarkMode} onLogin={()=>setAppView("login")} onGuest={handleGuest} onToggleTheme={()=>setIsDarkMode(v=>!v)} />;
   }
@@ -4060,10 +4173,6 @@ export default function App(){
   if(appView==="login"){
     return <LoginScreen isDarkMode={isDarkMode} values={loginForm} onChange={handleLoginChange} onSubmit={handleLoginSubmit} onBack={()=>setAppView("home")} onGuest={handleGuest} error={loginError} onToggleTheme={()=>setIsDarkMode(v=>!v)} />;
   }
-
-  const numInp=useCallback((v,fn,ph,max,step)=>({type:"number",value:v||"",onChange:e=>fn(parseFloat(e.target.value)||0),placeholder:ph,min:0,max,step,style:{width:58,padding:"5px 7px",background:colors.surface,border:`1px solid ${colors.border}`,borderRadius:6,color:colors.text,fontSize:13,fontFamily:"'IBM Plex Mono',monospace",textAlign:"right",outline:"none"}}),[colors]);
-  const activeDrugs=useMemo(()=>Object.entries(adminLog).map(([name,log])=>({name,count:log.times.length,lastAt:log.times[log.times.length-1]})),[adminLog]);
-  const totalDoses=useMemo(()=>activeDrugs.reduce((sum,d)=>sum+d.count,0),[activeDrugs]);
 
   return(
     <>
@@ -4129,20 +4238,20 @@ export default function App(){
 
         {/* ACTIVE SUMMARY */}
         {activeDrugs.length>0&&(
-          <div style={{background:isDarkMode?"#120e05":"#fef3f2",border:isDarkMode?"1px solid #f9731630":"1px solid #fed7aa",borderRadius:8,padding:"8px 12px",marginBottom:10}}>
+          <div style={{background:isDarkMode?"#120e05":"#7c2d12",border:isDarkMode?"1px solid #f9731630":"1px solid #431407",borderRadius:8,padding:"8px 12px",marginBottom:10}}>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
-              <span style={{color:"#f97316",fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em"}}>⏱ Active Drugs This Call</span>
-              <button onClick={()=>{setAdminLog({});setInitChecks({});setReChecks({});setVitalsEntries([]);}} style={{marginLeft:"auto",background:"transparent",border:isDarkMode?"1px solid #7a5a30":"1px solid #d97706",color:isDarkMode?"#c08040":"#b45309",borderRadius:4,padding:"2px 7px",fontSize:9,cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace"}}>Clear All</button>
+              <span style={{color:isDarkMode?"#f97316":"#ffedd5",fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em"}}>⏱ Active Drugs This Call</span>
+              <button onClick={()=>{setAdminLog({});setInitChecks({});setReChecks({});setVitalsEntries([]);}} style={{marginLeft:"auto",background:isDarkMode?"transparent":"#431407",border:isDarkMode?"1px solid #7a5a30":"1px solid #fed7aa",color:isDarkMode?"#c08040":"#ffedd5",borderRadius:4,padding:"2px 7px",fontSize:9,cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace"}}>Clear All</button>
             </div>
             <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
               {activeDrugs.map(d=>{const el=Math.floor((Date.now()-d.lastAt)/1000);return(
-                <div key={d.name} onClick={()=>handlePillClick(d.name)} style={{background:isDarkMode?"#1a1208":"#fef3f2",border:isDarkMode?"1px solid #f9731640":"1px solid #fed7aa",borderRadius:5,padding:"3px 8px",display:"flex",alignItems:"center",gap:5,cursor:"pointer",transition:"border-color 0.15s"}}
-                  onMouseEnter={e=>e.currentTarget.style.borderColor=isDarkMode?"#f97316":"#f97316"}
-                  onMouseLeave={e=>e.currentTarget.style.borderColor=isDarkMode?"#f9731640":"#fed7aa"}>
-                  <span style={{color:isDarkMode?"var(--c-text)":"#0f0f0f",fontSize:10,fontFamily:"'IBM Plex Mono',monospace"}}>{d.name}</span>
-                  <span style={{color:"#f97316",fontSize:9,fontFamily:"'IBM Plex Mono',monospace"}}>×{d.count}</span>
-                  <span style={{color:isDarkMode?"#a07040":"#b45309",fontSize:9}}>{fmtE(el)}</span>
-                  <span style={{color:isDarkMode?"#f9731680":"#f97316",fontSize:9}}>↗</span>
+                <div key={d.name} onClick={()=>handlePillClick(d.name)} style={{background:isDarkMode?"#1a1208":"#431407",border:isDarkMode?"1px solid #f9731640":"1px solid #fdba74",borderRadius:5,padding:"3px 8px",display:"flex",alignItems:"center",gap:5,cursor:"pointer",transition:"border-color 0.15s"}}
+                  onMouseEnter={e=>e.currentTarget.style.borderColor=isDarkMode?"#f97316":"#ffedd5"}
+                  onMouseLeave={e=>e.currentTarget.style.borderColor=isDarkMode?"#f9731640":"#fdba74"}>
+                  <span style={{color:isDarkMode?"var(--c-text)":"#ffffff",fontSize:10,fontFamily:"'IBM Plex Mono',monospace"}}>{d.name}</span>
+                  <span style={{color:isDarkMode?"#f97316":"#fdba74",fontSize:9,fontFamily:"'IBM Plex Mono',monospace"}}>×{d.count}</span>
+                  <span style={{color:isDarkMode?"#a07040":"#ffedd5",fontSize:9}}>{fmtE(el)}</span>
+                  <span style={{color:isDarkMode?"#f9731680":"#fed7aa",fontSize:9}}>↗</span>
                 </div>
               );})}
             </div>
