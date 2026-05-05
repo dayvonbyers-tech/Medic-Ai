@@ -1,5 +1,4 @@
-import { memo, useState, useMemo, useEffect, useCallback, useRef } from "react";
-import heroImage from "./assets/hero.png";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 
 /* ═══════════════════════════════════════════════════════
    CHECK BUILDING BLOCKS
@@ -33,11 +32,9 @@ const CHK = {
   hyperkal:  { id:"hkrsk",label:"Risk factors for hyperkalemia? (crush, renal failure, burns >24h)", type:"yesno" },
   metalk:    { id:"metalk",label:"Known or suspected metabolic alkalosis?",                       type:"yesno" },
   hypergly:  { id:"hypgl",    label:"Confirmed hyperglycemia (BGL >200 mg/dL)?",                  type:"yesno" },
-  ams:        { id:"ams",      label:"Altered Mental Status present?",                             type:"yesno" },
-  airwayprot: { id:"airprot",  label:"Protected airway in place?",                                 type:"yesno" },
   lungsounds:  { id:"lngsnd",  label:"Wheezing or diminished lung sounds present on auscultation?",    type:"yesno" },
   aspirinallergy:{ id:"aspalrg", label:"Known allergy to aspirin or NSAIDs?",                           type:"yesno" },
-  aspirinprior:  { id:"aspprior",label:"Number of aspirin tablets taken prior to our arrival (1 tablet = 81 mg)",  type:"value", unit:"tablets", placeholder:"0 if none" },
+  aspirinprior:  { id:"aspprior",label:"Number of aspirin tablets (81 mg) taken prior to our arrival",  type:"value", unit:"tablets", placeholder:"0 if none" },
   pulse:         { id:"pulse",   label:"Pulse present?",                                                type:"yesno" },
 };
 const mk = (id, ov={}) => ({ ...CHK[id], ...ov });
@@ -142,10 +139,6 @@ const INIT_CHECKS = {
   ],
   "Sodium Bicarbonate": [
     mk("metalk",{ required:true, blockIf:v=>v==="Yes", blockMsg:"Metabolic alkalosis — CONTRAINDICATED" }),
-  ],
-  "Activated Charcoal": [
-    mk("ams",{ required:true, warnIf:v=>v==="Yes", warnMsg:"AMS present — confirm protected airway before giving charcoal" }),
-    mk("airwayprot",{ required:true, safeYes:true, visibleIf:vals=>vals.ams==="Yes", blockIf:v=>v==="No", blockMsg:"Unprotected airway with AMS — Activated Charcoal CONTRAINDICATED" }),
   ],
   "Dopamine": [
     mk("sbp",{ required:true, warnIf:v=>+v>90,  warnMsg:"SBP >90 — reassess indication for Dopamine" }),
@@ -410,8 +403,8 @@ const PEDS = {
 /* ═══ CONFIG ═══ */
 const A_SYS=[{k:"cardiac",l:"Cardiac",c:"#f87171",lc:"#dc2626",e:"♥"},{k:"respiratory",l:"Respiratory",c:"#60a5fa",lc:"#1d4ed8",e:"🌬"},{k:"neurological",l:"Neuro",c:"#c084fc",lc:"#7e22ce",e:"⚡"},{k:"metabolic",l:"Metabolic",c:"#facc15",lc:"#a16207",e:"⚗"},{k:"anaphylaxis",l:"Anaphylaxis",c:"#fb923c",lc:"#c2410c",e:"⚠"},{k:"pain",l:"Pain/Sedation",c:"#4ade80",lc:"#15803d",e:"💊"},{k:"toxicology",l:"Tox",c:"#94a3b8",lc:"#475569",e:"☠"},{k:"obgyn",l:"OB/GYN",c:"#f472b6",lc:"#be185d",e:"♀"},{k:"trauma",l:"Trauma",c:"#f97316",lc:"#b45309",e:"🩹"},{k:"burns",l:"Burns",c:"#fb7185",lc:"#be123c",e:"🔥"}];
 const P_SYS=[{k:"cardiac",l:"Cardiac",c:"#f87171",lc:"#dc2626",e:"♥"},{k:"airway",l:"Airway/RSI",c:"#60a5fa",lc:"#1d4ed8",e:"🌬"},{k:"seizure",l:"Seizures",c:"#c084fc",lc:"#7e22ce",e:"⚡"},{k:"anaphylaxis",l:"Anaphylaxis",c:"#fb923c",lc:"#c2410c",e:"⚠"},{k:"pain",l:"Pain/Sedation",c:"#4ade80",lc:"#15803d",e:"💊"},{k:"glucose",l:"Glucose",c:"#facc15",lc:"#a16207",e:"🩸"},{k:"trauma",l:"Trauma",c:"#f97316",lc:"#b45309",e:"🩹"},{k:"burns",l:"Burns",c:"#fb7185",lc:"#be123c",e:"🔥"}];
-const SS={EMT:{bg:"#14532d",fg:"#86efac",lbl:"EMT+",lbg:"#dcfce7",lfg:"#166534",bd:"#166534",lbd:"#4ade80"},AEMT:{bg:"#1e3a8a",fg:"#93c5fd",lbl:"AEMT+",lbg:"#dbeafe",lfg:"#1e40af",bd:"#1e40af",lbd:"#60a5fa"},Medic:{bg:"#7c2d12",fg:"#fdba74",lbl:"Paramedic",lbg:"#ffedd5",lfg:"#9a3412",bd:"#9a3412",lbd:"#fb923c"}};
-const LIGHT_TABS={cardiac:{bg:"#ffe1e1",fg:"#b91c1c",bd:"#f87171"},respiratory:{bg:"#dbeafe",fg:"#1d4ed8",bd:"#60a5fa"},neurological:{bg:"#f3e8ff",fg:"#7e22ce",bd:"#c084fc"},metabolic:{bg:"#fef3c7",fg:"#92400e",bd:"#facc15"},anaphylaxis:{bg:"#ffedd5",fg:"#c2410c",bd:"#fb923c"},airway:{bg:"#dbeafe",fg:"#1d4ed8",bd:"#60a5fa"},seizure:{bg:"#f3e8ff",fg:"#7e22ce",bd:"#c084fc"},glucose:{bg:"#fef3c7",fg:"#92400e",bd:"#facc15"}};
+const SS={EMT:{bg:"#14532d",fg:"#86efac",lbl:"EMT+",lbg:"#b7e4c7",lfg:"#064e3b",bd:"#166534",lbd:"#15803d"},AEMT:{bg:"#1e3a8a",fg:"#93c5fd",lbl:"AEMT+",lbg:"#b8cff2",lfg:"#172554",bd:"#1e40af",lbd:"#1d4ed8"},Medic:{bg:"#7c2d12",fg:"#fdba74",lbl:"Paramedic",lbg:"#f3c097",lfg:"#7c2d12",bd:"#9a3412",lbd:"#c2410c"}};
+const LIGHT_TABS={cardiac:{bg:"#f4b9b9",fg:"#7f1d1d",bd:"#dc2626"},respiratory:{bg:"#adc8ee",fg:"#172554",bd:"#1d4ed8"},neurological:{bg:"#d8b4ed",fg:"#581c87",bd:"#7e22ce"},metabolic:{bg:"#e9c46a",fg:"#713f12",bd:"#a16207"},anaphylaxis:{bg:"#f0b27a",fg:"#7c2d12",bd:"#c2410c"},airway:{bg:"#adc8ee",fg:"#172554",bd:"#1d4ed8"},seizure:{bg:"#d8b4ed",fg:"#581c87",bd:"#7e22ce"},glucose:{bg:"#e9c46a",fg:"#713f12",bd:"#a16207"}};
 
 // Flat O(1) lookup built once at module load
 const DRUG_LOCATION_MAP = new Map();
@@ -422,50 +415,6 @@ const DRUG_LOCATION_MAP = new Map();
 });
 
 function calcDose(d,wt){if(!d.wt||!d.mpk||!wt||wt<=0)return null;let mg=d.mpk*wt;if(d.maxd!=null&&mg>d.maxd)mg=d.maxd;if(d.mind!=null&&mg<d.mind)mg=d.mind;const display=parseFloat(((d.dmult||1)*mg).toFixed(2));const mL=d.cmpml?parseFloat((mg/d.cmpml).toFixed(2)):null;return{display,unit:d.unit||"mg",mL};}
-
-function inferDoseUnit(drug){
-  if(drug.unit) return drug.unit;
-  const text=`${drug.dose||""} ${drug.maxDoseNote||""}`.toLowerCase();
-  if(/\bmcg\b/.test(text)) return "mcg";
-  if(/\bmeq\b/.test(text)) return "mEq";
-  if(/\bunits?\b/.test(text)) return "units";
-  if(/\bml\b/.test(text)) return "mL";
-  if(/\bg\b/.test(text)&&!/\bmg\b/.test(text)) return "g";
-  if(/\bmg\b/.test(text)) return "mg";
-  return "amount";
-}
-
-function getNumericMaxTotal(drug,wt){
-  const unit=inferDoseUnit(drug);
-  if(drug.doseSteps?.length){
-    const total=drug.doseSteps.reduce((sum,step)=>sum+(Number(step.mg)||0),0);
-    if(total>0) return { total, unit:"mg" };
-  }
-  if(drug.wt&&drug.maxd!=null&&drug.maxDoses){
-    return { total:parseFloat((drug.maxd*(drug.dmult||1)*drug.maxDoses).toFixed(2)), unit };
-  }
-  const note=`${drug.maxDoseNote||""} ${drug.dose||""}`;
-  const match=note.match(/max(?:\s+cumulative|\s+total)?\s+(\d+(?:\.\d+)?)\s*(mcg|mg|g|mEq|units?|mL)\b/i);
-  if(match) return { total:Number(match[1]), unit:match[2] };
-  if(drug.maxDoses===1){
-    const fixed=(drug.dose||"").match(/(\d+(?:\.\d+)?)\s*(mcg|mg|g|mEq|units?|mL)\b/i);
-    if(fixed) return { total:Number(fixed[1]), unit:fixed[2] };
-  }
-  return null;
-}
-
-function getPrecheckPtaInfo(drug,vals={}){
-  if(drug.name==="Aspirin"){
-    const tablets=Number(vals.aspprior);
-    if(!Number.isNaN(tablets)&&tablets>0){
-      const total=tablets*81;
-      return { total, label:`${tablets} tablet${tablets===1?"":"s"} (${total} mg)` };
-    }
-  }
-  const raw=Number(vals.ptaAmount??vals.ptaDose??vals.priorAmount);
-  if(!Number.isNaN(raw)&&raw>0) return { total:raw, label:String(raw) };
-  return { total:0, label:"0" };
-}
 
 function getMaxDoseDisplay(drug) {
   // Explicit override already set (e.g. Epi 1:10,000, Amiodarone, peds Amiodarone)
@@ -552,11 +501,11 @@ const fmtE=s=>{const m=Math.floor(s/60),sc=s%60;return m>0?`${m}m ${sc}s ago`:`$
 const fmtTime=(ts,hour12=true)=>new Date(ts).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12});
 
 function evalChecks(checks,vals={}){
-  return checks.filter(c=>!c.visibleIf||c.visibleIf(vals)).map(c=>{
+  return checks.map(c=>{
     const v=vals[c.id]??"";
     const filled=v!==""&&v!=null;
-    const isBlock=filled&&c.blockIf?.(v,vals);
-    const isWarn=filled&&!isBlock&&c.warnIf?.(v,vals);
+    const isBlock=filled&&c.blockIf?.(v);
+    const isWarn=filled&&!isBlock&&c.warnIf?.(v);
     const isOk=filled&&!isBlock&&!isWarn;
     return{...c,v,filled,isBlock,isWarn,isOk};
   });
@@ -566,7 +515,7 @@ function evalChecks(checks,vals={}){
 function CheckForm({checks,vals,onUpdate,label,accentColor="#60a5fa",subtitle,isDarkMode=true}){
   const results=evalChecks(checks,vals);
   return(
-    <div style={{textAlign:"left"}}>
+    <div>
       {label&&(
         <div style={{background:isDarkMode?"#0f1622":"#f0f4ff",border:`1px solid ${accentColor}33`,borderRadius:6,padding:"7px 10px",marginBottom:8,display:"flex",alignItems:"center",gap:7}}>
           <span style={{fontSize:14}}>🔄</span>
@@ -582,13 +531,13 @@ function CheckForm({checks,vals,onUpdate,label,accentColor="#60a5fa",subtitle,is
         else if(r.isWarn){rowBg=isDarkMode?"#1f1408":"#fffbeb";bCol=isDarkMode?"#92400e":"#fbbf24";}
         else if(r.isOk){rowBg=isDarkMode?"#071a0e":"#f0fdf4";bCol=isDarkMode?"#14532d":"#86efac";}
         return(
-          <div key={r.id} style={{background:rowBg,border:`1px solid ${bCol}`,borderRadius:7,padding:"9px 11px",marginBottom:6,textAlign:"left"}}>
+          <div key={r.id} style={{background:rowBg,border:`1px solid ${bCol}`,borderRadius:7,padding:"9px 11px",marginBottom:6}}>
             <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
               <div style={{width:17,height:17,borderRadius:"50%",flexShrink:0,marginTop:1,background:r.isBlock?"#ef4444":r.isWarn?"#f59e0b":r.isOk?"#22c55e":"var(--c-border)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:900,color:"#fff"}}>
                 {r.isBlock?"✕":r.isWarn?"!":r.isOk?"✓":""}
               </div>
-              <div style={{flex:1,textAlign:"left"}}>
-                <div style={{color:"var(--c-text3)",fontSize:12,lineHeight:1.4,textAlign:"left"}}>{r.label}</div>
+              <div style={{flex:1}}>
+                <div style={{color:"var(--c-text3)",fontSize:12,lineHeight:1.4}}>{r.label}</div>
                 {(r.isBlock||r.isWarn)&&<div style={{marginTop:3,fontSize:11,fontWeight:600,color:r.isBlock?(isDarkMode?"#fca5a5":"#b91c1c"):(isDarkMode?"#fcd34d":"#92400e"),lineHeight:1.4}}>{r.isBlock?`⛔ ${r.blockMsg}`:`⚠ ${typeof r.warnMsg==="function"?r.warnMsg(r.v):r.warnMsg}`}</div>}
               </div>
             </div>
@@ -613,7 +562,7 @@ function CheckForm({checks,vals,onUpdate,label,accentColor="#60a5fa",subtitle,is
             {r.type==="yesno"&&(
               <div style={{display:"flex",gap:6,paddingLeft:25,marginTop:6}}>
                 {["Yes","No"].map(opt=>(
-                  <button key={opt} onClick={e=>{e.stopPropagation();onUpdate(r.id,opt);}} style={{padding:"5px 16px",borderRadius:5,border:"none",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:700,background:r.v===opt?(opt===(r.safeYes?"Yes":"No")?(isDarkMode?"#166534":"#dcfce7"):(isDarkMode?"#9a1f0f":"#fee2e2")):(isDarkMode?"#1e2f4a":"#e8eef8"),color:r.v===opt?(opt===(r.safeYes?"Yes":"No")?(isDarkMode?"#86efac":"#166534"):(isDarkMode?"#fca5a5":"#991b1b")):(isDarkMode?"#7090b8":"#3a5070"),border:r.v===opt?`1px solid ${opt===(r.safeYes?"Yes":"No")?(isDarkMode?"#22c55e40":"#86efac"):(isDarkMode?"#ef444440":"#fca5a5")}`:`1px solid ${isDarkMode?"#2a3f60":"#b8c8dc"}`,transition:"all 0.1s"}}>{opt}</button>
+                  <button key={opt} onClick={e=>{e.stopPropagation();onUpdate(r.id,opt);}} style={{padding:"5px 16px",borderRadius:5,border:"none",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:700,background:r.v===opt?(opt==="No"?(isDarkMode?"#166534":"#b7e4c7"):(isDarkMode?"#9a1f0f":"#e5b2b2")):(isDarkMode?"#1e2f4a":"#e0e5eb"),color:r.v===opt?(opt==="No"?(isDarkMode?"#86efac":"#064e3b"):(isDarkMode?"#fca5a5":"#7f1d1d")):(isDarkMode?"#7090b8":"#26364c"),border:r.v===opt?`1px solid ${opt==="No"?(isDarkMode?"#22c55e40":"#15803d"):(isDarkMode?"#ef444440":"#b91c1c")}`:`1px solid ${isDarkMode?"#2a3f60":"#8fa0b6"}`,transition:"all 0.1s"}}>{opt}</button>
                 ))}
               </div>
             )}
@@ -625,12 +574,9 @@ function CheckForm({checks,vals,onUpdate,label,accentColor="#60a5fa",subtitle,is
 }
 
 /* ═══ DRUG CARD ═══ */
-const DrugCard=memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,onReset,initVals,onInitUpdate,reVals,onReUpdate,onClearRe,highlighted,isDarkMode=true,scopeFilter="all"}){
+const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,onReset,initVals,onInitUpdate,reVals,onReUpdate,onClearRe,highlighted,isDarkMode=true,scopeFilter="all"}){
   const[open,setOpen]=useState(false);
   const[tab,setTab]=useState("info");
-  const[warnAck,setWarnAck]=useState(false);
-  const[reWarnAck,setReWarnAck]=useState(false);
-  const[providerAmount,setProviderAmount]=useState("");
   const alarmRef=useRef({warn:false,due:false,lastDoseCount:0});
   const cardRef=useRef(null);
 
@@ -652,21 +598,8 @@ const DrugCard=memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,onRese
   const hasInitChecks=initChecks.length>0;
   const hasReChecks=reChecks.length>0;
   const log=adminLog[drug.name];
-  const doseCount=log?log.times.length:0;
-  const lastAt=log?log.times[log.times.length-1]:null;
-  const doseUnit=calc?.unit||inferDoseUnit(drug);
-  const isAspirin=drug.name==="Aspirin";
-  const maxTotal=getNumericMaxTotal(drug,wt);
-  const precheckPta=getPrecheckPtaInfo(drug,initVals);
-  const ptaTotal=precheckPta.total;
-  const providerRaw=Number(providerAmount);
-  const providerDose=isAspirin?providerRaw*81:providerRaw;
-  const providerAmountFilled=providerAmount!==""&&!Number.isNaN(providerRaw)&&providerRaw>0;
-  const providerAmountLabel=isAspirin?`${providerRaw} tablet${providerRaw===1?"":"s"} (${providerDose} mg)`:`${providerDose} ${doseUnit}`;
-  const providerInputUnit=isAspirin?"tabs":doseUnit;
-  const projectedTotal=ptaTotal+(providerAmountFilled?providerDose:0);
-  const amountOverMax=maxTotal&&providerAmountFilled&&projectedTotal>maxTotal.total;
-  const amountGate=providerAmountFilled&&!amountOverMax;
+  const doseCount=log?.times?.length||0;
+  const lastAt=doseCount>0?log.times[doseCount-1]:null;
   const hasActivity=doseCount>0;
   const maxReached=drug.maxDoses!=null&&doseCount>=drug.maxDoses;
   const isMultiDose=!maxReached&&drug.maxDoses!==1;
@@ -699,7 +632,6 @@ const DrugCard=memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,onRese
   const iWarn=iR.some(r=>r.isWarn);
   const iOk=!hasInitChecks||(iAllFill&&!iBlocked);
   const iMissing=iR.filter(r=>!r.filled).length;
-  const initWarnSig=iR.filter(r=>r.isWarn).map(r=>`${r.id}:${r.v}`).join("|");
 
   /* reassessment check eval — vitals only */
   const needsRe=hasActivity&&isDue&&!maxReached&&hasReChecks&&isMultiDose;
@@ -709,23 +641,16 @@ const DrugCard=memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,onRese
   const rWarn=rR.some(r=>r.isWarn);
   const rOk=rAllFill&&!rBlocked;
   const rMissing=rR.filter(r=>!r.filled).length;
-  const reWarnSig=rR.filter(r=>r.isWarn).map(r=>`${r.id}:${r.v}`).join("|");
-
-  useEffect(()=>{setWarnAck(false);},[drug.name,initWarnSig,doseCount]);
-  useEffect(()=>{setReWarnAck(false);},[drug.name,reWarnSig,doseCount]);
 
   const timerReady=!hasActivity||remainSecs===null||isDue;
   const checkGate=!hasActivity?iOk:(needsRe?rOk:true);
-  const needsInitWarnAck=!hasActivity&&iOk&&iWarn&&!warnAck;
-  const needsReWarnAck=needsRe&&rOk&&rWarn&&!reWarnAck;
-  const warningAckOk=!needsInitWarnAck&&!needsReWarnAck;
-  const canGive=!maxReached&&timerReady&&checkGate&&warningAckOk&&amountGate&&(hasActivity?!rBlocked:!iBlocked);
+  const canGive=!maxReached&&timerReady&&checkGate&&(hasActivity?!rBlocked:!iBlocked);
 
-  let timerCol=isDarkMode?"#4ade80":"#15803d";
-  if(maxReached)timerCol=isDarkMode?"#ef4444":"#b91c1c";
-  else if(iBlocked||(needsRe&&rBlocked))timerCol=isDarkMode?"#ef4444":"#b91c1c";
-  else if(isDue&&hasActivity)timerCol=isDarkMode?"#f97316":"#c2410c";
-  else if(isWarning)timerCol=isDarkMode?"#facc15":"#854d0e";
+  let timerCol="#4ade80";
+  if(maxReached)timerCol="#ef4444";
+  else if(iBlocked||(needsRe&&rBlocked))timerCol="#ef4444";
+  else if(isDue&&hasActivity)timerCol="#f97316";
+  else if(isWarning)timerCol="#facc15";
 
   const hdrBorder=hasActivity?timerCol:(iBlocked?"#ef4444":color);
 
@@ -744,7 +669,7 @@ const DrugCard=memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,onRese
           <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
             <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:13,fontWeight:700,color:"var(--c-text)"}}>{drug.name}</span>
             <span style={{fontSize:9,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",background:isDarkMode?s.bg:s.lbg,color:isDarkMode?s.fg:s.lfg,border:`1px solid ${isDarkMode?s.bd:s.lbd}`,borderRadius:3,padding:"2px 5px"}}>{s.lbl}</span>
-            {hasInitChecks&&!open&&<span style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",background:iBlocked?"#fee2e2":iAllFill?"#dcfce7":"#f3e8ff",color:iBlocked?"#b91c1c":iAllFill?"#166534":"#7e22ce",border:`1px solid ${iBlocked?"#f87171":iAllFill?"#4ade80":"#c084fc"}`,borderRadius:3,padding:"2px 5px"}}>{iBlocked?"⛔ blocked":iAllFill?"✓ checked":`⚕ ${iMissing} checks`}</span>}
+            {hasInitChecks&&!open&&<span style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",background:iBlocked?"#e5b2b2":iAllFill?"#b7e4c7":"#d8b4ed",color:iBlocked?"#7f1d1d":iAllFill?"#064e3b":"#581c87",border:`1px solid ${iBlocked?"#b91c1c":iAllFill?"#15803d":"#7e22ce"}`,borderRadius:3,padding:"2px 5px"}}>{iBlocked?"⛔ blocked":iAllFill?"✓ checked":`⚕ ${iMissing} checks`}</span>}
             {needsRe&&!open&&<span style={{fontSize:9,fontWeight:700,textTransform:"uppercase",background:isDarkMode?"#1a1000":"#fff7ed",color:isDarkMode?"#f97316":"#c2410c",border:`1px solid ${isDarkMode?"#f9731655":"#fb923c"}`,borderRadius:3,padding:"2px 5px"}}>📋 REASSESS</span>}
           </div>
           <div style={{color:isDarkMode?"var(--c-text-sub)":"#1e3a58",fontSize:11,marginTop:3,lineHeight:1.3}}>{drug.sub}</div>
@@ -813,7 +738,7 @@ const DrugCard=memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,onRese
                 )}
 
                 {drug.notes&&<div style={{marginBottom:10}}><div style={{color:isDarkMode?"var(--c-text5)":"#111827",fontSize:9,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:3,fontWeight:700}}>Notes</div><div style={{background:isDarkMode?"transparent":"#111827",border:isDarkMode?"none":"2px solid #020617",borderRadius:6,padding:isDarkMode?0:"8px 10px",color:isDarkMode?"var(--c-text2)":"#ffffff",fontSize:isDarkMode?12:12.5,lineHeight:1.6,fontWeight:isDarkMode?400:700}}>{drug.notes}</div></div>}
-                {drug.ci?.length>0&&<div><div style={{color:"var(--c-text5)",fontSize:9,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:4}}>⚠ Contraindications</div><div style={{display:"flex",flexWrap:"wrap",gap:4}}>{drug.ci.map((c,i)=><span key={i} style={{background:isDarkMode?"#3b0000":"#fee2e2",color:isDarkMode?"#fca5a5":"#b91c1c",border:`1px solid ${isDarkMode?"#5a1010":"#f87171"}`,borderRadius:4,padding:"2px 7px",fontSize:11}}>{c}</span>)}</div></div>}
+                {drug.ci?.length>0&&<div><div style={{color:"var(--c-text5)",fontSize:9,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:4}}>⚠ Contraindications</div><div style={{display:"flex",flexWrap:"wrap",gap:4}}>{drug.ci.map((c,i)=><span key={i} style={{background:isDarkMode?"#3b0000":"#e5b2b2",color:isDarkMode?"#fca5a5":"#7f1d1d",border:`1px solid ${isDarkMode?"#5a1010":"#b91c1c"}`,borderRadius:4,padding:"2px 7px",fontSize:11}}>{c}</span>)}</div></div>}
               </>
             )}
 
@@ -885,10 +810,6 @@ const DrugCard=memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,onRese
                           ?<div style={{background:"#1a1000",border:"1px solid #f59e0b44",borderRadius:6,padding:"8px 12px",marginTop:8}}>
                              <div style={{color:"#fcd34d",fontSize:11,fontWeight:600}}>⚠ Warnings — review before re-administering</div>
                              {rR.filter(r=>r.isWarn).map((r,i)=><div key={i} style={{color:"#a07030",fontSize:11,marginTop:2}}>• {r.warnMsg}</div>)}
-                             <label onClick={e=>e.stopPropagation()} style={{display:"flex",alignItems:"center",gap:7,marginTop:8,color:"#fcd34d",fontSize:11,fontWeight:700,cursor:"pointer"}}>
-                               <input type="checkbox" checked={reWarnAck} onChange={e=>setReWarnAck(e.target.checked)} style={{width:14,height:14,accentColor:"#f59e0b"}}/>
-                               <span>I reviewed these warnings and want to proceed.</span>
-                             </label>
                            </div>
                           :<div style={{background:"#071a0e",border:"1px solid #14532d",borderRadius:6,padding:"7px 12px",marginTop:8,display:"flex",alignItems:"center",gap:6}}>
                              <span>✓</span>
@@ -902,7 +823,7 @@ const DrugCard=memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,onRese
                 {maxReached&&<div style={{background:"#2a0808",border:"1px solid #7f1d1d",borderRadius:7,padding:"10px 12px",marginBottom:10,textAlign:"center"}}><div style={{color:"#f87171",fontSize:13,fontWeight:700}}>MAX DOSE REACHED</div><div style={{color:"#6b1414",fontSize:11,marginTop:3}}>{drug.maxDoses} dose{drug.maxDoses>1?"s":""} administered</div></div>}
 
                 {/* First dose pass/warn */}
-                {!hasActivity&&iOk&&iWarn&&<div onClick={e=>{e.stopPropagation();setTab("precheck");}} role="button" title="Open Pre-Check" style={{background:"#1a1000",border:"1px solid #f59e0b44",borderRadius:6,padding:"8px 12px",marginBottom:10,cursor:"pointer"}}><div style={{color:"#fcd34d",fontSize:11,fontWeight:600}}>⚠ Warnings — review before giving</div>{iR.filter(r=>r.isWarn).map((r,i)=><div key={i} style={{color:"#a07030",fontSize:11,marginTop:2}}>• {r.warnMsg}</div>)}<label onClick={e=>e.stopPropagation()} style={{display:"flex",alignItems:"center",gap:7,marginTop:8,color:"#fcd34d",fontSize:11,fontWeight:700,cursor:"pointer"}}><input type="checkbox" checked={warnAck} onChange={e=>setWarnAck(e.target.checked)} style={{width:14,height:14,accentColor:"#f59e0b"}}/><span>I reviewed these warnings and want to proceed.</span></label></div>}
+                {!hasActivity&&iOk&&iWarn&&<div style={{background:"#1a1000",border:"1px solid #f59e0b44",borderRadius:6,padding:"8px 12px",marginBottom:10}}><div style={{color:"#fcd34d",fontSize:11,fontWeight:600}}>⚠ Warnings — review before giving</div>{iR.filter(r=>r.isWarn).map((r,i)=><div key={i} style={{color:"#a07030",fontSize:11,marginTop:2}}>• {r.warnMsg}</div>)}</div>}
                 {!hasActivity&&iOk&&!iWarn&&hasInitChecks&&<div style={{background:"#071a0e",border:"1px solid #14532d",borderRadius:6,padding:"7px 12px",marginBottom:10,display:"flex",alignItems:"center",gap:6}}><span>✓</span><span style={{color:"#4ade80",fontSize:12,fontWeight:600}}>All checks cleared — ready to administer</span></div>}
 
                 {/* Dose progress dots */}
@@ -926,46 +847,22 @@ const DrugCard=memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,onRese
                   );
                 })()}
 
-                {/* PROVIDER DOSE AMOUNT */}
-                <div style={{background:amountOverMax?"#2a0808":"var(--c-input)",border:`1px solid ${amountOverMax?"#7f1d1d":"var(--c-border-sub)"}`,borderRadius:7,padding:"8px 10px",marginBottom:10}}>
-                  <div style={{color:amountOverMax?"#fca5a5":"var(--c-text3)",fontSize:10,fontWeight:700,fontFamily:"'IBM Plex Mono',monospace",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.06em"}}>Provider dose amount</div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:7,alignItems:"center"}}>
-                    <input
-                      type="number"
-                      value={providerAmount}
-                      onChange={e=>setProviderAmount(e.target.value)}
-                      onClick={e=>e.stopPropagation()}
-                      placeholder={isAspirin?"Tablets to give":calc&&wt>0?String(calc.display):"Amount to give"}
-                      min="0"
-                      step="any"
-                      style={{minWidth:0,padding:"7px 8px",background:"var(--c-surface)",border:`1px solid ${amountOverMax?"#7f1d1d":"var(--c-border)"}`,borderRadius:6,color:"var(--c-text)",fontSize:12,fontFamily:"'IBM Plex Mono',monospace",outline:"none"}}
-                    />
-                    <span style={{color:"var(--c-text4)",fontSize:11,fontWeight:700,fontFamily:"'IBM Plex Mono',monospace"}}>{providerInputUnit}</span>
-                  </div>
-                  <div style={{color:amountOverMax?"#fca5a5":"var(--c-text4)",fontSize:10,marginTop:6,lineHeight:1.4}}>
-                    Pre-check PTA total: {precheckPta.label} {drug.name==="Aspirin"?"":doseUnit}
-                    {isAspirin?" · 1 tablet = 81 mg":""}
-                    {maxTotal?` · After this: ${providerAmountFilled?projectedTotal:ptaTotal} / ${maxTotal.total} ${maxTotal.unit} max`:" · Enter amount before administering"}
-                  </div>
-                  {amountOverMax&&<div style={{color:"#fca5a5",fontSize:11,fontWeight:700,marginTop:4}}>Dose blocked: PTA + provider amount exceeds max dose.</div>}
-                </div>
-
                 {/* MAIN BUTTON */}
                 <div style={{display:"flex",gap:7}}>
                   <button
-                    onClick={e=>{e.stopPropagation();if(canGive){onGive(drug.name,{amount:providerAmountLabel,amountValue:providerDose,unit:isAspirin?"mg":doseUnit});setProviderAmount("");if(needsRe)onClearRe(drug.name);}}}
+                    onClick={e=>{e.stopPropagation();if(canGive){onGive(drug.name);if(needsRe)onClearRe(drug.name);}}}
                     disabled={!canGive}
                     style={{
                       flex:1,padding:"10px 0",borderRadius:7,border:"none",
                       cursor:canGive?"pointer":"not-allowed",
                       fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:700,letterSpacing:"0.05em",
-                      background:maxReached?"#1a2030":iBlocked?"#2a0808":!iOk?"#0d1728":needsInitWarnAck||needsReWarnAck?"#1a1200":amountOverMax?"#2a0808":!providerAmountFilled?"#0d1728":needsRe&&rBlocked?"#2a0808":needsRe&&!rAllFill?"#1a1200":needsRe&&rOk?"#7a3500":hasActivity&&remainSecs!=null&&!isDue?"var(--c-nav)":hasActivity?"#7a3500":"#0f3a1f",
-                      color:maxReached?"#2a3a55":iBlocked?"#6b1414":!iOk?"#1e3a8a":needsInitWarnAck||needsReWarnAck?"#f59e0b":amountOverMax?"#fca5a5":!providerAmountFilled?"#1e3a8a":needsRe&&rBlocked?"#6b1414":needsRe&&!rAllFill?"#7a5020":needsRe&&rOk?"#fff":hasActivity&&remainSecs!=null&&!isDue?"#2a3a55":hasActivity?"#fff":"#4ade80",
-                      border:"1px solid "+(maxReached?"#1a2030":iBlocked?"#7f1d1d":!iOk?"#1e3a8a":needsInitWarnAck||needsReWarnAck?"#92400e":amountOverMax?"#7f1d1d":!providerAmountFilled?"#1e3a8a":needsRe&&(rBlocked||!rAllFill)?(rBlocked?"#7f1d1d":"#92400e"):hasActivity&&remainSecs!=null&&!isDue?"var(--c-border)":hasActivity?"#f9731660":"#1a5c2a"),
+                      background:maxReached?"#1a2030":iBlocked?"#2a0808":!iOk?"#0d1728":needsRe&&rBlocked?"#2a0808":needsRe&&!rAllFill?"#1a1200":needsRe&&rOk?"#7a3500":hasActivity&&remainSecs!=null&&!isDue?"var(--c-nav)":hasActivity?"#7a3500":"#0f3a1f",
+                      color:maxReached?"#2a3a55":iBlocked?"#6b1414":!iOk?"#1e3a8a":needsRe&&rBlocked?"#6b1414":needsRe&&!rAllFill?"#7a5020":needsRe&&rOk?"#fff":hasActivity&&remainSecs!=null&&!isDue?"#2a3a55":hasActivity?"#fff":"#4ade80",
+                      border:"1px solid "+(maxReached?"#1a2030":iBlocked?"#7f1d1d":!iOk?"#1e3a8a":needsRe&&(rBlocked||!rAllFill)?(rBlocked?"#7f1d1d":"#92400e"):hasActivity&&remainSecs!=null&&!isDue?"var(--c-border)":hasActivity?"#f9731660":"#1a5c2a"),
                       opacity:canGive?1:0.65,transition:"all 0.15s",
                     }}
                   >
-                    {maxReached?"MAX DOSE REACHED":iBlocked?"⛔ BLOCKED — SEE PRE-CHECK TAB":!iOk?`⚕ COMPLETE PRE-CHECK (${iMissing} left)`:needsInitWarnAck?"☐ CONFIRM WARNING REVIEW":amountOverMax?"⛔ PTA + PROVIDER EXCEEDS MAX":!providerAmountFilled?"ENTER PROVIDER DOSE AMOUNT":needsRe&&rBlocked?"⛔ BLOCKED — CONTRAINDICATION IN VITALS":needsRe&&!rAllFill?`📋 ENTER VITALS FIRST (${rMissing} left)`:needsReWarnAck?"☐ CONFIRM WARNING REVIEW":needsRe&&rWarn?`⟹ RE-ADMINISTER DOSE ${doseCount+1} (warnings)`:needsRe&&rOk?`⟹ RE-ADMINISTER — DOSE ${doseCount+1}`:hasActivity&&remainSecs!=null&&!isDue?`TIMER ACTIVE — ${fmt(remainSecs)}`:hasActivity?"⟹ RE-ADMINISTER":`✓ MARK AS GIVEN — DOSE 1`}
+                    {maxReached?"MAX DOSE REACHED":iBlocked?"⛔ BLOCKED — SEE PRE-CHECK TAB":!iOk?`⚕ COMPLETE PRE-CHECK (${iMissing} left)`:needsRe&&rBlocked?"⛔ BLOCKED — CONTRAINDICATION IN VITALS":needsRe&&!rAllFill?`📋 ENTER VITALS FIRST (${rMissing} left)`:needsRe&&rWarn?`⟹ RE-ADMINISTER DOSE ${doseCount+1} (warnings)`:needsRe&&rOk?`⟹ RE-ADMINISTER — DOSE ${doseCount+1}`:hasActivity&&remainSecs!=null&&!isDue?`TIMER ACTIVE — ${fmt(remainSecs)}`:hasActivity?"⟹ RE-ADMINISTER":`✓ MARK AS GIVEN — DOSE 1`}
                   </button>
                   {hasActivity&&<button onClick={e=>{e.stopPropagation();onReset(drug.name);onClearRe(drug.name);}} style={{padding:"10px 12px",borderRadius:7,border:"1px solid #1a2540",background:"transparent",color:"#3a4f70",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontSize:11}}>↺</button>}
                 </div>
@@ -1820,10 +1717,16 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
   const [showShockMenu, setShowShockMenu] = useState(false);
   const [showAirwayMenu, setShowAirwayMenu] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [now, setNow] = useState(0);
+
+  useEffect(() => {
+    setNow(Date.now());
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const { startTs, endTs, endReason, rhythm, cycleStartTs, lastEpiTs, events, airway, hts, access, patientType } = arrestState;
   const active = !!startTs && !endTs;
-  const now = Date.now();
 
   // Determine which drug menu to use based on patient type
   const isPeds = patientType === "infant" || patientType === "child";
@@ -1874,13 +1777,12 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
   },[active,epiWarn,epiDue,cycleEnded,cycleStartTs]);
 
   // Helpers
-  const addEvent = (type, detail = "", extra = {}) => {
-    const ev = { id: Date.now() + Math.random(), ts: Date.now(), type, detail, ...extra };
+  const addEvent = useCallback((type, detail = "", extra = {}) => {
+    const ts = Date.now();
+    const ev = { id: ts + Math.random(), ts, type, detail, ...extra };
     setArrestState(s => ({ ...s, events: [ev, ...s.events] }));
     return ev;
-  };
-
-  const [showStartPicker, setShowStartPicker] = useState(false);
+  }, []);
 
   const startArrest = (type = "adult") => {
     const ts = Date.now();
@@ -1895,7 +1797,6 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
       patientType: type
     });
     alarmRef.current = { epiWarn: false, epiDue: false, cycleEnd: false, lastCycleStart: ts };
-    setShowStartPicker(false);
   };
 
   const recordRhythm = (r) => {
@@ -1973,10 +1874,11 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
 
   // ── IV/IO access handlers ──
   const [showAccessMenu, setShowAccessMenu] = useState(false);
-  const recordAccess = ({ type, site, gauge, who, success }) => {
+  const recordAccess = useCallback(({ type, site, gauge, who, success }) => {
+    const ts = Date.now();
     const entry = {
-      id: Date.now() + Math.random(),
-      ts: Date.now(),
+      id: ts + Math.random(),
+      ts,
       type, site, gauge, who, success
     };
     setArrestState(s => ({ ...s, access: [entry, ...s.access] }));
@@ -1989,7 +1891,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
       { accessId: entry.id }
     );
     setShowAccessMenu(false);
-  };
+  }, []);
   const successfulAccess = access.filter(a => a.success);
 
   // ── Unified arrest drug menu handler ──
@@ -3345,9 +3247,7 @@ function MedLog({ adminLog, findDrugLocation, onJump, onClearAll, onResetDrug, w
   const events = [];
   Object.entries(adminLog).forEach(([drugName, data]) => {
     data.times.forEach((ts, i) => {
-      const pta=(data.pta||[]).find(x=>x.ts===ts);
-      const given=(data.given||[]).find(x=>x.ts===ts);
-      events.push({ drug: drugName, ts, doseNum: i + 1, total: data.times.length, pta, given });
+      events.push({ drug: drugName, ts, doseNum: i + 1, total: data.times.length });
     });
   });
   events.sort((a, b) => b.ts - a.ts); // newest first
@@ -3356,7 +3256,7 @@ function MedLog({ adminLog, findDrugLocation, onJump, onClearAll, onResetDrug, w
 
   const copyLog = () => {
     const text = events.slice().reverse().map(e =>
-      `${fmtTimeLog(e.ts)}  ${e.drug}  (dose ${e.doseNum}/${e.total}${e.pta?`, PTA ${e.pta.amount}`:e.given?`, provider ${e.given.amount}`:""})`
+      `${fmtTimeLog(e.ts)}  ${e.drug}  (dose ${e.doseNum}/${e.total})`
     ).join('\n');
     if (navigator.clipboard) {
       navigator.clipboard.writeText(text).catch(()=>{});
@@ -3457,17 +3357,15 @@ function MedLog({ adminLog, findDrugLocation, onJump, onClearAll, onResetDrug, w
               <div style={{ color:"var(--c-text4)", fontSize:10.5, marginTop:2 }}>
                 Dose {e.doseNum} of {e.total}
                 {wkg > 0 ? ` · ${wkg} kg` : ""}
-                {e.pta ? ` · PTA ${e.pta.amount}` : ""}
-                {e.given ? ` · Provider ${e.given.amount}` : ""}
               </div>
             </div>
             <div style={{
-              background:e.pta?"#2a1608":"#1a1208", border:e.pta?"1px solid #facc1555":"1px solid #f9731640",
-              color:e.pta?"#facc15":"#fb923c", borderRadius:5, padding:"3px 7px",
+              background:"#1a1208", border:"1px solid #f9731640",
+              color:"#fb923c", borderRadius:5, padding:"3px 7px",
               fontSize:10, fontFamily:"'IBM Plex Mono',monospace", fontWeight:700,
               flexShrink:0
             }}>
-              {e.pta?"PTA":`#${e.doseNum}`}
+              #{e.doseNum}
             </div>
           </div>
         );
@@ -3824,9 +3722,7 @@ function buildNarrative(p, adminLog, vitalsEntries, wkg, wlb, mode) {
   const medEvents = [];
   Object.entries(adminLog).forEach(([drugName, data]) => {
     data.times.forEach((ts, i) => {
-      const pta=(data.pta||[]).find(x=>x.ts===ts);
-      const given=(data.given||[]).find(x=>x.ts===ts);
-      medEvents.push({ drug: drugName, ts, doseNum: i + 1, total: data.times.length, pta, given });
+      medEvents.push({ drug: drugName, ts, doseNum: i + 1, total: data.times.length });
     });
   });
   medEvents.sort((a, b) => a.ts - b.ts);
@@ -3839,7 +3735,7 @@ function buildNarrative(p, adminLog, vitalsEntries, wkg, wlb, mode) {
   const medsBlock = medEvents.length === 0
     ? "  No medications administered."
     : medEvents.map(e =>
-        `  ${fmtT(e.ts)}  ${e.drug.padEnd(28).slice(0,28)}  (dose ${e.doseNum}/${e.total}${e.pta?`, PTA amount ${e.pta.amount}`:e.given?`, provider amount ${e.given.amount}`:""})`
+        `  ${fmtT(e.ts)}  ${e.drug.padEnd(28).slice(0,28)}  (dose ${e.doseNum}/${e.total})`
       ).join("\n");
 
   // Vitals trend block
@@ -3912,65 +3808,1119 @@ ${line}`;
 }
 
 /* ═══ MAIN APP ═══ */
-function HomeScreen({ isDarkMode, onLogin, onGuest, onToggleTheme }) {
-  const bg = isDarkMode ? "#060a15" : "#f5f3f0";
-  const panel = isDarkMode ? "var(--c-surface)" : "#ffffff";
-  const text = isDarkMode ? "var(--c-text)" : "#141414";
-  const muted = isDarkMode ? "#8aa0c2" : "#5f6673";
-  const border = isDarkMode ? "var(--c-border)" : "#ddd7cf";
-  const statBg = isDarkMode ? "#10192b" : "#eef6f7";
+const BURN_DEPTHS = [
+  { label:"Clear", color:"rgba(148,163,184,0.10)", border:"rgba(148,163,184,0.38)" },
+  { label:"1st", color:"rgba(248,113,113,0.48)", border:"#f87171" },
+  { label:"2nd", color:"rgba(220,38,38,0.70)", border:"#ef4444" },
+  { label:"3rd", color:"rgba(127,29,29,0.88)", border:"#991b1b" },
+];
+
+const BURN_REGIONS = {
+  adult: [
+    { id:"front-head", side:"front", name:"Head/neck front", pct:4.5, shape:"ellipse", x:104, y:34, rx:20, ry:24 },
+    { id:"front-torso", side:"front", name:"Anterior trunk", pct:18, shape:"rect", x:78, y:72, w:52, h:92, r:18 },
+    { id:"front-left-arm", side:"front", name:"Left arm front", pct:4.5, shape:"rect", x:49, y:78, w:22, h:89, r:12 },
+    { id:"front-right-arm", side:"front", name:"Right arm front", pct:4.5, shape:"rect", x:137, y:78, w:22, h:89, r:12 },
+    { id:"front-left-leg", side:"front", name:"Left leg front", pct:9, shape:"rect", x:82, y:166, w:21, h:111, r:12 },
+    { id:"front-right-leg", side:"front", name:"Right leg front", pct:9, shape:"rect", x:106, y:166, w:21, h:111, r:12 },
+    { id:"perineum", side:"front", name:"Perineum", pct:1, shape:"ellipse", x:104, y:166, rx:11, ry:8 },
+    { id:"back-head", side:"back", name:"Head/neck back", pct:4.5, shape:"ellipse", x:104, y:34, rx:20, ry:24 },
+    { id:"back-torso", side:"back", name:"Posterior trunk", pct:18, shape:"rect", x:78, y:72, w:52, h:92, r:18 },
+    { id:"back-left-arm", side:"back", name:"Left arm back", pct:4.5, shape:"rect", x:49, y:78, w:22, h:89, r:12 },
+    { id:"back-right-arm", side:"back", name:"Right arm back", pct:4.5, shape:"rect", x:137, y:78, w:22, h:89, r:12 },
+    { id:"back-left-leg", side:"back", name:"Left leg back", pct:9, shape:"rect", x:82, y:166, w:21, h:111, r:12 },
+    { id:"back-right-leg", side:"back", name:"Right leg back", pct:9, shape:"rect", x:106, y:166, w:21, h:111, r:12 },
+  ],
+  peds: [
+    { id:"front-head", side:"front", name:"Head/neck front", pct:9, shape:"ellipse", x:104, y:37, rx:25, ry:29 },
+    { id:"front-torso", side:"front", name:"Anterior trunk", pct:18, shape:"rect", x:78, y:78, w:52, h:88, r:18 },
+    { id:"front-left-arm", side:"front", name:"Left arm front", pct:4.5, shape:"rect", x:50, y:84, w:21, h:83, r:12 },
+    { id:"front-right-arm", side:"front", name:"Right arm front", pct:4.5, shape:"rect", x:137, y:84, w:21, h:83, r:12 },
+    { id:"front-left-leg", side:"front", name:"Left leg front", pct:6.75, shape:"rect", x:82, y:168, w:21, h:99, r:12 },
+    { id:"front-right-leg", side:"front", name:"Right leg front", pct:6.75, shape:"rect", x:106, y:168, w:21, h:99, r:12 },
+    { id:"perineum", side:"front", name:"Perineum", pct:1, shape:"ellipse", x:104, y:168, rx:11, ry:8 },
+    { id:"back-head", side:"back", name:"Head/neck back", pct:9, shape:"ellipse", x:104, y:37, rx:25, ry:29 },
+    { id:"back-torso", side:"back", name:"Posterior trunk", pct:18, shape:"rect", x:78, y:78, w:52, h:88, r:18 },
+    { id:"back-left-arm", side:"back", name:"Left arm back", pct:4.5, shape:"rect", x:50, y:84, w:21, h:83, r:12 },
+    { id:"back-right-arm", side:"back", name:"Right arm back", pct:4.5, shape:"rect", x:137, y:84, w:21, h:83, r:12 },
+    { id:"back-left-leg", side:"back", name:"Left leg back", pct:6.75, shape:"rect", x:82, y:168, w:21, h:99, r:12 },
+    { id:"back-right-leg", side:"back", name:"Right leg back", pct:6.75, shape:"rect", x:106, y:168, w:21, h:99, r:12 },
+  ],
+};
+
+function BurnMapFigure({ side, patientType, burnMap, onToggle, isDarkMode }) {
+  const regions = BURN_REGIONS[patientType].filter(r => r.side === side);
+  const skin = isDarkMode ? "#223049" : "#f3d6bd";
+  const line = isDarkMode ? "#475569" : "#9a6f55";
+  const label = side === "front" ? "Anterior" : "Posterior";
+  return (
+    <div style={{background:"var(--c-input)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:8}}>
+      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,letterSpacing:"0.08em",color:"var(--c-text4)",textTransform:"uppercase",textAlign:"center",marginBottom:5}}>{label}</div>
+      <svg viewBox="0 0 208 292" role="img" aria-label={`${label} burn body map`} style={{width:"100%",display:"block",touchAction:"manipulation"}}>
+        <rect x="0" y="0" width="208" height="292" rx="10" fill={isDarkMode?"#090e1c":"#f8efe6"} />
+        {regions.map(region => {
+          const depth = burnMap[region.id] || 0;
+          const tone = BURN_DEPTHS[depth];
+          const fill = depth ? tone.color : skin;
+          const stroke = depth ? tone.border : line;
+          const common = {
+            key: region.id,
+            fill,
+            stroke,
+            strokeWidth: depth ? 2.8 : 1.6,
+            opacity: 0.98,
+            style: { cursor:"pointer", transition:"fill 0.15s, stroke 0.15s, stroke-width 0.15s" },
+            onClick: () => onToggle(region.id),
+          };
+          return region.shape === "ellipse"
+            ? <ellipse {...common} cx={region.x} cy={region.y} rx={region.rx} ry={region.ry}><title>{`${region.name}: ${region.pct}% - ${tone.label}`}</title></ellipse>
+            : <rect {...common} x={region.x} y={region.y} width={region.w} height={region.h} rx={region.r}><title>{`${region.name}: ${region.pct}% - ${tone.label}`}</title></rect>;
+        })}
+        <path d="M78 78 C66 92 60 112 58 139" fill="none" stroke={line} strokeWidth="1" opacity=".65"/>
+        <path d="M130 78 C143 92 149 112 151 139" fill="none" stroke={line} strokeWidth="1" opacity=".65"/>
+        <path d="M91 166 L88 275" fill="none" stroke={line} strokeWidth="1" opacity=".55"/>
+        <path d="M117 166 L120 275" fill="none" stroke={line} strokeWidth="1" opacity=".55"/>
+      </svg>
+    </div>
+  );
+}
+
+const BURN_PROTOCOL_QUESTIONS = [
+  { id:"inhalation", label:"Airway / inhalation concern", detail:"Facial burns, soot, hoarseness, enclosed-space smoke, stridor, or respiratory distress." },
+  { id:"chemical", label:"Chemical exposure", detail:"Brush dry powder first, remove contaminated clothing, then irrigate per protocol." },
+  { id:"electrical", label:"Electrical / lightning injury", detail:"Consider hidden injury, dysrhythmia risk, entry/exit wounds, and trauma from fall." },
+  { id:"criticalArea", label:"Face, hands, feet, genitalia, perineum, or major joint", detail:"These locations usually need burn-center consultation." },
+  { id:"circumferential", label:"Circumferential chest or extremity burn", detail:"Watch ventilation, distal pulses, sensation, cap refill, and swelling." },
+  { id:"trauma", label:"Associated trauma or blast injury", detail:"Treat life threats and choose trauma vs burn destination by highest immediate risk." },
+  { id:"pain", label:"Poorly controlled pain", detail:"Analgesia and burn-center consultation may be needed." },
+  { id:"comorbidity", label:"High-risk age, pregnancy, or serious comorbidity", detail:"Comorbidities can increase burn risk and affect destination decisions." },
+];
+
+const PROTOCOL_SYSTEMS = [
+  { id:"burns", label:"Burns", color:"#ef4444" },
+  { id:"cardiac", label:"Cardiac", color:"#f87171" },
+  { id:"respiratory", label:"Respiratory", color:"#60a5fa" },
+  { id:"neuro", label:"Neuro", color:"#c084fc" },
+  { id:"trauma", label:"Trauma", color:"#f97316" },
+  { id:"metabolic", label:"Metabolic", color:"#facc15" },
+  { id:"anaphylaxis", label:"Anaphylaxis", color:"#fb923c" },
+];
+
+const PROTOCOL_DEFINITIONS = [
+  {
+    id:"burns",
+    system:"burns",
+    title:"Burn Protocol",
+    sub:"TBSA, depth, airway, transfer triggers",
+    special:"burns",
+  },
+  {
+    id:"acs",
+    system:"cardiac",
+    title:"Chest Pain / ACS",
+    sub:"12-lead, aspirin, nitro screen, transport",
+    questions:[
+      ["stemi","STEMI or concerning 12-lead changes?"],
+      ["hypotension","SBP less than protocol threshold or signs of shock?"],
+      ["pde5","PDE-5 inhibitor use in the last 24-48 hours?"],
+      ["aspirinAllergy","Aspirin / NSAID allergy or active bleeding concern?"],
+    ],
+    steps:[
+      "Primary survey, cardiac monitor, pulse oximetry, full vitals, pain scale.",
+      "Obtain and transmit 12-lead ECG early; repeat if symptoms change.",
+      "Give oxygen only for hypoxemia, respiratory distress, or shock per protocol.",
+      "Consider aspirin if not allergic and no contraindication.",
+      "Consider nitroglycerin only after BP, RVI, and PDE-5 screening.",
+      "Establish IV access when indicated and transport to appropriate cardiac-capable facility.",
+    ],
+    meds:["Aspirin","Nitroglycerin","Fentanyl","Morphine Sulfate"],
+    triggers:["stemi","hypotension"],
+  },
+  {
+    id:"resp-distress",
+    system:"respiratory",
+    title:"Respiratory Distress",
+    sub:"Oxygen, bronchodilator, CPAP, airway escalation",
+    questions:[
+      ["severe","Severe distress, exhaustion, cyanosis, or altered mental status?"],
+      ["wheezing","Wheezing or diminished bronchospastic lung sounds?"],
+      ["pulmonaryEdema","Rales with suspected pulmonary edema / CHF?"],
+      ["hypotension","Hypotension or poor perfusion?"],
+    ],
+    steps:[
+      "Position of comfort, assess work of breathing, lung sounds, SpO2, EtCO2 if available.",
+      "Apply oxygen and titrate to local protocol goals.",
+      "Assist ventilations or prepare advanced airway if mental status or ventilation fails.",
+      "Use bronchodilator pathway for wheezing/bronchospasm.",
+      "Consider CPAP for appropriate awake patients with respiratory failure and adequate BP.",
+      "Reassess breath sounds, SpO2, EtCO2, and fatigue after each intervention.",
+    ],
+    meds:["Albuterol","Ipratropium (Atrovent)","Epinephrine 1:1,000","Magnesium Sulfate"],
+    triggers:["severe","hypotension"],
+  },
+  {
+    id:"stroke",
+    system:"neuro",
+    title:"Suspected Stroke",
+    sub:"Last known well, stroke scale, glucose, destination",
+    questions:[
+      ["positiveScale","Positive stroke scale or new focal neuro deficit?"],
+      ["lvo","Large vessel occlusion screen positive?"],
+      ["hypoglycemia","BGL low or unable to rule out glucose cause?"],
+      ["timeWindow","Last known well within local stroke-alert window?"],
+    ],
+    steps:[
+      "Primary survey and rapid neuro assessment; determine last known well time.",
+      "Check blood glucose and correct hypoglycemia per protocol.",
+      "Perform local stroke scale and LVO screen if used by system.",
+      "Minimize scene time; notify receiving facility early with stroke alert criteria.",
+      "Document deficits, anticoagulants, baseline status, and serial neuro checks.",
+    ],
+    meds:["Dextrose 50% (D50)","Dextrose 25% (D25)","Oral Glucose"],
+    triggers:["positiveScale","lvo","timeWindow"],
+  },
+  {
+    id:"seizure",
+    system:"neuro",
+    title:"Seizure",
+    sub:"Active seizure, glucose, airway, benzodiazepine",
+    questions:[
+      ["active","Active seizure or recurrent seizures without recovery?"],
+      ["airway","Airway compromise or hypoxia?"],
+      ["pregnant","Pregnant / eclampsia concern?"],
+      ["trauma","Trauma, overdose, or fever concern?"],
+    ],
+    steps:[
+      "Protect from injury; do not restrain or place objects in mouth.",
+      "Manage airway, suction as needed, oxygen/ventilation support per assessment.",
+      "Check blood glucose and treat hypoglycemia.",
+      "For active or recurrent seizure, give benzodiazepine per protocol.",
+      "Consider eclampsia, overdose, head injury, fever, or infection as cause.",
+      "Reassess respiratory status closely after sedating medications.",
+    ],
+    meds:["Midazolam (Versed)","Diazepam (Valium)","Lorazepam (Ativan)","Dextrose 50% (D50)","Magnesium Sulfate"],
+    triggers:["active","airway","pregnant"],
+  },
+  {
+    id:"trauma-shock",
+    system:"trauma",
+    title:"Trauma / Shock",
+    sub:"MARCH, bleeding control, TXA screen, destination",
+    questions:[
+      ["majorBleed","Life-threatening external bleeding?"],
+      ["shock","Signs of shock or poor perfusion?"],
+      ["chestInjury","Chest injury or respiratory compromise?"],
+      ["txaWindow","Major hemorrhage within TXA time window?"],
+    ],
+    steps:[
+      "MARCH assessment: massive bleeding, airway, respirations, circulation, hypothermia/head injury.",
+      "Control major hemorrhage with direct pressure, packing, tourniquet, or hemostatic dressing per protocol.",
+      "Manage airway and breathing; seal open chest wounds and monitor for tension physiology.",
+      "Establish vascular access when indicated; use permissive hypotension guidance per local protocol.",
+      "Screen for TXA if significant hemorrhage and within protocol time window.",
+      "Transport to appropriate trauma center with early notification.",
+    ],
+    meds:["Tranexamic Acid (TXA)","Fentanyl","Ketamine","Normal Saline (0.9% NaCl)"],
+    triggers:["majorBleed","shock","chestInjury"],
+  },
+  {
+    id:"hypoglycemia",
+    system:"metabolic",
+    title:"Hypoglycemia",
+    sub:"BGL, mental status, oral vs IV/IO/IM therapy",
+    questions:[
+      ["lowBgl","BGL below local treatment threshold?"],
+      ["canSwallow","Awake and able to swallow safely?"],
+      ["noAccess","No IV/IO access available?"],
+      ["persistent","Persistent symptoms after initial therapy?"],
+    ],
+    steps:[
+      "Assess mental status, airway, and obtain blood glucose.",
+      "If awake and safe to swallow, consider oral glucose per protocol.",
+      "If unable to swallow, use IV/IO dextrose or glucagon per scope and protocol.",
+      "Recheck BGL and mental status after treatment.",
+      "Consider other causes if mental status does not improve after glucose correction.",
+    ],
+    meds:["Oral Glucose","Dextrose 50% (D50)","Dextrose 25% (D25)","Glucagon"],
+    triggers:["lowBgl","persistent"],
+  },
+  {
+    id:"anaphylaxis",
+    system:"anaphylaxis",
+    title:"Anaphylaxis",
+    sub:"IM epi, airway, bronchodilator, shock support",
+    questions:[
+      ["airway","Airway swelling, voice change, stridor, or respiratory compromise?"],
+      ["shock","Hypotension, syncope, or poor perfusion?"],
+      ["wheezing","Wheezing or bronchospasm?"],
+      ["repeat","Symptoms persist after initial epinephrine interval?"],
+    ],
+    steps:[
+      "Remove trigger if possible; assess airway, breathing, circulation, skin, and GI symptoms.",
+      "Give IM epinephrine promptly for anaphylaxis per protocol.",
+      "Support oxygenation and ventilation; prepare airway escalation for swelling or fatigue.",
+      "Treat bronchospasm with bronchodilator per protocol.",
+      "Manage shock with positioning, IV access, and fluids per protocol.",
+      "Reassess frequently and prepare repeat epinephrine if symptoms persist per local interval.",
+    ],
+    meds:["Epinephrine 1:1,000","Albuterol","Diphenhydramine (Benadryl)","Normal Saline (0.9% NaCl)"],
+    triggers:["airway","shock","repeat"],
+  },
+];
+
+const PROTOCOL_MED_RULES = {
+  acs: [
+    { med:"Aspirin", when:{ aspirinAllergy:"no" }, blockedBy:{ aspirinAllergy:"yes" }, note:"Consider for suspected ACS after allergy/bleeding screen." },
+    { med:"Nitroglycerin", when:{ hypotension:"no", pde5:"no" }, blockedBy:{ hypotension:"yes", pde5:"yes" }, note:"Consider only after BP, RVI, and PDE-5 screening." },
+    { med:"Fentanyl", when:{ hypotension:"no" }, note:"Consider for persistent severe pain per protocol." },
+    { med:"Morphine Sulfate", when:{ hypotension:"no" }, blockedBy:{ hypotension:"yes" }, note:"Consider if approved for ACS pain and hemodynamics allow." },
+  ],
+  "resp-distress": [
+    { med:"Albuterol", when:{ wheezing:"yes" }, note:"Consider for wheezing/bronchospasm." },
+    { med:"Ipratropium (Atrovent)", when:{ wheezing:"yes" }, note:"Consider with bronchodilator pathway per protocol." },
+    { med:"Epinephrine 1:1,000", when:{ severe:"yes" }, note:"Consider for severe bronchospasm/anaphylaxis pathway per protocol." },
+    { med:"Magnesium Sulfate", when:{ severe:"yes", wheezing:"yes" }, note:"Consider for severe refractory bronchospasm per protocol." },
+  ],
+  stroke: [
+    { med:"Dextrose 50% (D50)", when:{ hypoglycemia:"yes" }, note:"Treat low glucose before continuing stroke pathway." },
+    { med:"Dextrose 25% (D25)", when:{ hypoglycemia:"yes" }, note:"Pediatric dextrose option per protocol." },
+    { med:"Oral Glucose", when:{ hypoglycemia:"yes" }, note:"Only if awake and able to swallow safely." },
+  ],
+  seizure: [
+    { med:"Midazolam (Versed)", when:{ active:"yes" }, note:"Consider for active/recurrent seizure per protocol." },
+    { med:"Diazepam (Valium)", when:{ active:"yes" }, note:"Alternative benzodiazepine if included locally." },
+    { med:"Lorazepam (Ativan)", when:{ active:"yes" }, note:"Alternative benzodiazepine if included locally." },
+    { med:"Dextrose 50% (D50)", note:"Consider if BGL is low or unavailable with compatible presentation." },
+    { med:"Magnesium Sulfate", when:{ pregnant:"yes" }, note:"Consider for eclampsia pathway per protocol." },
+  ],
+  "trauma-shock": [
+    { med:"Tranexamic Acid (TXA)", when:{ txaWindow:"yes" }, note:"Consider for significant hemorrhage inside local time window." },
+    { med:"Fentanyl", when:{ shock:"no" }, note:"Consider for pain when perfusion allows." },
+    { med:"Ketamine", note:"Consider for severe traumatic pain per protocol and patient status." },
+    { med:"Normal Saline (0.9% NaCl)", when:{ shock:"yes" }, note:"Consider fluid strategy per local trauma shock guidance." },
+  ],
+  hypoglycemia: [
+    { med:"Oral Glucose", when:{ lowBgl:"yes", canSwallow:"yes" }, note:"Use if awake and able to swallow safely." },
+    { med:"Dextrose 50% (D50)", when:{ lowBgl:"yes", canSwallow:"no" }, note:"Adult IV/IO option per protocol." },
+    { med:"Dextrose 25% (D25)", when:{ lowBgl:"yes", canSwallow:"no" }, note:"Pediatric IV/IO option per protocol." },
+    { med:"Glucagon", when:{ lowBgl:"yes", noAccess:"yes" }, note:"Consider when IV/IO access is unavailable per protocol." },
+  ],
+  anaphylaxis: [
+    { med:"Epinephrine 1:1,000", when:{ airway:"yes" }, note:"Give promptly for anaphylaxis with airway/respiratory/circulatory compromise." },
+    { med:"Epinephrine 1:1,000", when:{ shock:"yes" }, note:"Give promptly for anaphylaxis with shock or poor perfusion." },
+    { med:"Albuterol", when:{ wheezing:"yes" }, note:"Consider for bronchospasm after epinephrine." },
+    { med:"Diphenhydramine (Benadryl)", note:"Consider adjunct after epinephrine when allowed by protocol." },
+    { med:"Normal Saline (0.9% NaCl)", when:{ shock:"yes" }, note:"Consider for hypotension/shock support." },
+  ],
+};
+
+const PROTOCOL_MED_SAFETY = {
+  "Aspirin": { interval:null, max:1, safety:"Check allergy, active bleeding, and prior aspirin before giving." },
+  "Nitroglycerin": { interval:5, max:3, safety:"Hold for hypotension, suspected RVI, or recent PDE-5 inhibitor use." },
+  "Fentanyl": { interval:10, max:null, safety:"Reassess BP, RR, SpO2, mental status, and pain before repeat dosing." },
+  "Morphine Sulfate": { interval:10, max:null, safety:"Hold for hypotension or respiratory depression." },
+  "Albuterol": { interval:5, max:null, safety:"Reassess lung sounds, HR, SpO2, and work of breathing." },
+  "Ipratropium (Atrovent)": { interval:20, max:3, safety:"Use with bronchodilator pathway; reassess respiratory status." },
+  "Epinephrine 1:1,000": { interval:5, max:null, safety:"Confirm anaphylaxis/severe bronchospasm pathway; monitor HR/BP." },
+  "Magnesium Sulfate": { interval:null, max:1, safety:"Monitor BP, RR, reflexes, and ECG where applicable." },
+  "Dextrose 50% (D50)": { interval:15, max:null, safety:"Confirm/recheck BGL; ensure patent IV due to tissue injury risk." },
+  "Dextrose 25% (D25)": { interval:15, max:null, safety:"Confirm/recheck BGL; pediatric concentration per protocol." },
+  "Oral Glucose": { interval:15, max:null, safety:"Only if awake and able to swallow safely." },
+  "Midazolam (Versed)": { interval:5, max:null, safety:"Prepare airway support; reassess RR, SpO2, BP, and sedation." },
+  "Diazepam (Valium)": { interval:5, max:null, safety:"Prepare airway support; reassess RR, SpO2, BP, and sedation." },
+  "Lorazepam (Ativan)": { interval:5, max:null, safety:"Prepare airway support; reassess RR, SpO2, BP, and sedation." },
+  "Tranexamic Acid (TXA)": { interval:null, max:1, safety:"Confirm significant hemorrhage and local time window." },
+  "Ketamine": { interval:10, max:null, safety:"Monitor airway, BP, emergence reaction risk, and pain response." },
+  "Normal Saline (0.9% NaCl)": { interval:10, max:null, safety:"Reassess lung sounds, BP, perfusion, and protocol fluid goal." },
+  "Glucagon": { interval:15, max:null, safety:"Use when unable to obtain IV/IO or oral route; protect airway." },
+  "Diphenhydramine (Benadryl)": { interval:null, max:1, safety:"Adjunct only; do not delay epinephrine for anaphylaxis." },
+};
+
+const PROTOCOL_STOP_RULES = {
+  acs: [
+    { when:{ hypotension:"yes" }, label:"Stop before nitrates", detail:"Hold nitroglycerin. Treat instability and contact medical control per protocol." },
+    { when:{ pde5:"yes" }, label:"Stop before nitrates", detail:"PDE-5 use blocks nitroglycerin consideration." },
+  ],
+  "resp-distress": [
+    { when:{ severe:"yes" }, label:"Immediate airway priority", detail:"Do not wait on the checklist. Support ventilation, prepare escalation, and transport." },
+  ],
+  stroke: [
+    { when:{ hypoglycemia:"yes" }, label:"Correct glucose first", detail:"Treat hypoglycemia, reassess neuro status, then continue stroke pathway if deficits remain." },
+  ],
+  seizure: [
+    { when:{ airway:"yes" }, label:"Airway first", detail:"Suction, position, oxygenate/ventilate, then continue medication pathway." },
+  ],
+  "trauma-shock": [
+    { when:{ majorBleed:"yes" }, label:"Bleeding control first", detail:"Control life-threatening hemorrhage before continuing down the algorithm." },
+  ],
+  hypoglycemia: [
+    { when:{ lowBgl:"no" }, label:"Stop hypoglycemia pathway", detail:"BGL does not support hypoglycemia treatment. Reassess for other causes." },
+  ],
+  anaphylaxis: [
+    { when:{ airway:"yes" }, label:"Epinephrine / airway priority", detail:"Treat anaphylaxis immediately; do not delay for lower-priority steps." },
+    { when:{ shock:"yes" }, label:"Epinephrine / shock priority", detail:"Treat circulatory compromise immediately and prepare rapid transport." },
+  ],
+};
+
+const matchesAnswers = (answers, criteria={}) => Object.entries(criteria).every(([id, value]) => answers[id] === value);
+
+function ProtocolMedTimer({ name, activeCall, isDarkMode }) {
+  const safety = PROTOCOL_MED_SAFETY[name] || { interval:null, max:null, safety:"Reassess vitals, contraindications, and patient response before repeat dosing." };
+  const administrations = (activeCall?.medLog?.[name] || []);
+  const doseCount = administrations.length;
+  const lastAt = administrations[doseCount - 1];
+  const now = activeCall?.now || Date.now();
+  const elapsed = lastAt ? Math.floor((now - lastAt) / 1000) : null;
+  const intervalSecs = safety.interval ? safety.interval * 60 : null;
+  const remain = intervalSecs && elapsed != null ? Math.max(0, intervalSecs - elapsed) : null;
+  const maxReached = safety.max != null && doseCount >= safety.max;
+  const canRepeat = !maxReached && (!intervalSecs || elapsed == null || elapsed >= intervalSecs);
+  const status = maxReached ? "Max reached" : !doseCount ? "Selected" : canRepeat ? "Reassess / eligible" : `Wait ${fmt(remain)}`;
+  const color = maxReached ? "#ef4444" : canRepeat ? "#22c55e" : "#f59e0b";
+  return (
+    <div style={{border:`1px solid ${color}`,background:isDarkMode?color+"12":"#ffffff",borderRadius:7,padding:8}}>
+      <div style={{display:"flex",alignItems:"center",gap:8}}>
+        <div style={{flex:1}}>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,color,letterSpacing:"0.06em",textTransform:"uppercase"}}>{name}</div>
+          <div style={{fontSize:10.5,color:"var(--c-text4)",marginTop:2}}>{status}{doseCount ? ` | dose ${doseCount}${safety.max?`/${safety.max}`:""}` : ""}</div>
+        </div>
+        <button onClick={()=>activeCall?.onLogMed?.(name)} disabled={!canRepeat} style={{border:`1px solid ${canRepeat?color:"var(--c-border-sub)"}`,background:canRepeat?color+"22":"var(--c-input)",color:canRepeat?color:"var(--c-text-ghost)",borderRadius:6,padding:"6px 8px",fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,cursor:canRepeat?"pointer":"default"}}>
+          {doseCount ? "Repeat" : "Log Dose"}
+        </button>
+      </div>
+      <div style={{marginTop:6,fontSize:10.5,lineHeight:1.35,color:isDarkMode?"var(--c-text4)":"#374151"}}>{safety.safety}</div>
+    </div>
+  );
+}
+
+function ActiveCallWorkspace({ protocolTitle, events, vitalsDraft, setVitalsDraft, onLogEvent, onClear, onLogMed, now, isDarkMode, medLog={}, activeMeds=[] }) {
+  const vitalsFields = [
+    ["bp","BP","118/76"],
+    ["hr","HR","88"],
+    ["rr","RR","18"],
+    ["spo2","SpO2","98"],
+    ["bgl","BGL","96"],
+  ];
+  const hasVitals = Object.values(vitalsDraft).some(v => String(v || "").trim());
+  const saveVitals = () => {
+    const parts = vitalsFields
+      .map(([id,label]) => vitalsDraft[id] ? `${label} ${vitalsDraft[id]}` : null)
+      .filter(Boolean);
+    if(!parts.length) return;
+    onLogEvent("Vitals", parts.join(" | "));
+    setVitalsDraft({});
+  };
+  const quickEvents = [
+    ["Assessment","Primary assessment completed"],
+    ["Reassess","Patient reassessed"],
+    ["Intervention","Oxygen / airway support provided"],
+    ["Notify","Receiving facility / med control notified"],
+    ["Transport","Transport decision documented"],
+  ];
+  return (
+    <section style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:10,display:"flex",flexDirection:"column",gap:9}}>
+      <div style={{display:"flex",alignItems:"center",gap:8}}>
+        <div style={{width:8,height:8,borderRadius:"50%",background:"#14b8a6"}}/>
+        <div>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,color:"var(--c-text)",letterSpacing:"0.08em",textTransform:"uppercase"}}>Active Call</div>
+          <div style={{fontSize:10.5,color:"var(--c-text4)",marginTop:2}}>{protocolTitle}</div>
+        </div>
+        {events.length>0&&(
+          <button onClick={onClear} style={{marginLeft:"auto",border:"1px solid var(--c-border-sub)",background:"var(--c-input)",color:"var(--c-text4)",borderRadius:6,padding:"4px 7px",fontSize:9,fontWeight:800,fontFamily:"'IBM Plex Mono',monospace",cursor:"pointer"}}>Clear</button>
+        )}
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:5}}>
+        {vitalsFields.map(([id,label,ph]) => (
+          <label key={id} style={{display:"flex",flexDirection:"column",gap:3}}>
+            <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:"var(--c-text4)",letterSpacing:"0.08em"}}>{label}</span>
+            <input value={vitalsDraft[id] || ""} onChange={e=>setVitalsDraft(prev=>({ ...prev, [id]:e.target.value }))} placeholder={ph} style={{width:"100%",background:"var(--c-input)",border:"1px solid var(--c-border-sub)",borderRadius:5,padding:"6px 5px",color:"var(--c-text)",fontSize:11,outline:"none"}}/>
+          </label>
+        ))}
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+        <button onClick={saveVitals} disabled={!hasVitals} style={{border:hasVitals?"1px solid #14b8a6":"1px solid var(--c-border-sub)",background:hasVitals?(isDarkMode?"#052c2d":"#ccfbf1"):"var(--c-input)",color:hasVitals?(isDarkMode?"#5eead4":"#0f766e"):"var(--c-text-ghost)",borderRadius:6,padding:"8px 6px",fontSize:10,fontWeight:800,fontFamily:"'IBM Plex Mono',monospace",cursor:hasVitals?"pointer":"default"}}>Log Vitals</button>
+        <button onClick={()=>onLogEvent("Note","Protocol step reviewed")} style={{border:"1px solid var(--c-border-sub)",background:"var(--c-input)",color:"var(--c-text4)",borderRadius:6,padding:"8px 6px",fontSize:10,fontWeight:800,fontFamily:"'IBM Plex Mono',monospace",cursor:"pointer"}}>Log Note</button>
+      </div>
+
+      <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+        {quickEvents.map(([type,detail]) => (
+          <button key={type} onClick={()=>onLogEvent(type,detail)} style={{border:"1px solid var(--c-border-sub)",background:"var(--c-input)",color:"var(--c-text2)",borderRadius:16,padding:"5px 8px",fontSize:10,fontWeight:800,cursor:"pointer"}}>{type}</button>
+        ))}
+      </div>
+
+      <div style={{background:"var(--c-input)",border:"1px solid var(--c-border-sub)",borderRadius:7,overflow:"hidden"}}>
+        <div style={{padding:"7px 8px",borderBottom:"1px solid var(--c-border-sub)",fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"var(--c-text4)",letterSpacing:"0.08em",textTransform:"uppercase"}}>Call Events {events.length}</div>
+        {events.length===0 ? (
+          <div style={{padding:9,color:"var(--c-text-ghost)",fontSize:11}}>No protocol events logged yet</div>
+        ) : (
+          <div style={{maxHeight:180,overflowY:"auto"}}>
+            {events.slice(0,8).map(event => (
+              <div key={event.id} style={{display:"grid",gridTemplateColumns:"54px 1fr",gap:7,padding:"7px 8px",borderTop:"1px solid var(--c-border-sub)"}}>
+                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:"#14b8a6",fontWeight:800}}>{fmtTime(event.ts,false).slice(0,5)}</div>
+                <div>
+                  <div style={{fontSize:10.5,fontWeight:800,color:"var(--c-text2)"}}>{event.type}</div>
+                  <div style={{fontSize:10.5,color:"var(--c-text4)",lineHeight:1.35,marginTop:1}}>{event.detail}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {activeMeds.length>0&&(
+        <div style={{background:"var(--c-input)",border:"1px solid var(--c-border-sub)",borderRadius:7,padding:8}}>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"var(--c-text4)",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:7}}>Dose Timers</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {activeMeds.map(name => <ProtocolMedTimer key={name} name={name} activeCall={{ medLog, onLogMed, now }} isDarkMode={isDarkMode}/>)}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PedsProtocolWeightGate({ wkg, wlb, setWkg, setWlb, isDarkMode }) {
+  const setLbs = value => {
+    const lbs = parseFloat(value) || 0;
+    setWlb(lbs);
+    setWkg(lbs ? +(lbs / 2.2046).toFixed(1) : 0);
+  };
+  return (
+    <section style={{background:isDarkMode?"#1a1000":"#fff7ed",border:"1px solid #f59e0b",borderRadius:8,padding:12}}>
+      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,color:"#f59e0b",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:5}}>Pediatric weight required</div>
+      <div style={{fontSize:12,color:"var(--c-text2)",lineHeight:1.45,marginBottom:10}}>
+        Enter weight in pounds before starting Active Call, selecting medications, or using dose timers in pediatric protocol mode. The app converts it to kg for dosing.
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:8}}>
+        <input type="number" min="0" step="0.1" value={wlb || ""} onChange={e=>setLbs(e.target.value)} placeholder="lbs" style={{width:96,background:"var(--c-input)",border:"1px solid #f59e0b",borderRadius:6,padding:"8px 9px",color:"var(--c-text)",fontSize:13,fontFamily:"'IBM Plex Mono',monospace",outline:"none"}}/>
+        <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:12,fontWeight:800,color:"var(--c-text4)"}}>lbs</span>
+        {wkg>0&&<span style={{marginLeft:"auto",fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,color:"#22c55e"}}>{wkg} kg ready</span>}
+      </div>
+    </section>
+  );
+}
+
+function GenericProtocolAlgorithm({ protocol, values, setValues, onBack, isDarkMode, onJumpDrug, findDrugLocation, activeCall, patientType, wkg, wlb, setWkg, setWlb }) {
+  const setAnswer = (id, value) => setValues(prev => ({ ...prev, [protocol.id]: { ...(prev[protocol.id] || {}), [id]: value } }));
+  const answers = values[protocol.id] || {};
+  const activeTriggers = (protocol.triggers || []).filter(id => answers[id] === "yes");
+  const system = PROTOCOL_SYSTEMS.find(s => s.id === protocol.system) || PROTOCOL_SYSTEMS[0];
+  const firstUnansweredIndex = (protocol.questions || []).findIndex(([id]) => !answers[id]);
+  const nextQuestion = firstUnansweredIndex >= 0 ? protocol.questions[firstUnansweredIndex] : null;
+  const stopRule = (PROTOCOL_STOP_RULES[protocol.id] || []).find(rule => matchesAnswers(answers, rule.when));
+  const medRules = PROTOCOL_MED_RULES[protocol.id] || [];
+  const medState = rule => {
+    if(rule.blockedBy && Object.entries(rule.blockedBy).some(([id, value]) => answers[id] === value)) return "blocked";
+    if(rule.when && !matchesAnswers(answers, rule.when)) return "pending";
+    return "consider";
+  };
+  const pedsWeightBlocked = patientType === "peds" && (!wkg || wkg <= 0);
+  return (
+    <section style={{display:"flex",flexDirection:"column",gap:10}}>
+      <div style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:12}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <button onClick={onBack} style={{width:34,height:34,borderRadius:8,border:"1px solid var(--c-border)",background:"var(--c-input)",color:"var(--c-text)",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontWeight:800}}>Back</button>
+          <div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:12,fontWeight:800,color:"var(--c-text)",letterSpacing:"0.08em",textTransform:"uppercase"}}>{protocol.title}</div>
+            <div style={{fontSize:11,color:"var(--c-text4)",marginTop:2}}>{protocol.sub}</div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{background:activeTriggers.length?(isDarkMode?"#160b0b":"#f5d2d2"):"var(--c-input)",border:`1px solid ${activeTriggers.length?"#ef4444":"var(--c-border-sub)"}`,borderRadius:8,padding:10}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:activeTriggers.length?"#ef4444":"var(--c-text4)",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:5}}>
+          {activeTriggers.length ? "High-priority finding selected" : "Protocol guidance"}
+        </div>
+        <div style={{fontSize:12,color:"var(--c-text2)",lineHeight:1.45}}>
+          {activeTriggers.length ? "Expedite treatment, reassessment, transport decision, and receiving-facility notification per local protocol." : "Answer decision points, complete steps, and document interventions/vitals as the call progresses."}
+        </div>
+      </div>
+
+      <div style={{background:stopRule?(isDarkMode?"#2a0808":"#fee2e2"):(isDarkMode?"#071a0e":"#dcfce7"),border:`1px solid ${stopRule?"#ef4444":"#22c55e"}`,borderRadius:8,padding:10}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:stopRule?"#ef4444":"#16a34a",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:5}}>
+          {stopRule ? stopRule.label : nextQuestion ? "Next decision" : "Algorithm path complete"}
+        </div>
+        <div style={{fontSize:12,color:isDarkMode?"var(--c-text2)":"#111827",lineHeight:1.45}}>
+          {stopRule ? stopRule.detail : nextQuestion ? `Answer: ${nextQuestion[1]}` : "All decision points have been answered. Continue reassessment, documentation, and transport decision per protocol."}
+        </div>
+      </div>
+
+      {pedsWeightBlocked ? (
+        <PedsProtocolWeightGate wkg={wkg} wlb={wlb} setWkg={setWkg} setWlb={setWlb} isDarkMode={isDarkMode}/>
+      ) : (
+        <ActiveCallWorkspace {...activeCall} protocolTitle={protocol.title} isDarkMode={isDarkMode}/>
+      )}
+
+      <div style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:10}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"var(--c-text4)",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}}>Decision points</div>
+        <div style={{display:"flex",flexDirection:"column",gap:7}}>
+          {(protocol.questions || []).map(([id,label], index) => {
+            const isFuture = firstUnansweredIndex >= 0 && index > firstUnansweredIndex;
+            return (
+            <div key={id} style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,alignItems:"center",background:"var(--c-input)",border:index===firstUnansweredIndex?`1px solid ${system.color}`:"1px solid var(--c-border-sub)",borderRadius:7,padding:9,opacity:isFuture?0.48:1}}>
+              <div style={{fontSize:12,fontWeight:800,color:"var(--c-text)",lineHeight:1.35}}>{label}</div>
+              <div style={{display:"flex",gap:5}}>
+                {["yes","no"].map(answer => {
+                  const selected = answers[id] === answer;
+                  return (
+                    <button key={answer} onClick={()=>{setAnswer(id, answer);activeCall?.onLogEvent("Decision",`${label} ${answer.toUpperCase()}`);}} style={{minWidth:38,padding:"6px 7px",borderRadius:6,border:selected?`1px solid ${answer==="yes"?"#ef4444":"#22c55e"}`:"1px solid var(--c-border-sub)",background:selected?(answer==="yes"?(isDarkMode?"#2a0808":"#fee2e2"):(isDarkMode?"#071a0e":"#dcfce7")):"transparent",color:selected?(answer==="yes"?(isDarkMode?"#fca5a5":"#7f1d1d"):(isDarkMode?"#86efac":"#064e3b")):"var(--c-text4)",fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,cursor:"pointer",textTransform:"uppercase"}}>
+                      {answer}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:10}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"var(--c-text4)",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}}>Treatment algorithm</div>
+        {(protocol.steps || []).map((item, index) => (
+          <div key={`${protocol.id}-${index}`} style={{display:"grid",gridTemplateColumns:"22px 1fr",gap:8,alignItems:"start",padding:"7px 0",borderTop:index===0?"none":"1px solid var(--c-border-sub)",opacity:stopRule && index>1 ? 0.5 : 1}}>
+            <div style={{width:22,height:22,borderRadius:"50%",background:system.color+"22",color:system.color,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800}}>{index+1}</div>
+            <div style={{fontSize:12,color:"var(--c-text2)",lineHeight:1.45}}>{item}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:10}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"var(--c-text4)",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:7}}>Medication shortcuts</div>
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {medRules.map((rule, index) => {
+            const state = medState(rule);
+            const isConsider = state === "consider";
+            const isBlocked = state === "blocked";
+            return (
+              <button
+                key={`${rule.med}-${index}`}
+                onClick={()=>{if(isConsider){activeCall?.onSelectMed?.(rule.med, protocol.title);}}}
+                disabled={!isConsider || pedsWeightBlocked}
+                title={isConsider ? `Select ${rule.med} within this protocol` : rule.note}
+                style={{
+                  border:isBlocked?"1px solid #ef4444":isConsider?`1px solid ${system.color}`:"1px solid var(--c-border-sub)",
+                  background:isBlocked?(isDarkMode?"#2a0808":"#fee2e2"):isConsider?system.color+"18":"var(--c-input)",
+                  borderRadius:6,
+                  padding:"7px 8px",
+                  fontSize:11,
+                  color:isBlocked?"#ef4444":isConsider?system.color:"var(--c-text-ghost)",
+                  fontWeight:800,
+                  cursor:isConsider?"pointer":"default",
+                  opacity:1,
+                  fontFamily:"'DM Sans',sans-serif",
+                  textAlign:"left",
+                }}
+              >
+                <span style={{display:"block",fontFamily:"'IBM Plex Mono',monospace",fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                  {isBlocked ? "Hold" : isConsider ? "Consider" : "Pending"} - {rule.med}
+                </span>
+                <span style={{display:"block",marginTop:2,color:isDarkMode?"var(--c-text4)":"#374151",fontSize:10.5,lineHeight:1.35,fontWeight:600}}>{rule.note}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function BurnProtocolAlgorithm({ patientType, totals, active, values, setValues, onBack, isDarkMode, surface, onJumpDrug, findDrugLocation, activeCall, wkg, wlb, setWkg, setWlb }) {
+  const setAnswer = (id, value) => setValues(prev => ({ ...prev, [id]: value }));
+  const thirdDegreeTbsa = totals.byDegree[3] || 0;
+  const hasDeepBurn = thirdDegreeTbsa > 0;
+  const tbsaThreshold = patientType === "peds" ? 5 : 10;
+  const tbsaConsult = totals.total >= tbsaThreshold;
+  const burnCenterTriggers = [
+    patientType === "peds",
+    tbsaConsult,
+    hasDeepBurn,
+    values.inhalation === "yes",
+    values.chemical === "yes",
+    values.electrical === "yes",
+    values.criticalArea === "yes",
+    values.circumferential === "yes",
+    values.trauma === "yes",
+    values.pain === "yes",
+    values.comorbidity === "yes",
+  ];
+  const consultRecommended = burnCenterTriggers.some(Boolean);
+  const immediateActions = [
+    "Scene safe, stop the burning process, remove heat source.",
+    "Primary survey: airway, breathing, circulation, disability, exposure.",
+    "Remove jewelry and non-adherent clothing. Do not pull material stuck to skin.",
+    "Cool thermal burn with cool running water when practical; avoid ice and prevent hypothermia.",
+    "Cover with clean dry sterile dressing or sheet; keep the patient warm.",
+    "Estimate TBSA using the map, document depth, reassess vitals, treat pain per protocol.",
+  ];
+  const specialActions = [];
+  if(values.inhalation === "yes") specialActions.push("Airway alert: high-flow oxygen, prepare early airway support, rapid transport.");
+  if(values.chemical === "yes") specialActions.push("Chemical burn: remove contaminated items and irrigate; protect providers from exposure.");
+  if(values.electrical === "yes") specialActions.push("Electrical burn: cardiac monitor, 12-lead when available, evaluate trauma and entry/exit wounds.");
+  if(values.circumferential === "yes") specialActions.push("Circumferential burn: monitor distal PMS and ventilatory restriction; notify receiving facility early.");
+  if(values.trauma === "yes") specialActions.push("Trauma present: control hemorrhage and follow trauma triage if trauma is the immediate life threat.");
+  if(values.pain === "yes") specialActions.push("Pain uncontrolled: escalate analgesia per local protocol and consider burn-center consultation.");
+  if(active.length === 0) specialActions.push("No TBSA areas selected yet: mark burn regions on the Rule of 9s map before final destination decision.");
+  const burnMedRules = [
+    { med:"Fentanyl", state:values.pain === "yes" ? "consider" : "pending", note:"Consider for burn pain per protocol after vitals/respiratory screen." },
+    { med:"Morphine Sulfate", state:values.pain === "yes" ? "consider" : "pending", note:"Consider if pain persists and hemodynamics allow." },
+    { med:"Ketamine", state:values.pain === "yes" ? "consider" : "pending", note:"Consider for severe pain or difficult analgesia per protocol." },
+    { med:"Albuterol", state:values.inhalation === "yes" ? "consider" : "pending", note:"Consider if inhalation exposure includes bronchospasm/wheezing." },
+    { med:"Normal Saline (0.9% NaCl)", state:totals.total >= (patientType === "peds" ? 10 : 20) ? "consider" : "pending", note:"Consider burn fluid pathway for major TBSA burns per local protocol." },
+  ];
+  const pedsWeightBlocked = patientType === "peds" && (!wkg || wkg <= 0);
+
+  return (
+    <section style={{display:"flex",flexDirection:"column",gap:10}}>
+      <div style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:12}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <button onClick={onBack} style={{width:34,height:34,borderRadius:8,border:"1px solid var(--c-border)",background:"var(--c-input)",color:"var(--c-text)",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontWeight:800}}>←</button>
+          <div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:12,fontWeight:800,color:"var(--c-text)",letterSpacing:"0.08em",textTransform:"uppercase"}}>Burn Protocol</div>
+            <div style={{fontSize:11,color:"var(--c-text4)",marginTop:2}}>Interactive field algorithm</div>
+          </div>
+          <div style={{marginLeft:"auto",textAlign:"right"}}>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:22,fontWeight:800,color:"#ef4444",lineHeight:1}}>{Number.isInteger(totals.total) ? totals.total : +totals.total.toFixed(2)}%</div>
+            <div style={{fontSize:9,color:"var(--c-text4)",fontFamily:"'IBM Plex Mono',monospace"}}>TBSA</div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{background:consultRecommended?(isDarkMode?"#160b0b":"#f5d2d2"):(isDarkMode?"#071a0e":"#d9eadf"),border:`1px solid ${consultRecommended?(isDarkMode?"#7f1d1d":"#b91c1c"):(isDarkMode?"#14532d":"#15803d")}`,borderRadius:8,padding:12}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,color:consultRecommended?(isDarkMode?"#fca5a5":"#7f1d1d"):(isDarkMode?"#86efac":"#064e3b"),letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:5}}>
+          {consultRecommended ? "Burn center consult / transfer trigger" : "No major transfer trigger selected"}
+        </div>
+        <div style={{fontSize:12,lineHeight:1.45,color:isDarkMode?"var(--c-text2)":"#111827"}}>
+          {consultRecommended
+            ? "Notify medical control and receiving facility early. Use local destination rules and transport to the appropriate burn or trauma center."
+            : "Continue local protocol, wound care, pain control, and reassessment. Recheck destination if findings change."}
+        </div>
+      </div>
+
+      {pedsWeightBlocked ? (
+        <PedsProtocolWeightGate wkg={wkg} wlb={wlb} setWkg={setWkg} setWlb={setWlb} isDarkMode={isDarkMode}/>
+      ) : (
+        <ActiveCallWorkspace {...activeCall} protocolTitle="Burn Protocol" isDarkMode={isDarkMode}/>
+      )}
+
+      {surface}
+
+      <div style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:10}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"var(--c-text4)",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}}>Decision points</div>
+        <div style={{display:"flex",flexDirection:"column",gap:7}}>
+          {BURN_PROTOCOL_QUESTIONS.map(q => (
+            <div key={q.id} style={{background:"var(--c-input)",border:"1px solid var(--c-border-sub)",borderRadius:7,padding:9}}>
+              <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:12,fontWeight:800,color:"var(--c-text)"}}>{q.label}</div>
+                  <div style={{fontSize:10.5,color:"var(--c-text4)",lineHeight:1.35,marginTop:2}}>{q.detail}</div>
+                </div>
+                <div style={{display:"flex",gap:5}}>
+                  {["yes","no"].map(answer => {
+                    const selected = values[q.id] === answer;
+                    return (
+                      <button key={answer} onClick={()=>{setAnswer(q.id, answer);activeCall?.onLogEvent("Decision",`${q.label} ${answer.toUpperCase()}`);}} style={{minWidth:38,padding:"6px 7px",borderRadius:6,border:selected?`1px solid ${answer==="yes"?"#ef4444":"#22c55e"}`:"1px solid var(--c-border-sub)",background:selected?(answer==="yes"?(isDarkMode?"#2a0808":"#fee2e2"):(isDarkMode?"#071a0e":"#dcfce7")):"transparent",color:selected?(answer==="yes"?(isDarkMode?"#fca5a5":"#7f1d1d"):(isDarkMode?"#86efac":"#064e3b")):"var(--c-text4)",fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,cursor:"pointer",textTransform:"uppercase"}}>
+                        {answer}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:10}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"var(--c-text4)",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}}>Algorithm</div>
+        {[...immediateActions, ...specialActions].map((item, index) => (
+          <div key={`${item}-${index}`} style={{display:"grid",gridTemplateColumns:"22px 1fr",gap:8,alignItems:"start",padding:"7px 0",borderTop:index===0?"none":"1px solid var(--c-border-sub)"}}>
+            <div style={{width:22,height:22,borderRadius:"50%",background:isDarkMode?"#0d1f3a":"#dbeafe",color:isDarkMode?"#93c5fd":"#172554",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800}}>{index+1}</div>
+            <div style={{fontSize:12,color:"var(--c-text2)",lineHeight:1.45}}>{item}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:10}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"var(--c-text4)",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:7}}>Medication considerations</div>
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {burnMedRules.map(rule => {
+            const isConsider = rule.state === "consider";
+            return (
+              <button key={rule.med} onClick={()=>{if(isConsider){activeCall?.onSelectMed?.(rule.med, "Burn Protocol");}}} disabled={!isConsider || pedsWeightBlocked} title={pedsWeightBlocked ? "Enter pediatric weight first" : isConsider ? `Select ${rule.med} within this protocol` : rule.note} style={{border:isConsider?"1px solid #ef4444":"1px solid var(--c-border-sub)",background:isConsider?(isDarkMode?"#2a080822":"#fee2e2"):"var(--c-input)",borderRadius:6,padding:"7px 8px",fontSize:11,color:isConsider?"#ef4444":"var(--c-text-ghost)",fontWeight:800,cursor:isConsider&&!pedsWeightBlocked?"pointer":"default",opacity:pedsWeightBlocked?0.55:1,fontFamily:"'DM Sans',sans-serif",textAlign:"left"}}>
+                <span style={{display:"block",fontFamily:"'IBM Plex Mono',monospace",fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>{isConsider ? "Consider" : "Pending"} - {rule.med}</span>
+                <span style={{display:"block",marginTop:2,color:isDarkMode?"var(--c-text4)":"#374151",fontSize:10.5,lineHeight:1.35,fontWeight:600}}>{rule.note}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{background:"var(--c-input)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:10,color:"var(--c-text4)",fontSize:10.5,lineHeight:1.45}}>
+        Reference guidance: superficial burns are not counted in TBSA; partial/full-thickness burns are counted. Follow local protocols, medical direction, and receiving-facility guidance.
+      </div>
+    </section>
+  );
+}
+
+function ProtocolsScreen({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, onJumpDrug, findDrugLocation, wkg, wlb, setWkg, setWlb }) {
+  const [selectedSystem, setSelectedSystem] = useState("burns");
+  const [activeProtocol, setActiveProtocol] = useState(null);
+  const [protocolValues, setProtocolValues] = useState({});
+  const [protocolEvents, setProtocolEvents] = useState([]);
+  const [protocolVitalsDraft, setProtocolVitalsDraft] = useState({});
+  const [protocolMedLog, setProtocolMedLog] = useState({});
+  const [protocolActiveMeds, setProtocolActiveMeds] = useState([]);
+  const [protocolNow, setProtocolNow] = useState(Date.now());
+  const patientType = mode === "peds" ? "peds" : "adult";
+  const regions = BURN_REGIONS[patientType];
+  const selectedSystemInfo = PROTOCOL_SYSTEMS.find(system => system.id === selectedSystem) || PROTOCOL_SYSTEMS[0];
+  const availableProtocols = PROTOCOL_DEFINITIONS.filter(protocol => protocol.system === selectedSystem);
+  const currentProtocol = PROTOCOL_DEFINITIONS.find(protocol => protocol.id === activeProtocol);
+  const totals = useMemo(() => {
+    const byDegree = { 1:0, 2:0, 3:0 };
+    const burnMap = burnMaps[patientType] || {};
+    regions.forEach(region => {
+      const depth = burnMap[region.id] || 0;
+      if(depth) byDegree[depth] += region.pct;
+    });
+    return { total: byDegree[1] + byDegree[2] + byDegree[3], byDegree };
+  }, [burnMaps, patientType, regions]);
+  const active = regions.filter(region => (burnMaps[patientType] || {})[region.id]);
+  const logProtocolEvent = useCallback((type, detail) => {
+    setProtocolEvents(prev => [{ id:Date.now()+Math.random(), ts:Date.now(), type, detail }, ...prev]);
+  }, []);
+  useEffect(()=>{
+    const id=setInterval(()=>setProtocolNow(Date.now()),1000);
+    return()=>clearInterval(id);
+  },[]);
+  const selectProtocolMed = useCallback((name, protocolTitle) => {
+    const ts = Date.now();
+    const safety = PROTOCOL_MED_SAFETY[name] || {};
+    setProtocolActiveMeds(prev => prev.includes(name) ? prev : [name, ...prev]);
+    setProtocolMedLog(prev => {
+      const times = prev[name] || [];
+      const lastAt = times[times.length - 1];
+      const intervalSecs = safety.interval ? safety.interval * 60 : null;
+      const elapsed = lastAt ? Math.floor((ts - lastAt) / 1000) : null;
+      const maxReached = safety.max != null && times.length >= safety.max;
+      const tooSoon = intervalSecs && elapsed != null && elapsed < intervalSecs;
+      if(maxReached || tooSoon){
+        const detail = maxReached
+          ? `${name} blocked: max dose reached`
+          : `${name} blocked: reassess/re-dose in ${fmt(intervalSecs - elapsed)}`;
+        setProtocolEvents(events => [{ id:ts+Math.random(), ts, type:"Medication safety hold", detail }, ...events]);
+        return prev;
+      }
+      setProtocolEvents(events => [{
+        id:ts+Math.random(),
+        ts,
+        type:"Medication given",
+        detail:`${name} from ${protocolTitle}${safety.interval?` | next reassess ${safety.interval} min`:" | reassess per protocol"}`,
+      }, ...events]);
+      return { ...prev, [name]: [...times, ts] };
+    });
+  }, []);
+  const logProtocolMed = useCallback((name) => {
+    const safety = PROTOCOL_MED_SAFETY[name] || {};
+    setProtocolMedLog(prev => ({ ...prev, [name]: [...(prev[name] || []), Date.now()] }));
+    setProtocolEvents(prev => [{ id:Date.now()+Math.random(), ts:Date.now(), type:"Medication given", detail:`${name}${safety.interval?` | next reassess ${safety.interval} min`:" | single-dose/reassess per protocol"}` }, ...prev]);
+  }, []);
+  const activeCall = {
+    events: protocolEvents,
+    vitalsDraft: protocolVitalsDraft,
+    setVitalsDraft: setProtocolVitalsDraft,
+    onLogEvent: logProtocolEvent,
+    onSelectMed: selectProtocolMed,
+    onLogMed: logProtocolMed,
+    onClear: () => {
+      setProtocolEvents([]);
+      setProtocolMedLog({});
+      setProtocolActiveMeds([]);
+      setProtocolVitalsDraft({});
+    },
+    medLog: protocolMedLog,
+    activeMeds: protocolActiveMeds,
+    now: protocolNow,
+  };
+
+  if(currentProtocol?.special === "burns") {
+    return (
+      <BurnProtocolAlgorithm
+        patientType={patientType}
+        totals={totals}
+        active={active}
+        values={protocolValues}
+        setValues={setProtocolValues}
+        onBack={()=>setActiveProtocol(null)}
+        isDarkMode={isDarkMode}
+        surface={<BurnsTool mode={mode} setMode={setMode} isDarkMode={isDarkMode} burnMaps={burnMaps} setBurnMaps={setBurnMaps} embedded/>}
+        onJumpDrug={onJumpDrug}
+        findDrugLocation={findDrugLocation}
+        activeCall={activeCall}
+        wkg={wkg}
+        wlb={wlb}
+        setWkg={setWkg}
+        setWlb={setWlb}
+      />
+    );
+  }
+
+  if(currentProtocol) {
+    return (
+      <GenericProtocolAlgorithm
+        protocol={currentProtocol}
+        values={protocolValues}
+        setValues={setProtocolValues}
+        onBack={()=>setActiveProtocol(null)}
+        isDarkMode={isDarkMode}
+        onJumpDrug={onJumpDrug}
+        findDrugLocation={findDrugLocation}
+        activeCall={activeCall}
+        patientType={patientType}
+        wkg={wkg}
+        wlb={wlb}
+        setWkg={setWkg}
+        setWlb={setWlb}
+      />
+    );
+  }
+
+  return (
+    <section style={{display:"flex",flexDirection:"column",gap:10}}>
+      <div style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:12}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+          <div style={{width:8,height:8,borderRadius:"50%",background:"#c084fc"}}/>
+          <div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:12,fontWeight:800,color:"var(--c-text)",letterSpacing:"0.08em",textTransform:"uppercase"}}>Protocols</div>
+            <div style={{fontSize:11,color:"var(--c-text4)",marginTop:2}}>Guided treatment workflows by body system</div>
+          </div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",background:"var(--c-nav)",border:"1px solid var(--c-border-sub)",borderRadius:10,padding:3,gap:3}}>
+          {[["adult","ADULT"],["peds","PEDS"]].map(([key,label])=>(
+            <button key={key} onClick={()=>setMode(key)} style={{padding:"8px 0",borderRadius:8,border:"none",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,letterSpacing:"0.08em",background:patientType===key?(key==="adult"?(isDarkMode?"#0d1f3a":"#9fbce2"):(isDarkMode?"#0a2318":"#99c7ae")):"transparent",color:patientType===key?(key==="adult"?(isDarkMode?"#93c5fd":"#172554"):(isDarkMode?"#86efac":"#064e3b")):"var(--c-text4)"}}>{label}</button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{display:"flex",overflowX:"auto",gap:6,paddingBottom:2,scrollbarWidth:"none"}}>
+        {PROTOCOL_SYSTEMS.map(system => {
+          const count = PROTOCOL_DEFINITIONS.filter(protocol => protocol.system === system.id).length;
+          const selected = selectedSystem === system.id;
+          return (
+            <button
+              key={system.id}
+              onClick={()=>setSelectedSystem(system.id)}
+              style={{
+                flexShrink:0,
+                padding:"7px 10px",
+                borderRadius:20,
+                border:selected?`1px solid ${system.color}`:"1px solid var(--c-border-sub)",
+                background:selected?system.color+"22":"var(--c-input)",
+                color:selected?system.color:"var(--c-text4)",
+                fontFamily:"'IBM Plex Mono',monospace",
+                fontSize:10,
+                fontWeight:800,
+                cursor:"pointer",
+              }}
+            >
+              {system.label} {count}
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:10}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:selectedSystemInfo.color,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}}>{selectedSystemInfo.label} protocols</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          {availableProtocols.map(protocol => (
+          <button
+            key={protocol.id}
+            onClick={()=>setActiveProtocol(protocol.id)}
+            style={{
+              minHeight:96,
+              textAlign:"left",
+              border:`1px solid ${selectedSystemInfo.color}`,
+              borderLeft:`4px solid ${selectedSystemInfo.color}`,
+              background:"var(--c-input)",
+              color:"var(--c-text)",
+              borderRadius:8,
+              padding:10,
+              cursor:"pointer",
+            }}
+          >
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,letterSpacing:"0.06em",textTransform:"uppercase",color:selectedSystemInfo.color,marginBottom:5}}>{protocol.title}</div>
+            <div style={{fontSize:11,color:"var(--c-text4)",lineHeight:1.35}}>{protocol.sub}</div>
+            <div style={{marginTop:10,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:selectedSystemInfo.color,textTransform:"uppercase"}}>
+              Start protocol
+            </div>
+          </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{background:"var(--c-input)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:10,color:"var(--c-text4)",fontSize:10.5,lineHeight:1.45}}>
+        Select a body system, start a protocol, then use the active-call panel to capture vitals, decisions, interventions, and medications without leaving the guided workflow.
+      </div>
+    </section>
+  );
+}
+
+function BurnsTool({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, embedded=false }) {
+  const patientType = mode === "peds" ? "peds" : "adult";
+  const burnMap = burnMaps[patientType] || {};
+  const regions = BURN_REGIONS[patientType];
+  const totals = useMemo(() => {
+    const byDegree = { 1:0, 2:0, 3:0 };
+    regions.forEach(region => {
+      const depth = burnMap[region.id] || 0;
+      if(depth) byDegree[depth] += region.pct;
+    });
+    return { total: byDegree[1] + byDegree[2] + byDegree[3], byDegree };
+  }, [burnMap, regions]);
+  const active = regions.filter(region => burnMap[region.id]);
+  const fmtPct = value => Number.isInteger(value) ? value : +value.toFixed(2);
+  const toggleRegion = id => {
+    setBurnMaps(prev => {
+      const current = prev[patientType] || {};
+      const nextDepth = ((current[id] || 0) + 1) % BURN_DEPTHS.length;
+      const nextMap = { ...current };
+      if(nextDepth) nextMap[id] = nextDepth; else delete nextMap[id];
+      return { ...prev, [patientType]: nextMap };
+    });
+  };
+  const clear = () => setBurnMaps(prev => ({ ...prev, [patientType]: {} }));
+
+  return (
+    <section style={{display:"flex",flexDirection:"column",gap:10}}>
+      {!embedded&&(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",background:"var(--c-nav)",border:"1px solid var(--c-border-sub)",borderRadius:10,padding:3,gap:3}}>
+          {[["adult","ADULT"],["peds","PEDS"]].map(([key,label])=>(
+            <button key={key} onClick={()=>setMode(key)} style={{padding:"9px 0",borderRadius:8,border:"none",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontSize:11.5,fontWeight:800,letterSpacing:"0.08em",background:patientType===key?(key==="adult"?(isDarkMode?"#0d1f3a":"#9fbce2"):(isDarkMode?"#0a2318":"#99c7ae")):"transparent",color:patientType===key?(key==="adult"?(isDarkMode?"#93c5fd":"#172554"):(isDarkMode?"#86efac":"#064e3b")):"var(--c-text4)"}}>{label}</button>
+          ))}
+        </div>
+      )}
+
+      <div style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:12}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+          <div style={{width:8,height:8,borderRadius:"50%",background:"#ef4444"}}/>
+          <div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,color:"var(--c-text)",letterSpacing:"0.08em",textTransform:"uppercase"}}>Rule of 9s Burn Surface</div>
+            <div style={{fontSize:11,color:"var(--c-text4)",marginTop:2}}>{patientType==="adult"?"Adult":"Pediatric"} TBSA estimate</div>
+          </div>
+          <button onClick={clear} style={{marginLeft:"auto",border:"1px solid var(--c-border)",background:"var(--c-input)",color:"var(--c-text4)",borderRadius:6,padding:"5px 8px",fontSize:10,fontWeight:800,fontFamily:"'IBM Plex Mono',monospace",cursor:"pointer"}}>Clear</button>
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          <BurnMapFigure side="front" patientType={patientType} burnMap={burnMap} onToggle={toggleRegion} isDarkMode={isDarkMode}/>
+          <BurnMapFigure side="back" patientType={patientType} burnMap={burnMap} onToggle={toggleRegion} isDarkMode={isDarkMode}/>
+        </div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1.15fr .85fr",gap:8}}>
+        <div style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:11}}>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"var(--c-text4)",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}}>Burn depth</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
+            {[1,2,3].map(depth=>(
+              <div key={depth} style={{border:`1px solid ${BURN_DEPTHS[depth].border}`,background:BURN_DEPTHS[depth].color,borderRadius:6,padding:"7px 4px",textAlign:"center",color:isDarkMode?"#fff":"#111827",fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800}}>
+                {BURN_DEPTHS[depth].label}<br/>{fmtPct(totals.byDegree[depth])}%
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{background:isDarkMode?"#160b0b":"#f5d2d2",border:isDarkMode?"1px solid #7f1d1d":"1px solid #b91c1c",borderRadius:8,padding:11,display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center"}}>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:isDarkMode?"#fca5a5":"#7f1d1d",letterSpacing:"0.1em",textTransform:"uppercase"}}>Total TBSA</div>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:34,fontWeight:800,color:isDarkMode?"#fecaca":"#7f1d1d",lineHeight:1}}>{fmtPct(totals.total)}%</div>
+        </div>
+      </div>
+
+      <div style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:10}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"var(--c-text4)",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:7}}>Selected areas</div>
+        {active.length===0 ? (
+          <div style={{color:"var(--c-text-ghost)",fontSize:12}}>No burn areas selected</div>
+        ) : (
+          <div style={{display:"flex",flexDirection:"column",gap:5}}>
+            {active.map(region=>{
+              const depth = burnMap[region.id];
+              return (
+                <button key={region.id} onClick={()=>toggleRegion(region.id)} style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:8,alignItems:"center",textAlign:"left",background:"var(--c-input)",border:"1px solid var(--c-border-sub)",borderRadius:6,padding:"7px 8px",cursor:"pointer",color:"var(--c-text)"}}>
+                  <span style={{fontSize:12,fontWeight:700}}>{region.name}</span>
+                  <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:"var(--c-text4)"}}>{region.pct}%</span>
+                  <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,color:BURN_DEPTHS[depth].border}}>{BURN_DEPTHS[depth].label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+const AUTH_USERS_KEY = "medic-ai-users";
+
+function getStoredUsers(){
+  if(typeof window==="undefined") return [];
+  try {
+    const users = JSON.parse(localStorage.getItem(AUTH_USERS_KEY) || "[]");
+    return Array.isArray(users) ? users : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveStoredUsers(users){
+  if(typeof window!=="undefined") localStorage.setItem(AUTH_USERS_KEY, JSON.stringify(users));
+}
+
+function providerNameFromEmail(email){
+  const label=email.split("@")[0].replace(/[._-]+/g," ").trim() || "Provider";
+  return label.replace(/\b\w/g,c=>c.toUpperCase());
+}
+
+function HomeScreen({ isDarkMode, onLogin, onSignup, onGuest, onToggleTheme }) {
+  const bg = "#020617";
+  const text = "#f8fafc";
+  const muted = "#d9f8ff";
+  const buttonBase = {
+    width:"100%",
+    height:54,
+    borderRadius:999,
+    cursor:"pointer",
+    fontWeight:800,
+    fontSize:18,
+    letterSpacing:0,
+  };
 
   return (
     <>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}body{background:${bg}}button,input{font:inherit}`}</style>
-      <main style={{minHeight:"100vh",background:bg,color:text,fontFamily:"'DM Sans',sans-serif",display:"flex",justifyContent:"center"}}>
-        <div style={{width:"100%",maxWidth:480,minHeight:"100vh",padding:"18px 16px 28px",display:"flex",flexDirection:"column"}}>
-          <header style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:22}}>
-            <div>
-              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:20,fontWeight:700,letterSpacing:0}}>MedicAI</div>
-              <div style={{fontSize:11,color:muted,marginTop:2}}>Field medication support</div>
-            </div>
-            <button onClick={onToggleTheme} title="Switch theme" style={{width:38,height:38,borderRadius:8,border:`1px solid ${border}`,background:panel,color:text,cursor:"pointer",fontWeight:800}}>
-              {isDarkMode ? "L" : "D"}
-            </button>
-          </header>
-
-          <section style={{position:"relative",overflow:"hidden",borderRadius:8,border:`1px solid ${border}`,background:panel,minHeight:286,display:"flex",alignItems:"flex-end",boxShadow:isDarkMode?"0 24px 70px rgba(0,0,0,.28)":"0 24px 70px rgba(40,37,32,.12)"}}>
-            <img src={heroImage} alt="" style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",opacity:isDarkMode?0.36:0.42,filter:isDarkMode?"saturate(.9) contrast(1.08)":"saturate(.8)"}} />
-            <div style={{position:"absolute",inset:0,background:isDarkMode?"linear-gradient(180deg, rgba(6,10,21,.18), rgba(6,10,21,.94))":"linear-gradient(180deg, rgba(245,243,240,.16), rgba(255,255,255,.96))"}} />
-            <div style={{position:"relative",padding:"28px 22px 24px",textAlign:"left"}}>
-              <div style={{fontSize:11,fontWeight:800,textTransform:"uppercase",letterSpacing:1.4,color:"#14b8a6",fontFamily:"'IBM Plex Mono',monospace",marginBottom:10}}>Ready for shift</div>
-              <h1 style={{fontSize:42,lineHeight:1.02,letterSpacing:0,fontWeight:800,color:text,margin:"0 0 12px"}}>Fast checks before every dose.</h1>
-              <p style={{fontSize:15,lineHeight:1.55,color:muted,maxWidth:360}}>Start a call, calculate adult or pediatric doses, track vitals, and build a clean medication log from one focused screen.</p>
-            </div>
+      <main style={{minHeight:"100vh",background:"#020617",color:text,fontFamily:"'DM Sans',sans-serif",overflow:"hidden",display:"flex",justifyContent:"center",alignItems:"center"}}>
+        <div style={{width:"100%",maxWidth:430,minHeight:"100vh",background:"#020617",overflow:"hidden",display:"flex",flexDirection:"column",padding:"14px 18px 18px"}}>
+          <section style={{height:"min(62vh, 590px)",minHeight:405,borderRadius:22,overflow:"hidden",boxShadow:"0 24px 70px rgba(0,0,0,.45)",background:"#031a3f"}}>
+            <img src="/login-screen.png" alt="R.O.M.A.N Medic-AI login screen" style={{width:"100%",height:"100%",objectFit:"cover",objectPosition:"top center",display:"block"}} />
           </section>
-
-          <section style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,margin:"14px 0 18px"}}>
-            {[["Adult","Protocols"],["Peds","Weight based"],["ePCR","Narrative"]].map(([top,bottom])=>(
-              <div key={top} style={{background:statBg,border:`1px solid ${border}`,borderRadius:8,padding:"12px 8px",textAlign:"center"}}>
-                <div style={{fontSize:15,fontWeight:800,color:text}}>{top}</div>
-                <div style={{fontSize:10,color:muted,marginTop:3}}>{bottom}</div>
-              </div>
-            ))}
+          <section style={{padding:"18px 0 0",display:"flex",flexDirection:"column",gap:12}}>
+            <button onClick={onLogin} style={{...buttonBase,border:"1px solid rgba(125,249,255,.88)",background:"linear-gradient(135deg,#2dd4bf,#0284c7)",color:"#ffffff",boxShadow:"0 14px 34px rgba(20,184,166,.26)"}}>Log In</button>
+            <button onClick={onSignup} style={{...buttonBase,border:"1px solid rgba(125,249,255,.72)",background:"rgba(2,14,38,.9)",color:"#f8fafc"}}>Create Account</button>
+            <button onClick={onGuest} style={{border:"none",background:"transparent",color:"#5eead4",fontSize:16,fontWeight:800,cursor:"pointer",padding:"8px 0 2px"}}>Continue as Guest</button>
           </section>
-
-          <div style={{display:"grid",gap:10,marginTop:"auto"}}>
-            <button onClick={onLogin} style={{height:48,borderRadius:8,border:"1px solid #0f766e",background:"#14b8a6",color:"#042f2e",fontWeight:800,cursor:"pointer",boxShadow:"0 14px 35px rgba(20,184,166,.22)"}}>Log in</button>
-            <button onClick={onGuest} style={{height:46,borderRadius:8,border:`1px solid ${border}`,background:panel,color:text,fontWeight:700,cursor:"pointer"}}>Continue as guest</button>
-          </div>
+          <div style={{textAlign:"center",color:muted,fontSize:13,fontWeight:700,letterSpacing:0,paddingTop:6}}>Secure. Reliable. Built for EMS.</div>
         </div>
       </main>
     </>
   );
 }
 
-function LoginScreen({ isDarkMode, values, onChange, onSubmit, onBack, onGuest, error, onToggleTheme }) {
-  const bg = isDarkMode ? "#060a15" : "#f5f3f0";
-  const panel = isDarkMode ? "var(--c-surface)" : "#ffffff";
-  const inputBg = isDarkMode ? "var(--c-input)" : "#f8fafc";
-  const text = isDarkMode ? "var(--c-text)" : "#141414";
-  const muted = isDarkMode ? "#8aa0c2" : "#5f6673";
-  const border = isDarkMode ? "var(--c-border)" : "#ddd7cf";
+function LoginScreen({ isDarkMode, values, onChange, onSubmit, onBack, onSignup, onGuest, error, onToggleTheme }) {
+  const bg = isDarkMode ? "#060a15" : "#f4efe7";
+  const panel = isDarkMode ? "var(--c-surface)" : "#fbf7f0";
+  const inputBg = isDarkMode ? "var(--c-input)" : "#f2ece4";
+  const text = isDarkMode ? "var(--c-text)" : "#0f172a";
+  const muted = isDarkMode ? "#8aa0c2" : "#374151";
+  const border = isDarkMode ? "var(--c-border)" : "#9a9286";
 
   const inputStyle = {
     width:"100%",
@@ -3999,7 +4949,7 @@ function LoginScreen({ isDarkMode, values, onChange, onSubmit, onBack, onGuest, 
           <section style={{textAlign:"left",marginBottom:22}}>
             <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:12,fontWeight:800,textTransform:"uppercase",letterSpacing:1.2,color:"#14b8a6",marginBottom:10}}>MedicAI access</div>
             <h1 style={{fontSize:36,lineHeight:1.08,letterSpacing:0,fontWeight:800,color:text,margin:"0 0 10px"}}>Log in for your shift.</h1>
-            <p style={{fontSize:15,lineHeight:1.55,color:muted}}>Use any email and password for now. This sets the provider name locally so the call log feels connected.</p>
+            <p style={{fontSize:15,lineHeight:1.55,color:muted}}>Enter the email and password you signed up with to continue into the medication calculator.</p>
           </section>
 
           <form onSubmit={onSubmit} style={{background:panel,border:`1px solid ${border}`,borderRadius:8,padding:16,display:"grid",gap:13,textAlign:"left",boxShadow:isDarkMode?"0 24px 70px rgba(0,0,0,.22)":"0 24px 70px rgba(40,37,32,.10)"}}>
@@ -4015,7 +4965,74 @@ function LoginScreen({ isDarkMode, values, onChange, onSubmit, onBack, onGuest, 
             <button type="submit" style={{height:48,borderRadius:8,border:"1px solid #0f766e",background:"#14b8a6",color:"#042f2e",fontWeight:800,cursor:"pointer",marginTop:2}}>Enter MedicAI</button>
           </form>
 
+          <button onClick={onSignup} style={{height:46,borderRadius:8,border:`1px solid ${border}`,background:panel,color:text,fontWeight:700,cursor:"pointer",marginTop:12}}>Create account</button>
           <button onClick={onGuest} style={{height:46,borderRadius:8,border:`1px solid ${border}`,background:"transparent",color:muted,fontWeight:700,cursor:"pointer",marginTop:12}}>Continue as guest</button>
+        </div>
+      </main>
+    </>
+  );
+}
+
+function SignupScreen({ isDarkMode, values, onChange, onSubmit, onBack, onLogin, error, onToggleTheme }) {
+  const bg = isDarkMode ? "#060a15" : "#f4efe7";
+  const panel = isDarkMode ? "var(--c-surface)" : "#fbf7f0";
+  const inputBg = isDarkMode ? "var(--c-input)" : "#f2ece4";
+  const text = isDarkMode ? "var(--c-text)" : "#0f172a";
+  const muted = isDarkMode ? "#8aa0c2" : "#374151";
+  const border = isDarkMode ? "var(--c-border)" : "#9a9286";
+
+  const inputStyle = {
+    width:"100%",
+    height:46,
+    borderRadius:8,
+    border:`1px solid ${border}`,
+    background:inputBg,
+    color:text,
+    padding:"0 13px",
+    outline:"none",
+    fontSize:15,
+  };
+
+  return (
+    <>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}body{background:${bg}}button,input{font:inherit}`}</style>
+      <main style={{minHeight:"100vh",background:bg,color:text,fontFamily:"'DM Sans',sans-serif",display:"flex",justifyContent:"center"}}>
+        <div style={{width:"100%",maxWidth:480,minHeight:"100vh",padding:"18px 16px 28px",display:"flex",flexDirection:"column"}}>
+          <header style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:34}}>
+            <button onClick={onBack} style={{height:38,padding:"0 13px",borderRadius:8,border:`1px solid ${border}`,background:panel,color:text,cursor:"pointer",fontWeight:700}}>Back</button>
+            <button onClick={onToggleTheme} title="Switch theme" style={{width:38,height:38,borderRadius:8,border:`1px solid ${border}`,background:panel,color:text,cursor:"pointer",fontWeight:800}}>
+              {isDarkMode ? "L" : "D"}
+            </button>
+          </header>
+
+          <section style={{textAlign:"left",marginBottom:22}}>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:12,fontWeight:800,textTransform:"uppercase",letterSpacing:1.2,color:"#14b8a6",marginBottom:10}}>New provider account</div>
+            <h1 style={{fontSize:36,lineHeight:1.08,letterSpacing:0,fontWeight:800,color:text,margin:"0 0 10px"}}>Sign up for MedicAI.</h1>
+            <p style={{fontSize:15,lineHeight:1.55,color:muted}}>Create a local demo account on this device, then use it to log in for future shifts.</p>
+          </section>
+
+          <form onSubmit={onSubmit} style={{background:panel,border:`1px solid ${border}`,borderRadius:8,padding:16,display:"grid",gap:13,textAlign:"left",boxShadow:isDarkMode?"0 24px 70px rgba(0,0,0,.22)":"0 24px 70px rgba(40,37,32,.10)"}}>
+            <label style={{display:"grid",gap:6,fontSize:13,fontWeight:700,color:text}}>
+              Full name
+              <input name="name" type="text" value={values.name} onChange={onChange} placeholder="Provider name" style={inputStyle} />
+            </label>
+            <label style={{display:"grid",gap:6,fontSize:13,fontWeight:700,color:text}}>
+              Email
+              <input name="email" type="email" value={values.email} onChange={onChange} placeholder="provider@medic.ai" style={inputStyle} />
+            </label>
+            <label style={{display:"grid",gap:6,fontSize:13,fontWeight:700,color:text}}>
+              Password
+              <input name="password" type="password" value={values.password} onChange={onChange} placeholder="At least 6 characters" style={inputStyle} />
+            </label>
+            <label style={{display:"grid",gap:6,fontSize:13,fontWeight:700,color:text}}>
+              Confirm password
+              <input name="confirmPassword" type="password" value={values.confirmPassword} onChange={onChange} placeholder="Re-enter password" style={inputStyle} />
+            </label>
+            {error && <div style={{border:"1px solid #fecaca",background:isDarkMode?"#2a0808":"#fff1f2",color:isDarkMode?"#fecaca":"#991b1b",borderRadius:8,padding:"10px 12px",fontSize:13}}>{error}</div>}
+            <button type="submit" style={{height:48,borderRadius:8,border:"1px solid #0f766e",background:"#14b8a6",color:"#042f2e",fontWeight:800,cursor:"pointer",marginTop:2}}>Create account</button>
+          </form>
+
+          <button onClick={onLogin} style={{height:46,borderRadius:8,border:`1px solid ${border}`,background:"transparent",color:muted,fontWeight:700,cursor:"pointer",marginTop:12}}>Already have an account</button>
         </div>
       </main>
     </>
@@ -4029,10 +5046,7 @@ export default function App(){
     if(saved) return saved==="dark";
     return window.matchMedia("(prefers-color-scheme: dark)").matches;
   });
-  const[appView,setAppView]=useState(()=>{
-    if(typeof window==="undefined") return "home";
-    return localStorage.getItem("medic-ai-user") ? "app" : "home";
-  });
+  const[appView,setAppView]=useState("home");
   const[authUser,setAuthUser]=useState(()=>{
     if(typeof window==="undefined") return null;
     const saved=localStorage.getItem("medic-ai-user");
@@ -4041,19 +5055,23 @@ export default function App(){
   });
   const[loginForm,setLoginForm]=useState({ email:"", password:"" });
   const[loginError,setLoginError]=useState("");
+  const[signupForm,setSignupForm]=useState({ name:"", email:"", password:"", confirmPassword:"" });
+  const[signupError,setSignupError]=useState("");
 
   const[mode,setMode]=useState("adult");
   const[aSys,setASys]=useState("cardiac");
   const[pSys,setPSys]=useState("cardiac");
-  const[wkg,setWkg]=useState(0);
-  const[wlb,setWlb]=useState(0);
+  const[adultWkg,setAdultWkg]=useState(0);
+  const[adultWlb,setAdultWlb]=useState(0);
+  const[pedsWkg,setPedsWkg]=useState(0);
+  const[pedsWlb,setPedsWlb]=useState(0);
   const[search,setSearch]=useState("");
   const[scope,setScope]=useState("all");
   const[adminLog,setAdminLog]=useState({});
   const[initChecks,setInitChecks]=useState({});
   const[reChecks,setReChecks]=useState({});
   const[tick,setTick]=useState(0);
-  const[screen,setScreen]=useState("drugs");
+  const[screen,setScreen]=useState("home");
   const[vitalsEntries,setVitalsEntries]=useState([]);
   const[highlightDrug,setHighlightDrug]=useState(null);
   const[arrestState,setArrestState]=useState({
@@ -4062,6 +5080,7 @@ export default function App(){
     events:[], airway:null, hts:{}, access:[],
     patientType:null  // "adult" | "infant" | "child"
   });
+  const[burnMaps,setBurnMaps]=useState({ adult:{}, peds:{} });
   const[patient,setPatient]=useState({
     run:"",unit:"",provider:"",
     name:"",age:"",sex:"",
@@ -4074,27 +5093,82 @@ export default function App(){
     setAuthUser(user);
     if(typeof window!=="undefined") localStorage.setItem("medic-ai-user", JSON.stringify(user));
     setPatient(p=>p.provider ? p : { ...p, provider:user.name });
+    setScreen("drugs");
     setAppView("app");
+  },[]);
+
+  const handleHomeLogin=useCallback(()=>{
+    setLoginError("");
+    setAppView("login");
+  },[]);
+
+  const handleShowSignup=useCallback(()=>{
+    setSignupError("");
+    setAppView("signup");
+  },[]);
+
+  const handleShowLogin=useCallback(()=>{
+    setLoginError("");
+    setAppView("login");
   },[]);
 
   const handleLoginChange=useCallback((e)=>{
     const { name, value } = e.target;
     setLoginForm(p=>({ ...p, [name]:value }));
-    if(loginError) setLoginError("");
-  },[loginError]);
+    setLoginError("");
+  },[]);
 
   const handleLoginSubmit=useCallback((e)=>{
     e.preventDefault();
-    const email=loginForm.email.trim();
+    const email=loginForm.email.trim().toLowerCase();
     const password=loginForm.password.trim();
     if(!email || !password){
       setLoginError("Enter an email and password to continue.");
       return;
     }
-    const label=email.split("@")[0].replace(/[._-]+/g," ").trim() || "Provider";
-    const name=label.replace(/\b\w/g,c=>c.toUpperCase());
-    enterApp({ name, email, role:"Provider" });
+    const account=getStoredUsers().find(user=>user.email===email);
+    if(!account || account.password!==password){
+      setLoginError("Email or password is incorrect. Sign up first if you do not have an account.");
+      return;
+    }
+    enterApp({ name:account.name, email:account.email, role:"Provider" });
   },[enterApp,loginForm.email,loginForm.password]);
+
+  const handleSignupChange=useCallback((e)=>{
+    const { name, value } = e.target;
+    setSignupForm(p=>({ ...p, [name]:value }));
+    setSignupError("");
+  },[]);
+
+  const handleSignupSubmit=useCallback((e)=>{
+    e.preventDefault();
+    const name=signupForm.name.trim() || providerNameFromEmail(signupForm.email);
+    const email=signupForm.email.trim().toLowerCase();
+    const password=signupForm.password.trim();
+    const confirmPassword=signupForm.confirmPassword.trim();
+    if(!email || !password || !confirmPassword){
+      setSignupError("Enter an email, password, and confirmation to sign up.");
+      return;
+    }
+    if(password.length<6){
+      setSignupError("Password must be at least 6 characters.");
+      return;
+    }
+    if(password!==confirmPassword){
+      setSignupError("Passwords do not match.");
+      return;
+    }
+    const users=getStoredUsers();
+    if(users.some(user=>user.email===email)){
+      setSignupError("An account already exists for this email. Log in instead.");
+      return;
+    }
+    const nextUser={ name, email, password };
+    saveStoredUsers([...users,nextUser]);
+    setSignupForm({ name:"", email:"", password:"", confirmPassword:"" });
+    setLoginForm({ email, password:"" });
+    enterApp({ name, email, role:"Provider" });
+  },[enterApp,signupForm.confirmPassword,signupForm.email,signupForm.name,signupForm.password]);
 
   const handleGuest=useCallback(()=>{
     enterApp({ name:"Guest Provider", email:"guest@medic.ai", role:"Guest" });
@@ -4128,9 +5202,8 @@ export default function App(){
   useEffect(()=>{const id=setInterval(()=>setTick(t=>t+1),1000);return()=>clearInterval(id);},[]);
   useEffect(()=>setSearch(""),[mode,aSys,pSys]);
 
-  const handleGive=useCallback((name,doseInfo=null)=>{
-    const ts=Date.now();
-    setAdminLog(p=>{const e=p[name]||{times:[]};return{...p,[name]:{...e,times:[...e.times,ts],given:[...(e.given||[]),...(doseInfo?[{ts,...doseInfo}]:[])]}};});
+  const handleGive=useCallback((name)=>{
+    setAdminLog(p=>{const e=p[name]||{times:[]};return{...p,[name]:{times:[...e.times,Date.now()]}};});
   },[]);
   const handleReset=useCallback(name=>{setAdminLog(p=>{const n={...p};delete n[name];return n;});setInitChecks(p=>{const n={...p};delete n[name];return n;});setReChecks(p=>{const n={...p};delete n[name];return n;});},[]);
   const handleInitUpdate=useCallback((dn,id,v)=>setInitChecks(p=>({...p,[dn]:{...(p[dn]||{}),[id]:v}})),[]);
@@ -4141,18 +5214,22 @@ export default function App(){
   const activeSys=mode==="adult"?aSys:pSys;
   const setSys=mode==="adult"?setASys:setPSys;
   const bank=mode==="adult"?ADULT:PEDS;
+  const wkg=mode==="adult"?adultWkg:pedsWkg;
+  const wlb=mode==="adult"?adultWlb:pedsWlb;
+  const setWkg=mode==="adult"?setAdultWkg:setPedsWkg;
+  const setWlb=mode==="adult"?setAdultWlb:setPedsWlb;
   const sysInfo=systems.find(s=>s.k===activeSys)||systems[0];
   const color=isDarkMode?sysInfo.c:sysInfo.lc;
   const activeCount=Object.keys(adminLog).length;
 
   const colors=useMemo(()=>({
-    bg:isDarkMode?"#060a15":"#f5f3f0",
-    surface:isDarkMode?"var(--c-surface)":"#ede9e4",
-    surfaceAlt:isDarkMode?"var(--c-nav)":"#f5f3f0",
-    border:isDarkMode?"var(--c-border)":"#d4cfc8",
-    text:isDarkMode?"var(--c-text)":"#2d2d2d",
-    textSecondary:isDarkMode?"var(--c-text4)":"#5a5a5a",
-    textTertiary:isDarkMode?"var(--c-text-ghost)":"#7a7a7a",
+    bg:isDarkMode?"#060a15":"#f4efe7",
+    surface:isDarkMode?"var(--c-surface)":"#eee7dd",
+    surfaceAlt:isDarkMode?"var(--c-nav)":"#e7edf3",
+    border:isDarkMode?"var(--c-border)":"#8f9aad",
+    text:isDarkMode?"var(--c-text)":"#111827",
+    textSecondary:isDarkMode?"var(--c-text4)":"#374151",
+    textTertiary:isDarkMode?"var(--c-text-ghost)":"#4b5563",
   }),[isDarkMode]);
 
   const list=useMemo(()=>{
@@ -4162,32 +5239,36 @@ export default function App(){
     return raw.filter(d=>(!q||d.name.toLowerCase().includes(q)||(d.sub||"").toLowerCase().includes(q))&&(scope==="all"||scopeRank[d.scope]<=scopeRank[scope]));
   },[bank,activeSys,search,scope]);
 
-  const numInp=useCallback((v,fn,ph,max,step)=>({type:"number",value:v||"",onChange:e=>fn(parseFloat(e.target.value)||0),placeholder:ph,min:0,max,step,style:{width:58,padding:"5px 7px",background:colors.surface,border:`1px solid ${colors.border}`,borderRadius:6,color:colors.text,fontSize:13,fontFamily:"'IBM Plex Mono',monospace",textAlign:"right",outline:"none"}}),[colors]);
+  const numInp=useCallback((v,fn,ph,max,step)=>({type:"number",value:v||"",onChange:e=>fn(Math.max(0,parseFloat(e.target.value)||0)),placeholder:ph,min:0,max,step,style:{width:58,padding:"5px 7px",background:colors.surface,border:`1px solid ${colors.border}`,borderRadius:6,color:colors.text,fontSize:13,fontFamily:"'IBM Plex Mono',monospace",textAlign:"right",outline:"none"}}),[colors]);
   const activeDrugs=useMemo(()=>Object.entries(adminLog).map(([name,log])=>({name,count:log.times.length,lastAt:log.times[log.times.length-1]})),[adminLog]);
   const totalDoses=useMemo(()=>activeDrugs.reduce((sum,d)=>sum+d.count,0),[activeDrugs]);
 
   if(appView==="home"){
-    return <HomeScreen isDarkMode={isDarkMode} onLogin={()=>setAppView("login")} onGuest={handleGuest} onToggleTheme={()=>setIsDarkMode(v=>!v)} />;
+    return <HomeScreen isDarkMode={isDarkMode} onLogin={handleHomeLogin} onSignup={handleShowSignup} onGuest={handleGuest} onToggleTheme={()=>setIsDarkMode(v=>!v)} />;
   }
 
   if(appView==="login"){
-    return <LoginScreen isDarkMode={isDarkMode} values={loginForm} onChange={handleLoginChange} onSubmit={handleLoginSubmit} onBack={()=>setAppView("home")} onGuest={handleGuest} error={loginError} onToggleTheme={()=>setIsDarkMode(v=>!v)} />;
+    return <LoginScreen isDarkMode={isDarkMode} values={loginForm} onChange={handleLoginChange} onSubmit={handleLoginSubmit} onBack={()=>setAppView("home")} onSignup={handleShowSignup} onGuest={handleGuest} error={loginError} onToggleTheme={()=>setIsDarkMode(v=>!v)} />;
+  }
+
+  if(appView==="signup"){
+    return <SignupScreen isDarkMode={isDarkMode} values={signupForm} onChange={handleSignupChange} onSubmit={handleSignupSubmit} onBack={()=>setAppView("home")} onLogin={handleShowLogin} error={signupError} onToggleTheme={()=>setIsDarkMode(v=>!v)} />;
   }
 
   return(
     <>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700&display=swap');*{box-sizing:border-box;margin:0;padding:0}input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}input[type=number]{-moz-appearance:textfield}::-webkit-scrollbar{width:0;height:0}@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}@keyframes flash{0%,100%{background:#2a0808}50%{background:#7f1d1d}}:root{--c-surface:#0d1120;--c-surface-open:#141c2e;--c-nav:#0a0f1c;--c-input:#090e1c;--c-deep:#080c18;--c-deep2:#0d1525;--c-border:#1a2338;--c-border-sub:#141e30;--c-text-sub:#8a9dc0;--c-text:#e2e8f0;--c-text2:#c0cfe8;--c-text3:#a0b4d0;--c-text4:#6b82a8;--c-text5:#7a90b0;--c-text-ghost:#1a2638}[data-theme="light"]{--c-surface:#e8eef8;--c-surface-open:#dce5f5;--c-nav:#dde5f0;--c-input:#edf2fa;--c-deep:#d8e4f5;--c-deep2:#e2eaf8;--c-border:#b8c8dc;--c-border-sub:#c8d4e8;--c-text-sub:#3a5070;--c-text:#1a2338;--c-text2:#2a4060;--c-text3:#3a5070;--c-text4:#4a5e7a;--c-text5:#3a5070;--c-text-ghost:#9ab0c8}`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700&display=swap');*{box-sizing:border-box;margin:0;padding:0}input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}input[type=number]{-moz-appearance:textfield}::-webkit-scrollbar{width:0;height:0}@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}@keyframes flash{0%,100%{background:#2a0808}50%{background:#7f1d1d}}:root{--c-surface:#0d1120;--c-surface-open:#141c2e;--c-nav:#0a0f1c;--c-input:#090e1c;--c-deep:#080c18;--c-deep2:#0d1525;--c-border:#1a2338;--c-border-sub:#141e30;--c-text-sub:#8a9dc0;--c-text:#e2e8f0;--c-text2:#c0cfe8;--c-text3:#a0b4d0;--c-text4:#6b82a8;--c-text5:#7a90b0;--c-text-ghost:#1a2638}[data-theme="light"]{--c-surface:#e6edf4;--c-surface-open:#d8e2ec;--c-nav:#dce4ec;--c-input:#eef3f7;--c-deep:#dce6ef;--c-deep2:#e7eef5;--c-border:#8796aa;--c-border-sub:#98a8bb;--c-text-sub:#26364c;--c-text:#0f172a;--c-text2:#172033;--c-text3:#25354d;--c-text4:#36455c;--c-text5:#1f2f46;--c-text-ghost:#53637a}`}</style>
 
-      <div style={{minHeight:"100vh",background:isDarkMode?"#060a15":"#f5f3f0",fontFamily:"'DM Sans',sans-serif",maxWidth:480,margin:"0 auto",padding:"14px 11px 60px",transition:"background-color 0.3s"}}>
+      <div style={{minHeight:"100vh",background:isDarkMode?"#060a15":"#f4efe7",fontFamily:"'DM Sans',sans-serif",maxWidth:480,margin:"0 auto",padding:"14px 11px 60px",transition:"background-color 0.3s"}}>
 
         {/* HEADER */}
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:7}}>
               <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:19,fontWeight:700,color:isDarkMode?"var(--c-text)":"#0f0f0f",letterSpacing:"-0.02em"}}>MedicAI</span>
-              <span style={{fontSize:9,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",background:isDarkMode?"#0d1d3a":"#e8ddf0",color:isDarkMode?"#60a5fa":"#6b1fb4",border:isDarkMode?"1px solid #1a3060":"1px solid #c9a8d8",borderRadius:4,padding:"2px 7px"}}>Drug Calc</span>
+              <span style={{fontSize:9,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",background:isDarkMode?"#0d1d3a":"#d5bee2",color:isDarkMode?"#60a5fa":"#4c1d95",border:isDarkMode?"1px solid #1a3060":"1px solid #8b5fb0",borderRadius:4,padding:"2px 7px"}}>Drug Calc</span>
             </div>
-            <div style={{color:isDarkMode?"var(--c-text-ghost)":"#5a5a5a",fontSize:9,marginTop:2,letterSpacing:"0.03em",fontFamily:"'IBM Plex Mono',monospace"}}>GA SOP-2024 · NASEMSO v3 · AHA/AAP 2025 PALS</div>
+            <div style={{color:isDarkMode?"var(--c-text-ghost)":"#374151",fontSize:9,marginTop:2,letterSpacing:"0.03em",fontFamily:"'IBM Plex Mono',monospace"}}>GA SOP-2024 · NASEMSO v3 · AHA/AAP 2025 PALS</div>
           </div>
           <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8}}>
             <button 
@@ -4196,9 +5277,9 @@ export default function App(){
                 width:36,
                 height:36,
                 borderRadius:8,
-                border:isDarkMode?"1px solid var(--c-border)":"1px solid #d4cfc8",
-                background:isDarkMode?"var(--c-surface)":"#ede9e4",
-                color:isDarkMode?"#f97316":"#2d2d2d",
+                border:isDarkMode?"1px solid var(--c-border)":"1px solid #9a9286",
+                background:isDarkMode?"var(--c-surface)":"#eee7dd",
+                color:isDarkMode?"#f97316":"#111827",
                 cursor:"pointer",
                 fontSize:16,
                 display:"flex",
@@ -4211,11 +5292,11 @@ export default function App(){
               {isDarkMode?"☀️":"🌙"}
             </button>
             <button
-              onClick={handleLogout}
+              onClick={() => setAppView("home")}
               style={{
-                border:isDarkMode?"1px solid var(--c-border)":"1px solid #d4cfc8",
-                background:isDarkMode?"var(--c-surface)":"#ede9e4",
-                color:isDarkMode?"#8aa0c2":"#5a5a5a",
+                border:isDarkMode?"1px solid var(--c-border)":"1px solid #9a9286",
+                background:isDarkMode?"var(--c-surface)":"#eee7dd",
+                color:isDarkMode?"#8aa0c2":"#374151",
                 borderRadius:6,
                 padding:"4px 8px",
                 fontSize:9,
@@ -4223,13 +5304,13 @@ export default function App(){
                 cursor:"pointer",
                 fontFamily:"'IBM Plex Mono',monospace",
               }}
-              title={authUser ? `Signed in as ${authUser.name}` : "Back to home"}
+              title="Home"
             >
               Home
             </button>
             <div style={{textAlign:"right",fontFamily:"'IBM Plex Mono',monospace"}}>
               {authUser&&<div style={{color:isDarkMode?"#14b8a6":"#0f766e",fontSize:10,maxWidth:88,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{authUser.name}</div>}
-              <div style={{color:isDarkMode?"var(--c-text-ghost)":"#5a5a5a",fontSize:10}}>{list.length} drugs</div>
+              <div style={{color:isDarkMode?"var(--c-text-ghost)":"#374151",fontSize:10}}>{list.length} drugs</div>
               {wkg>0&&<div style={{color:"#4ade80",fontSize:11,marginTop:1}}>{wkg} kg</div>}
               {activeCount>0&&<div style={{color:"#f97316",fontSize:10,marginTop:1}}>⏱ {activeCount} active</div>}
             </div>
@@ -4238,20 +5319,20 @@ export default function App(){
 
         {/* ACTIVE SUMMARY */}
         {activeDrugs.length>0&&(
-          <div style={{background:isDarkMode?"#120e05":"#7c2d12",border:isDarkMode?"1px solid #f9731630":"1px solid #431407",borderRadius:8,padding:"8px 12px",marginBottom:10}}>
+          <div style={{background:isDarkMode?"#120e05":"#f1d8cf",border:isDarkMode?"1px solid #f9731630":"1px solid #c2410c",borderRadius:8,padding:"8px 12px",marginBottom:10}}>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
-              <span style={{color:isDarkMode?"#f97316":"#ffedd5",fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em"}}>⏱ Active Drugs This Call</span>
-              <button onClick={()=>{setAdminLog({});setInitChecks({});setReChecks({});setVitalsEntries([]);}} style={{marginLeft:"auto",background:isDarkMode?"transparent":"#431407",border:isDarkMode?"1px solid #7a5a30":"1px solid #fed7aa",color:isDarkMode?"#c08040":"#ffedd5",borderRadius:4,padding:"2px 7px",fontSize:9,cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace"}}>Clear All</button>
+              <span style={{color:"#f97316",fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em"}}>⏱ Active Drugs This Call</span>
+              <button onClick={()=>{setAdminLog({});setInitChecks({});setReChecks({});setVitalsEntries([]);}} style={{marginLeft:"auto",background:"transparent",border:isDarkMode?"1px solid #7a5a30":"1px solid #d97706",color:isDarkMode?"#c08040":"#b45309",borderRadius:4,padding:"2px 7px",fontSize:9,cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace"}}>Clear All</button>
             </div>
             <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
               {activeDrugs.map(d=>{const el=Math.floor((Date.now()-d.lastAt)/1000);return(
-                <div key={d.name} onClick={()=>handlePillClick(d.name)} style={{background:isDarkMode?"#1a1208":"#431407",border:isDarkMode?"1px solid #f9731640":"1px solid #fdba74",borderRadius:5,padding:"3px 8px",display:"flex",alignItems:"center",gap:5,cursor:"pointer",transition:"border-color 0.15s"}}
-                  onMouseEnter={e=>e.currentTarget.style.borderColor=isDarkMode?"#f97316":"#ffedd5"}
-                  onMouseLeave={e=>e.currentTarget.style.borderColor=isDarkMode?"#f9731640":"#fdba74"}>
-                  <span style={{color:isDarkMode?"var(--c-text)":"#ffffff",fontSize:10,fontFamily:"'IBM Plex Mono',monospace"}}>{d.name}</span>
-                  <span style={{color:isDarkMode?"#f97316":"#fdba74",fontSize:9,fontFamily:"'IBM Plex Mono',monospace"}}>×{d.count}</span>
-                  <span style={{color:isDarkMode?"#a07040":"#ffedd5",fontSize:9}}>{fmtE(el)}</span>
-                  <span style={{color:isDarkMode?"#f9731680":"#fed7aa",fontSize:9}}>↗</span>
+                <div key={d.name} onClick={()=>handlePillClick(d.name)} style={{background:isDarkMode?"#1a1208":"#e9c8bb",border:isDarkMode?"1px solid #f9731640":"1px solid #c2410c",borderRadius:5,padding:"3px 8px",display:"flex",alignItems:"center",gap:5,cursor:"pointer",transition:"border-color 0.15s"}}
+                  onMouseEnter={e=>e.currentTarget.style.borderColor=isDarkMode?"#f97316":"#f97316"}
+                  onMouseLeave={e=>e.currentTarget.style.borderColor=isDarkMode?"#f9731640":"#c2410c"}>
+                  <span style={{color:isDarkMode?"var(--c-text)":"#0f0f0f",fontSize:10,fontFamily:"'IBM Plex Mono',monospace"}}>{d.name}</span>
+                  <span style={{color:"#f97316",fontSize:9,fontFamily:"'IBM Plex Mono',monospace"}}>×{d.count}</span>
+                  <span style={{color:isDarkMode?"#a07040":"#b45309",fontSize:9}}>{fmtE(el)}</span>
+                  <span style={{color:isDarkMode?"#f9731680":"#f97316",fontSize:9}}>↗</span>
                 </div>
               );})}
             </div>
@@ -4259,13 +5340,15 @@ export default function App(){
         )}
 
         {/* PRIMARY NAV */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(5, 1fr)",background:"var(--c-nav)",border:"1px solid var(--c-border-sub)",borderRadius:10,padding:3,gap:3,marginBottom:14}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",background:"var(--c-nav)",border:"1px solid var(--c-border-sub)",borderRadius:10,padding:3,gap:3,marginBottom:14}}>
           {[
-            ["drugs","💊 Drugs",isDarkMode?"#0d1f3a":"#cce0ff",isDarkMode?"#93c5fd":"#1e4a8a"],
-            ["vitals","📋 Vitals",isDarkMode?"#0a2318":"#c0e8d4",isDarkMode?"#86efac":"#0a5c2e"],
-            ["arrest","❤ Arrest",isDarkMode?"#2a0808":"#ffd5d5",isDarkMode?"#fca5a5":"#7f1d1d"],
-            ["medlog","⏱ Log",isDarkMode?"#1a0a18":"#ffe4cc",isDarkMode?"#fb923c":"#7c2d12"],
-            ["epcr","📝 ePCR",isDarkMode?"#1a0e28":"#ead5ff",isDarkMode?"#c084fc":"#5b21b6"],
+            ["home","🏠 Home",isDarkMode?"#0d1f3a":"#9fbce2",isDarkMode?"#93c5fd":"#172554"],
+            ["drugs","💊 Drugs",isDarkMode?"#0d1f3a":"#9fbce2",isDarkMode?"#93c5fd":"#172554"],
+            ["vitals","📋 Vitals",isDarkMode?"#0a2318":"#99c7ae",isDarkMode?"#86efac":"#064e3b"],
+            ["protocols","Protocols",isDarkMode?"#1a0e28":"#c7a4e6",isDarkMode?"#c084fc":"#4c1d95"],
+            ["arrest","❤ Arrest",isDarkMode?"#2a0808":"#e5a2a2",isDarkMode?"#fca5a5":"#7f1d1d"],
+            ["medlog","⏱ Log",isDarkMode?"#1a0a18":"#e4b07e",isDarkMode?"#fb923c":"#7c2d12"],
+            ["epcr","📝 ePCR",isDarkMode?"#1a0e28":"#c7a4e6",isDarkMode?"#c084fc":"#4c1d95"],
           ].map(([s,l,bg,fg])=>{
             let cnt=0;
             if(s==="vitals") cnt=vitalsEntries.length;
@@ -4273,7 +5356,7 @@ export default function App(){
             else if(s==="arrest" && arrestState.startTs) cnt=arrestState.events.length;
             const isArrestActive = s==="arrest" && arrestState.startTs && !arrestState.endTs;
             return(
-              <button key={s} onClick={()=>setScreen(s)} style={{padding:"9px 2px",borderRadius:8,border:"none",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontSize:9.5,fontWeight:700,letterSpacing:"0.02em",background:screen===s?bg:isArrestActive?"#2a0808":"transparent",color:screen===s?fg:isArrestActive?"#fca5a5":"var(--c-text4)",transition:"all 0.15s",position:"relative"}}>
+              <button key={s} onClick={()=>s==="home" ? setAppView("home") : setScreen(s)} style={{padding:"9px 2px",borderRadius:8,border:"none",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontSize:9.5,fontWeight:700,letterSpacing:"0.02em",background:screen===s?bg:isArrestActive?"#2a0808":"transparent",color:screen===s?fg:isArrestActive?"#fca5a5":"var(--c-text4)",transition:"all 0.15s",position:"relative"}}>
                 {l}{cnt>0?` ${cnt}`:""}
                 {isArrestActive && screen !== s && <span style={{position:"absolute",top:4,right:4,width:6,height:6,borderRadius:"50%",background:"#ef4444",animation:"pulse 1.5s ease-in-out infinite"}}/>}
               </button>
@@ -4284,6 +5367,11 @@ export default function App(){
         {/* VITALS LOG SCREEN */}
         {screen==="vitals"&&(
           <VitalsLog initChecks={initChecks} reChecks={reChecks} entries={vitalsEntries} setEntries={setVitalsEntries} onClearCall={()=>{setAdminLog({});setInitChecks({});setReChecks({});setVitalsEntries([]); }}/>
+        )}
+
+        {/* PROTOCOLS SCREEN */}
+        {screen==="protocols"&&(
+          <ProtocolsScreen mode={mode} setMode={setMode} isDarkMode={isDarkMode} burnMaps={burnMaps} setBurnMaps={setBurnMaps} onJumpDrug={handlePillClick} findDrugLocation={findDrugLocation} wkg={wkg} wlb={wlb} setWkg={setWkg} setWlb={setWlb}/>
         )}
 
         {/* ARREST SCREEN */}
@@ -4302,20 +5390,29 @@ export default function App(){
         )}
 
         {/* DRUG CALC SCREEN */}
-        {screen==="drugs"&&(<>
+        {(screen==="home" || screen==="drugs")&&(<>
 
         {/* MODE TOGGLE */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",background:"var(--c-nav)",border:"1px solid var(--c-border-sub)",borderRadius:10,padding:3,gap:3,marginBottom:11}}>
-          {[["adult","🧑 ADULT",isDarkMode?"#0d1f3a":"#cce0ff",isDarkMode?"#93c5fd":"#1e4a8a"],["peds","👶 PEDS",isDarkMode?"#0a2318":"#c0e8d4",isDarkMode?"#86efac":"#0a5c2e"]].map(([m,l,bg,fg])=>(
+          {[["adult","🧑 ADULT",isDarkMode?"#0d1f3a":"#9fbce2",isDarkMode?"#93c5fd":"#172554"],["peds","👶 PEDS",isDarkMode?"#0a2318":"#99c7ae",isDarkMode?"#86efac":"#064e3b"]].map(([m,l,bg,fg])=>(
             <button key={m} onClick={()=>setMode(m)} style={{padding:"9px 0",borderRadius:8,border:"none",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontSize:11.5,fontWeight:700,letterSpacing:"0.08em",background:mode===m?bg:"transparent",color:mode===m?fg:"var(--c-text4)",transition:"all 0.15s"}}>{l}</button>
           ))}
         </div>
 
         {/* WEIGHT */}
         <div style={{background:"var(--c-input)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:"9px 12px",marginBottom:10,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-          <span style={{color:"var(--c-text4)",fontSize:9.5,textTransform:"uppercase",letterSpacing:"0.1em",fontFamily:"'IBM Plex Mono',monospace"}}>WEIGHT</span>
-          <div style={{display:"flex",alignItems:"center",gap:5}}><input {...numInp(wkg,v=>{setWkg(v);setWlb(v?+(v*2.2046).toFixed(1):0);},"—",300,0.5)}/><span style={{color:"var(--c-text4)",fontSize:11}}>kg</span></div>
-          <div style={{display:"flex",alignItems:"center",gap:5}}><input {...numInp(wlb,v=>{setWlb(v);setWkg(v?+(v/2.2046).toFixed(1):0);},"—",660,1)}/><span style={{color:"var(--c-text4)",fontSize:11}}>lbs</span></div>
+          <span style={{color:"var(--c-text4)",fontSize:9.5,textTransform:"uppercase",letterSpacing:"0.1em",fontFamily:"'IBM Plex Mono',monospace"}}>{mode==="adult"?"ADULT WEIGHT":"PEDS WEIGHT"}</span>
+          {mode==="adult" ? (
+            <>
+              <div style={{display:"flex",alignItems:"center",gap:5}}><input {...numInp(adultWlb,v=>{setAdultWlb(v);setAdultWkg(v?+(v/2.2046).toFixed(1):0);},"lbs",660,1)}/><span style={{color:"var(--c-text4)",fontSize:11}}>lbs</span></div>
+              <span style={{color:adultWkg>0?"#4ade80":"var(--c-text4)",fontSize:11,fontFamily:"'IBM Plex Mono',monospace"}}>{adultWkg>0?`${adultWkg} kg`:"kg auto"}</span>
+            </>
+          ) : (
+            <>
+              <div style={{display:"flex",alignItems:"center",gap:5}}><input {...numInp(pedsWlb,v=>{setPedsWlb(v);setPedsWkg(v?+(v/2.2046).toFixed(1):0);},"lbs",220,0.1)}/><span style={{color:"var(--c-text4)",fontSize:11}}>lbs</span></div>
+              <span style={{color:pedsWkg>0?"#4ade80":"var(--c-text4)",fontSize:11,fontFamily:"'IBM Plex Mono',monospace"}}>{pedsWkg>0?`${pedsWkg} kg`:"kg auto"}</span>
+            </>
+          )}
           {wkg>0&&<span style={{marginLeft:"auto",color:"#4ade80",fontSize:11,fontFamily:"'IBM Plex Mono',monospace"}}>{wkg} kg ✓</span>}
         </div>
 
@@ -4325,7 +5422,7 @@ export default function App(){
             const light=LIGHT_TABS[s.k]||{bg:s.lc+"22",fg:s.lc,bd:s.lc};
             const sc=isDarkMode?s.c:light.fg;
             const isActive=activeSys===s.k;
-            return(<button key={s.k} onClick={()=>setSys(s.k)} style={{flexShrink:0,padding:"6px 11px",borderRadius:20,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:700,background:isDarkMode?(isActive?sc+"20":"transparent"):(isActive?light.bg:"#ffffff"),color:isDarkMode?(isActive?sc:"var(--c-text4)"):sc,border:isDarkMode?(isActive?`1px solid ${sc}45`:"1px solid transparent"):`1px solid ${isActive?light.bd:light.bg}`,boxShadow:!isDarkMode&&isActive?`0 5px 14px ${light.bd}40`:"none",transition:"all 0.12s",whiteSpace:"nowrap"}}>{s.e} {s.l}</button>);})}
+            return(<button key={s.k} onClick={()=>setSys(s.k)} style={{flexShrink:0,padding:"6px 11px",borderRadius:20,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:700,background:isDarkMode?(isActive?sc+"20":"transparent"):(isActive?light.bg:"#e0e5eb"),color:isDarkMode?(isActive?sc:"var(--c-text4)"):sc,border:isDarkMode?(isActive?`1px solid ${sc}45`:"1px solid transparent"):`1px solid ${isActive?light.bd:"#9aa6b4"}`,boxShadow:!isDarkMode&&isActive?`0 5px 14px ${light.bd}40`:"none",transition:"all 0.12s",whiteSpace:"nowrap"}}>{s.e} {s.l}</button>);})}
         </div>
 
         {/* SCOPE FILTER */}
@@ -4334,7 +5431,7 @@ export default function App(){
             const sd=sk?SS[sk]:null;
             const bg=sd?(isDarkMode?sd.bg:sd.lbg):(isDarkMode?"#1a2030":"#dde5f0");
             const fg=sd?(isDarkMode?sd.fg:sd.lfg):(isDarkMode?"#7090b8":"#3a5070");
-            const bd=sd?(isDarkMode?sd.bd:sd.lbd):(isDarkMode?"#2a3f60":"#b8c8dc");
+            const bd=sd?(isDarkMode?sd.bd:sd.lbd):(isDarkMode?"#2a3f60":"#8fa0b6");
             return(
               <button key={k} onClick={()=>setScope(k)} style={{padding:"4px 10px",borderRadius:16,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif",background:scope===k?bg:"transparent",color:scope===k?fg:"var(--c-text4)",border:scope===k?`1px solid ${bd}`:"1px solid transparent",transition:"all 0.12s"}}>{l}</button>
             );
@@ -4351,7 +5448,7 @@ export default function App(){
         {/* DRUG LIST */}
         {list.length===0
           ?<div style={{textAlign:"center",marginTop:48,color:"var(--c-text-ghost)",fontSize:13}}>No drugs match</div>
-          :list.map((d,i)=><DrugCard key={i} drug={d} wt={wkg} color={color} tick={adminLog[d.name]?tick:0} adminLog={adminLog} onGive={handleGive} onReset={handleReset} initVals={initChecks[d.name]||EMPTY_OBJ} onInitUpdate={handleInitUpdate} reVals={reChecks[d.name]||EMPTY_OBJ} onReUpdate={handleReUpdate} onClearRe={handleClearRe} highlighted={highlightDrug===d.name} isDarkMode={isDarkMode} scopeFilter={scope}/>)
+          :list.map((d)=><DrugCard key={d.name} drug={d} wt={wkg} color={color} tick={adminLog[d.name]?tick:0} adminLog={adminLog} onGive={handleGive} onReset={handleReset} initVals={initChecks[d.name]||EMPTY_OBJ} onInitUpdate={handleInitUpdate} reVals={reChecks[d.name]||EMPTY_OBJ} onReUpdate={handleReUpdate} onClearRe={handleClearRe} highlighted={highlightDrug===d.name} isDarkMode={isDarkMode} scopeFilter={scope}/>)
         }
 
         <div style={{marginTop:30,textAlign:"center",color:"#0e1525",fontSize:9.5,lineHeight:1.8,fontFamily:"'IBM Plex Mono',monospace"}}>Clinical reference only — follow local protocols &amp; medical direction</div>
