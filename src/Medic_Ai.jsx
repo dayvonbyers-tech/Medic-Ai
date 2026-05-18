@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { saveArrestReport, loadArrestReports, isFirebaseConfigured } from "./firebase.js";
 
 /* ═══════════════════════════════════════════════════════
    CHECK BUILDING BLOCKS
@@ -646,11 +647,11 @@ const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,
   const checkGate=!hasActivity?iOk:(needsRe?rOk:true);
   const canGive=!maxReached&&timerReady&&checkGate&&(hasActivity?!rBlocked:!iBlocked);
 
-  let timerCol="#4ade80";
-  if(maxReached)timerCol="#ef4444";
-  else if(iBlocked||(needsRe&&rBlocked))timerCol="#ef4444";
-  else if(isDue&&hasActivity)timerCol="#f97316";
-  else if(isWarning)timerCol="#facc15";
+  let timerCol=isDarkMode?"#4ade80":"#15803d";
+  if(maxReached)timerCol=isDarkMode?"#ef4444":"#b91c1c";
+  else if(iBlocked||(needsRe&&rBlocked))timerCol=isDarkMode?"#ef4444":"#b91c1c";
+  else if(isDue&&hasActivity)timerCol=isDarkMode?"#f97316":"#c2410c";
+  else if(isWarning)timerCol=isDarkMode?"#facc15":"#854d0e";
 
   const hdrBorder=hasActivity?timerCol:(iBlocked?"#ef4444":color);
 
@@ -1035,8 +1036,11 @@ function VitalsLog({ initChecks, reChecks, onClearCall, entries, setEntries }) {
   const stopListen = () => { recRef.current?.stop(); setListening(false); };
 
   const MicBtn = ({field=null, small=false})=>(
-    SR ? <button onClick={e=>{e.stopPropagation(); listening&&listenField===field?stopListen():startListen(field);}} style={{background:listening&&listenField===field?'#7c2d12':'var(--c-surface)',border:`1px solid ${listening&&listenField===field?'#ef4444':'var(--c-border)'}`,borderRadius:5,padding:small?'3px 7px':'5px 9px',cursor:'pointer',color:listening&&listenField===field?'#fca5a5':'var(--c-text4)',fontSize:small?10:11,fontFamily:"'IBM Plex Mono',monospace"}}>
-      {listening&&listenField===field?'■ stop':'🎙'}
+    SR ? <button onClick={e=>{e.stopPropagation(); listening&&listenField===field?stopListen():startListen(field);}} style={{background:listening&&listenField===field?'#7c2d12':'var(--c-surface)',border:`1px solid ${listening&&listenField===field?'#ef4444':'var(--c-border)'}`,borderRadius:5,padding:small?'3px 6px':'5px 8px',cursor:'pointer',color:listening&&listenField===field?'#fca5a5':'var(--c-text4)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+      {listening&&listenField===field
+        ? <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+        : <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+      }
     </button> : null
   );
 
@@ -1087,7 +1091,10 @@ function VitalsLog({ initChecks, reChecks, onClearCall, entries, setEntries }) {
             <span style={{fontFamily:"'IBM Plex Mono',monospace",color:'#93c5fd',fontSize:11,fontWeight:700}}>NEW VITALS ENTRY</span>
             {SR&&(
               <button onClick={()=>listening&&!listenField?stopListen():startListen(null)} style={{display:'flex',alignItems:'center',gap:5,padding:'6px 10px',background:listening&&!listenField?'#7c2d12':'#0d1f3a',border:`1px solid ${listening&&!listenField?'#ef4444':'#1e3a8a'}`,borderRadius:6,cursor:'pointer',color:listening&&!listenField?'#fca5a5':'#93c5fd',fontSize:11,fontWeight:700,fontFamily:"'IBM Plex Mono',monospace"}}>
-                <span>{listening&&!listenField?'■':'🎙'}</span>
+                {listening&&!listenField
+                  ? <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+                  : <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+                }
                 <span>{listening&&!listenField?'Stop':'Dictate All'}</span>
               </button>
             )}
@@ -1710,14 +1717,369 @@ const fmtClock = ts => {
   return d.toTimeString().slice(0,8);
 };
 
-function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWkg, setWlb, mode, isDarkMode=true }) {
+/* ═══════════════════════════════════════════════════════
+   PHONE REPORT SCREEN
+═══════════════════════════════════════════════════════ */
+function RadioReportScreen({ patient, vitalsEntries, adminLog, authUser, wkg, mode, arrestState, isDarkMode }) {
+  const [copied,   setCopied]   = React.useState(false);
+  const [hospital, setHospital] = React.useState("");
+  const [etaMin,   setEtaMin]   = React.useState("");
+
+  const panel  = isDarkMode ? "#0d1120" : "#fbf7f0";
+  const text   = isDarkMode ? "#e2e8f0" : "#0f172a";
+  const muted  = isDarkMode ? "#8aa0c2" : "#374151";
+  const bdr    = isDarkMode ? "#1a2338" : "#c9c2b8";
+  const head   = isDarkMode ? "#38bdf8" : "#0369a1";
+  const inp    = isDarkMode ? "#090e1c" : "#f2ece4";
+  const mono   = "'IBM Plex Mono', monospace";
+  const script = isDarkMode ? "#cbd5e1" : "#1e293b";
+
+  const profile = authUser?.profile || {};
+  const pt      = patient || {};
+  const lv      = vitalsEntries.length ? vitalsEntries[vitalsEntries.length - 1] : null;
+
+  const providerName = authUser?.name || pt.provider || "your name";
+  const certLevel    = authUser?.certLevel || "EMS";
+  const agency       = profile.agency || "EMS";
+  const unitId       = pt.unit || profile.unit || "";
+  const runNum       = pt.run  || "";
+
+  const vBP   = lv ? (lv.sbp && lv.dbp ? `${lv.sbp}/${lv.dbp}` : lv.sbp || "[BP]") : "[BP]";
+  const vHR   = lv?.hr   || "[HR]";
+  const vRR   = lv?.rr   || "[RR]";
+  const vSpO2 = lv?.spo2 ? `${lv.spo2}%` : "[SpO₂]";
+  const vBGL  = lv?.bgl  || "";
+  const vTemp = lv?.temp || "";
+  const gcsT  = lv?.gcsTotal || (lv?.gcs_e && lv?.gcs_v && lv?.gcs_m ? +lv.gcs_e + +lv.gcs_v + +lv.gcs_m : null);
+  const pupilStr = (lv?.pupils_l_sz || lv?.pupils_r_sz)
+    ? `left ${lv.pupils_l_sz||"?"}mm ${lv.pupils_l_rx||""}, right ${lv.pupils_r_sz||"?"}mm ${lv.pupils_r_rx||""}`.trim()
+    : "equal and reactive";
+
+  function fmtTs(ts) {
+    if (!ts) return "";
+    return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+
+  const medsGiven = Object.entries(adminLog || {}).map(([drug, data]) => {
+    const times = data?.times || [];
+    if (times.length === 1) return `${drug} at ${fmtTs(times[0])}`;
+    if (times.length > 1)  return `${drug} times ${times.length}, last dose at ${fmtTs(times[times.length-1])}`;
+    return drug;
+  });
+
+  const isArrest = !!arrestState?.startTs;
+
+  // ── Build spoken sentences for each block ───────────────
+  const ageStr   = pt.age ? `${pt.age}-year-old` : "unknown age";
+  const sexStr   = pt.sex || "unknown sex";
+  const wkgStr   = wkg ? ` weighing ${wkg} kilograms` : "";
+  const ptLine   = `${ageStr} ${sexStr}${wkgStr}${pt.name ? `, ${pt.name}` : ""}`;
+  const ccLine   = pt.cc  || "[chief complaint not entered]";
+  const hpiLine  = pt.hpi || "[history not entered]";
+  const pmhLine  = pt.pmh || "no significant past medical history";
+  const medsLine = pt.meds      ? `Current medications include ${pt.meds}.`      : "No known medications.";
+  const allgLine = pt.allergies ? `Known allergies to ${pt.allergies}.`           : "No known drug allergies.";
+  const vitLine  = `Blood pressure ${vBP}, pulse ${vHR}, respirations ${vRR}, pulse ox ${vSpO2}${vBGL ? `, blood glucose ${vBGL}` : ""}${vTemp ? `, temperature ${vTemp}` : ""}.`;
+  const genLine  = `${gcsT ? `GCS ${gcsT}` : "GCS not assessed"}, moves all extremities, pupils ${pupilStr}${lv?.skin ? `, skin ${lv.skin}` : ""}${lv?.pain ? `, pain ${lv.pain} out of 10` : ""}.`;
+  const txLine   = (() => {
+    const parts = [pt.interventions, ...medsGiven].filter(Boolean);
+    return parts.length ? parts.join(". ") + "." : "No interventions performed.";
+  })();
+  const arrestLine = isArrest
+    ? `This patient had a cardiac arrest, arrest onset at ${fmtTs(arrestState.startTs)}${arrestState.endTs ? `, ROSC achieved at ${fmtTs(arrestState.endTs)}` : ", arrest ongoing"}.`
+    : "";
+
+  // Full clipboard text — spoken sentences
+  const scriptText = [
+    `Hello, this is ${providerName}, ${certLevel} with ${agency}${unitId ? `, Unit ${unitId}` : ""}${runNum ? `, Run Number ${runNum}` : ""}.`,
+    `I'm calling to give report on a patient I'm transporting to ${hospital || "[hospital name]"}.`,
+    `Our ETA is approximately ${etaMin || "___"} minutes.`,
+    ``,
+    `I have a ${ptLine}.`,
+    `The patient is presenting with ${ccLine}.`,
+    ``,
+    `History of present illness: ${hpiLine}.`,
+    `Past medical history: ${pmhLine}.`,
+    medsLine,
+    allgLine,
+    ``,
+    `Vital signs: ${vitLine}`,
+    `General: ${genLine}`,
+    arrestLine,
+    ``,
+    `Treatment performed: ${txLine}`,
+    ``,
+    `We will see you in approximately ${etaMin || "___"} minutes. Do you have any questions?`,
+  ].filter(Boolean).join("\n");
+
+  function handleCopy() {
+    navigator.clipboard.writeText(scriptText).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  // ── style helpers ────────────────────────────────────────
+  const LBL = { fontSize: 9, fontWeight: 700, letterSpacing: "0.14em", color: head, textTransform: "uppercase", marginBottom: 5 };
+  const DIV = { borderTop: `1px solid ${bdr}`, margin: "16px 0 14px" };
+  const inpStyle = { height: 40, borderRadius: 7, border: `1px solid ${bdr}`, background: inp, color: text, padding: "0 11px", fontSize: 14, fontFamily: mono, outline: "none" };
+
+  function Pill({ label, active, onClick }) {
+    return (
+      <button onClick={onClick} style={{
+        padding: "5px 11px", borderRadius: 6,
+        border: `1px solid ${active ? head : bdr}`,
+        background: active ? (isDarkMode ? "#0c2a3d" : "#dbeafe") : "transparent",
+        color: active ? head : muted,
+        fontSize: 12, fontFamily: mono, cursor: "pointer",
+        fontWeight: active ? 700 : 400, transition: "all 0.12s",
+      }}>{label}</button>
+    );
+  }
+
+  // Sentence block: small label + big readable sentence
+  function Block({ label, sentence, dim = false, warn = false }) {
+    return (
+      <div style={{ marginBottom: 14 }}>
+        <div style={LBL}>{label}</div>
+        <div style={{ fontSize: 17, lineHeight: 1.8, color: warn ? "#fca5a5" : dim ? muted : script, fontStyle: dim ? "italic" : "normal" }}>
+          {sentence}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ fontFamily: mono, color: text }}>
+
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: "0.05em", color: text }}>📞 Hospital Phone Report</div>
+          <div style={{ fontSize: 10, color: muted, marginTop: 2 }}>Tap exam findings below, then read aloud</div>
+        </div>
+        <button onClick={handleCopy} style={{ padding: "8px 16px", background: copied ? "#16a34a" : head, color: "#fff", border: "none", borderRadius: 7, cursor: "pointer", fontSize: 11, fontWeight: 700, fontFamily: mono, letterSpacing: "0.06em", transition: "background 0.2s" }}>
+          {copied ? "✓ COPIED" : "COPY SCRIPT"}
+        </button>
+      </div>
+
+      {/* Fill-in row: hospital + ETA */}
+      <div style={{ background: panel, border: `1px solid ${bdr}`, borderRadius: 10, padding: "12px 14px", marginBottom: 12, display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center" }}>
+        <div>
+          <div style={LBL}>CALLING TO</div>
+          <input value={hospital} onChange={e => setHospital(e.target.value)} placeholder="Hospital name" style={{ ...inpStyle, width: "100%" }}/>
+        </div>
+        <div style={{ textAlign: "center" }}>
+          <div style={LBL}>ETA (MIN)</div>
+          <input value={etaMin} onChange={e => setEtaMin(e.target.value.replace(/\D/g, ""))} placeholder="__" maxLength={3}
+            style={{ ...inpStyle, width: 64, textAlign: "center", fontSize: 22, padding: 0 }}/>
+        </div>
+      </div>
+
+      {/* Script */}
+      <div style={{ background: panel, border: `1px solid ${bdr}`, borderRadius: 10, padding: "16px 16px" }}>
+
+        {/* OPENING */}
+        <Block label="OPENING"
+          sentence={`Hello, this is ${providerName}, ${certLevel} with ${agency}${unitId ? `, Unit ${unitId}` : ""}${runNum ? `, Run Number ${runNum}` : ""}. I'm calling to give report on a patient I'm transporting to ${hospital || "[hospital name]"}. Our ETA is approximately ${etaMin || "___"} minutes.`}
+        />
+
+        <div style={DIV}/>
+
+        {/* PATIENT */}
+        <Block label="PATIENT" sentence={`I have a ${ptLine}.`} dim={!pt.age && !pt.sex}/>
+
+        {/* CHIEF COMPLAINT */}
+        <Block label="CHIEF COMPLAINT / MECHANISM" sentence={`The patient is presenting with ${ccLine}.`} dim={!pt.cc}/>
+
+        {/* HISTORY */}
+        <Block label="HISTORY OF PRESENT ILLNESS" sentence={`${hpiLine}.`} dim={!pt.hpi}/>
+
+        {/* PMH / Meds / Allergies */}
+        <Block label="PAST MEDICAL HISTORY" sentence={`Past medical history: ${pmhLine}. ${medsLine} ${allgLine}`}/>
+
+        <div style={DIV}/>
+
+        {/* VITALS */}
+        <Block label="VITAL SIGNS" sentence={vitLine} dim={!lv}/>
+
+        {/* GENERAL */}
+        <Block label="GENERAL" sentence={genLine} dim={!lv}/>
+
+        {/* CARDIAC ARREST — conditional */}
+        {isArrest && (
+          <>
+            <div style={DIV}/>
+            <Block label="CARDIAC ARREST" sentence={arrestLine} warn/>
+          </>
+        )}
+
+        <div style={DIV}/>
+
+        {/* TREATMENT */}
+        <Block label="TREATMENT PERFORMED" sentence={`Treatment performed: ${txLine}`} dim={!pt.interventions && !medsGiven.length}/>
+
+        <div style={DIV}/>
+
+        {/* CLOSING */}
+        <Block label="CLOSING"
+          sentence={`We will see you in approximately ${etaMin || "___"} minutes. Do you have any questions?`}
+        />
+
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════
+   SAVED CALLS SCREEN
+═══════════════════════════════════════════════════════ */
+function SavedCallsScreen({ isDarkMode=true }) {
+  const [reports, setReports] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [expanded, setExpanded] = useState(null);
+
+  useEffect(() => {
+    if (!isFirebaseConfigured()) { setLoading(false); return; }
+    loadArrestReports()
+      .then(r => { setReports(r); setLoading(false); })
+      .catch(() => { setError("Could not load saved calls. Check connection."); setLoading(false); });
+  }, []);
+
+  const fmtDate = (ts) => {
+    if (!ts) return "—";
+    const d = ts.toDate ? ts.toDate() : new Date(ts);
+    return d.toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" }) + " " + d.toLocaleTimeString("en-US", { hour:"2-digit", minute:"2-digit" });
+  };
+
+  const fmtDur = (secs) => {
+    if (!secs) return "—";
+    const m = Math.floor(secs / 60), s = secs % 60;
+    return `${m}m ${s}s`;
+  };
+
+  if (!isFirebaseConfigured()) {
+    return (
+      <div style={{ paddingBottom:20 }}>
+        <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11, color:"#38bdf8", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:12 }}>☁ Saved Calls</div>
+        <div style={{ background:"#0a1628", border:"1px solid #1e3a5f", borderRadius:8, padding:"18px 16px", textAlign:"center" }}>
+          <div style={{ fontSize:28, marginBottom:10 }}>☁️</div>
+          <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:12, fontWeight:700, color:"#38bdf8", marginBottom:6 }}>Firebase Not Configured</div>
+          <div style={{ fontSize:11, color:"#4a6a8a", lineHeight:1.6, marginBottom:12 }}>
+            To enable cloud save, open <span style={{ color:"#93c5fd" }}>src/firebase.js</span> and paste in your Firebase project config.<br/><br/>
+            Steps:<br/>
+            1. Go to <span style={{ color:"#93c5fd" }}>console.firebase.google.com</span><br/>
+            2. Create a project → Add a web app<br/>
+            3. Build → Firestore Database → Create database<br/>
+            4. Copy the <span style={{ color:"#93c5fd" }}>firebaseConfig</span> object into <span style={{ color:"#93c5fd" }}>src/firebase.js</span>
+          </div>
+          <div style={{ fontSize:9, color:"#2a4a6a", fontFamily:"'IBM Plex Mono',monospace" }}>Calls save automatically when arrest ends — data survives reset</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ paddingBottom:20 }}>
+      <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11, color:"#38bdf8", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:12 }}>☁ Saved Calls</div>
+
+      {loading && (
+        <div style={{ textAlign:"center", padding:"30px 0", color:"#4a6a8a", fontFamily:"'IBM Plex Mono',monospace", fontSize:11 }}>Loading…</div>
+      )}
+
+      {error && (
+        <div style={{ background:"#1a0808", border:"1px solid #7f1d1d", borderRadius:7, padding:"12px 14px", color:"#fca5a5", fontSize:11 }}>{error}</div>
+      )}
+
+      {!loading && !error && reports.length === 0 && (
+        <div style={{ background:"#0a1628", border:"1px solid #1e3a5f", borderRadius:8, padding:"24px 16px", textAlign:"center" }}>
+          <div style={{ fontSize:28, marginBottom:8 }}>📋</div>
+          <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11, color:"#4a6a8a" }}>No saved calls yet.<br/>Complete an arrest call to auto-save it here.</div>
+        </div>
+      )}
+
+      {reports.map(r => {
+        const isOpen = expanded === r.id;
+        const patLabel = r.patientType === "infant" ? "👶 Infant" : r.patientType === "child" ? "🧒 Child" : "🧑 Adult";
+        const outcomeColor = r.outcome === "ROSC" ? "#4ade80" : "#94a3b8";
+        return (
+          <div key={r.id} style={{ background:"var(--c-surface)", border:"1px solid var(--c-border-sub)", borderLeft:`3px solid ${outcomeColor}`, borderRadius:8, marginBottom:8, overflow:"hidden" }}>
+            <button
+              onClick={() => setExpanded(isOpen ? null : r.id)}
+              style={{ width:"100%", padding:"11px 13px", background:"transparent", border:"none", cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}
+            >
+              <div style={{ flex:1, textAlign:"left" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:3 }}>
+                  <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, fontWeight:700, color: outcomeColor }}>{r.outcome === "ROSC" ? "♥ ROSC" : "✕ Terminated"}</span>
+                  <span style={{ fontSize:9, color:"var(--c-text4)", fontFamily:"'IBM Plex Mono',monospace" }}>{patLabel}</span>
+                  {r.unit && <span style={{ fontSize:9, color:"var(--c-text4)", fontFamily:"'IBM Plex Mono',monospace" }}>· Unit {r.unit}</span>}
+                </div>
+                <div style={{ fontSize:9, color:"var(--c-text4)", fontFamily:"'IBM Plex Mono',monospace" }}>
+                  {fmtDate(r.savedAt)} · {fmtDur(r.totalSeconds)} · {r.shockCount} shock{r.shockCount!==1?"s":""} · {r.epiCount} epi
+                  {r.airway ? ` · ${r.airway}` : ""}
+                </div>
+              </div>
+              <span style={{ color:"#3a4f70", fontSize:11, transform: isOpen ? "rotate(180deg)" : "none", transition:"transform 0.2s" }}>▼</span>
+            </button>
+
+            {isOpen && (
+              <div style={{ borderTop:"1px solid var(--c-border-sub)", padding:"10px 13px" }}>
+                {/* Run info */}
+                {(r.run || r.provider || r.patientAge) && (
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6, marginBottom:10 }}>
+                    {[["Run #", r.run], ["Provider", r.provider], ["Age/Sex", [r.patientAge, r.patientSex].filter(Boolean).join(" ")]].map(([l,v]) => v ? (
+                      <div key={l} style={{ background:"var(--c-deep)", borderRadius:5, padding:"5px 8px" }}>
+                        <div style={{ fontSize:8, color:"var(--c-text4)", fontFamily:"'IBM Plex Mono',monospace", marginBottom:1 }}>{l}</div>
+                        <div style={{ fontSize:10, color:"var(--c-text)", fontFamily:"'IBM Plex Mono',monospace", fontWeight:700 }}>{v}</div>
+                      </div>
+                    ) : null)}
+                  </div>
+                )}
+
+                {/* Timeline */}
+                <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:"var(--c-text4)", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6 }}>Timeline</div>
+                <div style={{ maxHeight:260, overflowY:"auto" }}>
+                  {(r.events || []).slice().reverse().map((ev, i) => {
+                    const ET = { epi:"#fdba74", shock:"#fca5a5", amio:"#c084fc", lido:"#93c5fd", rosc:"#4ade80", terminate:"#94a3b8", airway:"#86efac", start:"#6b82a8" };
+                    const col = ET[ev.type] || "#6b82a8";
+                    const t = new Date(ev.ts);
+                    const timeStr = t.toTimeString().slice(0,8);
+                    return (
+                      <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start", padding:"4px 0", borderBottom:"1px solid var(--c-border-sub)" }}>
+                        <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:"var(--c-text4)", flexShrink:0, minWidth:52 }}>{timeStr}</span>
+                        <span style={{ fontSize:9, color:col, flex:1, lineHeight:1.4 }}>{ev.detail}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* ESO hint */}
+                <div style={{ marginTop:10, background:"#0a1628", border:"1px solid #1e3a5f", borderRadius:6, padding:"8px 10px" }}>
+                  <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:"#38bdf8", fontWeight:700, marginBottom:3 }}>ESO Suite Reference</div>
+                  <div style={{ fontSize:9, color:"#4a6a8a", lineHeight:1.55 }}>
+                    Use this timeline to fill the cardiac arrest section in ESO. Key fields: arrest time, first rhythm, # shocks, epi doses, airway type, ROSC time.
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWkg, setWlb, mode, isDarkMode=true, patient={} }) {
   const alarmRef = useRef({ epiWarn: false, epiDue: false, cycleEnd: false, lastCycleStart: null });
   const [showHT, setShowHT] = useState(false);
   const [showRhythmMenu, setShowRhythmMenu] = useState(false);
   const [showShockMenu, setShowShockMenu] = useState(false);
   const [showAirwayMenu, setShowAirwayMenu] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
   const [now, setNow] = useState(0);
+  const [cloudSaveStatus, setCloudSaveStatus] = useState(null); // null | "saving" | "saved" | "error"
 
   useEffect(() => {
     setNow(Date.now());
@@ -1942,21 +2304,47 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
   const endArrest = (reason) => {
     const ts = Date.now();
     const type = reason === "ROSC" ? "rosc" : "terminate";
-    setArrestState(s => ({
-      ...s, endTs: ts, endReason: reason,
-      events: [{ id: ts, ts, type, detail: reason === "ROSC" ? "Return of spontaneous circulation" : "Resuscitation terminated" }, ...s.events]
-    }));
+    setArrestState(s => {
+      const finalEvents = [{ id: ts, ts, type, detail: reason === "ROSC" ? "Return of spontaneous circulation" : "Resuscitation terminated" }, ...s.events];
+      const counts = { epi:0, shock:0 };
+      finalEvents.forEach(e => { if (e.type in counts) counts[e.type]++; });
+
+      if (isFirebaseConfigured()) {
+        setCloudSaveStatus("saving");
+        saveArrestReport({
+          patientType: s.patientType,
+          outcome: reason,
+          startTs: s.startTs,
+          endTs: ts,
+          totalSeconds: Math.floor((ts - s.startTs) / 1000),
+          events: finalEvents,
+          airway: s.airway,
+          shockCount: counts.shock,
+          epiCount: counts.epi,
+          access: s.access,
+          weightKg: wkg || 0,
+          run: patient.run || "",
+          unit: patient.unit || "",
+          provider: patient.provider || "",
+          patientAge: patient.age || "",
+          patientSex: patient.sex || "",
+        }).then(() => setCloudSaveStatus("saved"))
+          .catch(() => setCloudSaveStatus("error"));
+      }
+
+      return { ...s, endTs: ts, endReason: reason, events: finalEvents };
+    });
     setConfirmEnd(false);
   };
 
   const resetArrest = () => {
-    if (!confirm("Reset arrest? This will clear all arrest events from this tab (Med Log is NOT affected).")) return;
     setArrestState({
       startTs:null, endTs:null, endReason:null,
       rhythm:null, cycleStartTs:null, lastEpiTs:null,
       events:[], airway:null, hts:{}, access:[], patientType:null
     });
     alarmRef.current = { epiWarn: false, epiDue: false, cycleEnd: false, lastCycleStart: null };
+    setConfirmReset(false);
   };
 
   const deleteEvent = (id) => {
@@ -2083,6 +2471,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
               <span style={{ color:"#fdba74", fontWeight:700 }}>▸ CPR mechanics:</span>
               <br/>Infant: depth 1.5" (4 cm) · 15:2 two-rescuer · Rate 100–120
               <br/>Child: depth 2" (5 cm) · 15:2 two-rescuer · Rate 100–120
+              <br/><span style={{ color:"#86efac", fontWeight:600 }}>Adv airway (ETT/SGA) → continuous compressions · 1 breath q2–3 sec (20–30/min) · no pause</span>
             </div>
             <div>
               <span style={{ color:"#c084fc", fontWeight:700 }}>▸ 6 H's & 5 T's:</span>
@@ -2099,18 +2488,46 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
     return (
       <div style={{ paddingBottom:20 }}>
         <div style={{
-          background: endReason === "ROSC" ? "#071a0e" : "#1a1208",
-          border: `2px solid ${endReason === "ROSC" ? "#14532d" : "#5a4020"}`,
+          background: endReason === "ROSC" ? ac("#071a0e","#dcfce7") : ac("#1a1208","#fef3c7"),
+          border: `2px solid ${endReason === "ROSC" ? ac("#14532d","#16a34a") : ac("#5a4020","#d97706")}`,
           borderRadius:10, padding:"16px 14px", marginBottom:10, textAlign:"center"
         }}>
           <div style={{ fontSize:36, marginBottom:6 }}>{endReason === "ROSC" ? "♥" : "✕"}</div>
           <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:15, fontWeight:700, color: endReason === "ROSC" ? "#4ade80" : "#c08040", marginBottom:4 }}>
             {endReason === "ROSC" ? "ROSC Achieved" : "Resuscitation Terminated"}
           </div>
-          <div style={{ color:"var(--c-text-sub)", fontSize:11 }}>
-            Total arrest time: <span style={{ color:"var(--c-text)", fontWeight:700, fontFamily:"'IBM Plex Mono',monospace" }}>{fmtArrestTime(totalSecs)}</span>
+          <div style={{ color: subTxt, fontSize:11 }}>
+            Total arrest time: <span style={{ color: ac("#e2e8f0","#1e293b"), fontWeight:700, fontFamily:"'IBM Plex Mono',monospace" }}>{fmtArrestTime(totalSecs)}</span>
           </div>
         </div>
+
+        {/* Cloud save status */}
+        {isFirebaseConfigured() && (
+          <div style={{
+            display:"flex", alignItems:"center", gap:8, padding:"8px 12px",
+            background: cloudSaveStatus === "saved" ? "#071a0e" : cloudSaveStatus === "error" ? "#1a0808" : "#0a0f1c",
+            border: `1px solid ${cloudSaveStatus === "saved" ? "#14532d" : cloudSaveStatus === "error" ? "#7f1d1d" : "#1a2338"}`,
+            borderRadius:7, marginBottom:8
+          }}>
+            <span style={{ fontSize:14 }}>
+              {cloudSaveStatus === "saving" ? "⏳" : cloudSaveStatus === "saved" ? "☁️" : cloudSaveStatus === "error" ? "⚠️" : "☁️"}
+            </span>
+            <div style={{ flex:1 }}>
+              <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, fontWeight:700,
+                color: cloudSaveStatus === "saved" ? "#4ade80" : cloudSaveStatus === "error" ? "#fca5a5" : "#6b82a8" }}>
+                {cloudSaveStatus === "saving" ? "Saving to cloud…" :
+                 cloudSaveStatus === "saved"  ? "Saved to cloud — accessible on Toughbook / tablet" :
+                 cloudSaveStatus === "error"  ? "Cloud save failed — check connection" :
+                 "Cloud sync ready"}
+              </div>
+              {cloudSaveStatus === "saved" && (
+                <div style={{ fontSize:9, color:"#4a6a5a", marginTop:1 }}>
+                  Open this app on your Toughbook to view under Saved Calls
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Stat summary */}
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:6, marginBottom:10 }}>
@@ -2122,18 +2539,31 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
 
         <ArrestEventLog events={events} onDelete={deleteEvent} />
 
-        <div style={{ display:"flex", gap:7, marginTop:10 }}>
-          <button onClick={resetArrest} style={{
-            flex:1, padding:"11px 0", borderRadius:7, border:"1px solid #1a2540",
-            background:"transparent", color:"var(--c-text-sub)", cursor:"pointer",
-            fontFamily:"'IBM Plex Mono',monospace", fontSize:11, fontWeight:700, letterSpacing:"0.05em"
-          }}>↺ Reset & Start New</button>
-        </div>
+        {confirmReset ? (
+          <div style={{ marginTop:10, background: ac("#1a0808","#fee2e2"), border:`1px solid ${ac("#7f1d1d","#dc2626")}`, borderRadius:8, padding:"12px 14px" }}>
+            <div style={{ color: ac("#fca5a5","#b91c1c"), fontSize:12, fontWeight:700, marginBottom:4 }}>Reset arrest tracker?</div>
+            <div style={{ color: ac("#9b1c1c","#991b1b"), fontSize:11, marginBottom:10, lineHeight:1.5 }}>This will clear all arrest events from this tab. The Med Log is NOT affected.</div>
+            <div style={{ display:"flex", gap:7 }}>
+              <button onClick={resetArrest} style={{ flex:1, padding:"9px 0", borderRadius:6, border:"1px solid #7f1d1d", background:"#7f1d1d", color:"#fef2f2", cursor:"pointer", fontFamily:"'IBM Plex Mono',monospace", fontSize:11, fontWeight:700 }}>Confirm Reset</button>
+              <button onClick={()=>setConfirmReset(false)} style={{ flex:1, padding:"9px 0", borderRadius:6, border:`1px solid ${ac("#1a2540","#cbd5e1")}`, background:"transparent", color: subTxt, cursor:"pointer", fontFamily:"'IBM Plex Mono',monospace", fontSize:11, fontWeight:700 }}>Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display:"flex", gap:7, marginTop:10 }}>
+            <button onClick={()=>setConfirmReset(true)} style={{
+              flex:1, padding:"11px 0", borderRadius:7, border:`1px solid ${ac("#1a2540","#cbd5e1")}`,
+              background:"transparent", color: subTxt, cursor:"pointer",
+              fontFamily:"'IBM Plex Mono',monospace", fontSize:11, fontWeight:700, letterSpacing:"0.05em"
+            }}>↺ Reset & Start New</button>
+          </div>
+        )}
       </div>
     );
   }
 
   /* ── RENDER: Active arrest ── */
+  const ac = (d, l) => isDarkMode ? d : l;
+  const subTxt = ac("#8aa0c2", "#64748b");
   const branchColor = rhythm === "VF/pVT" ? "#fca5a5" : rhythm ? "#93c5fd" : "var(--c-text4)";
 
   return (
@@ -2142,19 +2572,24 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
       {/* PATIENT TYPE BANNER */}
       {isPeds && (
         <div style={{
-          background:"#1a0a28", border:"1px solid #a855f7",
+          background: ac("#1a0a28","#ede9fe"), border:"1px solid #a855f7",
           borderRadius:7, padding:"7px 11px", marginBottom:8,
           display:"flex", alignItems:"center", gap:8
         }}>
           <span style={{ fontSize:16 }}>{patientType === "infant" ? "👶" : "🧒"}</span>
           <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:"#c084fc", fontWeight:700, letterSpacing:"0.06em", textTransform:"uppercase" }}>
+            <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color: ac("#c084fc","#7c3aed"), fontWeight:700, letterSpacing:"0.06em", textTransform:"uppercase" }}>
               {patientType === "infant" ? "Infant (<1 yr) · PALS" : "Child (1–8 yr) · PALS"}
             </div>
-            <div style={{ fontSize:10, color:"var(--c-text3)", marginTop:1 }}>
+            <div style={{ fontSize:10, color: ac("#8aa0c2","#6d28d9"), marginTop:1 }}>
               CPR: {cprDepth} depth · {cprRatio}
               {wkg > 0 ? ` · ${wkg} kg` : " · ⚠ no weight"}
             </div>
+            {isPeds && ["iGel", "King LT", "ET Tube"].includes(airway) && (
+              <div style={{ fontSize:9.5, color:"#86efac", marginTop:2, fontWeight:700 }}>
+                ✓ {airway} placed → continuous CPR · 1 breath q2–3 sec (20–30/min)
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -2178,6 +2613,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
         onGiveEpi={() => recordMed("epi")}
         onShock={() => setShowShockMenu(true)}
         onRhythmCheck={() => setShowRhythmMenu(true)}
+        isDarkMode={isDarkMode}
       />
 
       {/* MASTER TIMERS */}
@@ -2187,30 +2623,32 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
           value={fmtArrestTime(totalSecs)}
           color="var(--c-text)"
           bg="var(--c-surface)"
+          labelColor={subTxt}
         />
         <TimerCard
           label={cycleEnded ? "Rhythm Check DUE" : "CPR Cycle"}
           value={cycleEnded ? "NOW" : fmtArrestTime(cycleRemain)}
-          color={cycleEnded ? "#f87171" : cycleRemain < 30 ? "#facc15" : "#4ade80"}
-          bg={cycleEnded ? "#2a0808" : "#0a1a18"}
+          color={cycleEnded ? "#f87171" : cycleRemain < 30 ? "#facc15" : ac("#4ade80","#15803d")}
+          bg={cycleEnded ? ac("#2a0808","#fee2e2") : ac("#0a1a18","#d1fae5")}
           pulse={cycleEnded}
+          labelColor={subTxt}
         />
       </div>
 
       {/* Epi timer strip */}
       {epiCount > 0 && (
         <div style={{
-          background: epiDue ? "#2a0808" : epiWarn ? "#1a1408" : "#0a1018",
-          border: `1px solid ${epiDue ? "#7f1d1d" : epiWarn ? "#92400e" : "#1a2540"}`,
+          background: epiDue ? ac("#2a0808","#fee2e2") : epiWarn ? ac("#1a1408","#fef9c3") : ac("#0a1018","#f1f5f9"),
+          border: `1px solid ${epiDue ? ac("#7f1d1d","#dc2626") : epiWarn ? ac("#92400e","#d97706") : ac("#1a2540","#cbd5e1")}`,
           borderRadius:7, padding:"7px 10px", marginBottom:8,
           display:"flex", alignItems:"center", gap:8
         }}>
           <span style={{ fontSize:14 }}>💉</span>
           <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color: epiDue ? "#fca5a5" : epiWarn ? "#fcd34d" : "var(--c-text4)", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em" }}>
+            <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color: epiDue ? ac("#fca5a5","#b91c1c") : epiWarn ? ac("#fcd34d","#a16207") : subTxt, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em" }}>
               Epi #{epiCount} · {fmtClock(lastEpiTs)}
             </div>
-            <div style={{ fontSize:10.5, color: epiDue ? "#fca5a5" : "var(--c-text-sub)", marginTop:1 }}>
+            <div style={{ fontSize:10.5, color: epiDue ? ac("#fca5a5","#b91c1c") : subTxt, marginTop:1 }}>
               {epiDue ? "⚠ Re-dose overdue" : epiWarn ? "⚠ Window open (3–5 min)" : `Elapsed: ${fmtArrestTime(epiSecs)}`}
             </div>
           </div>
@@ -2226,7 +2664,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
       {/* Branch indicator */}
       {rhythm && (
         <div style={{
-          background: rhythm === "VF/pVT" ? "#1a0808" : "#0a1428",
+          background: rhythm === "VF/pVT" ? ac("#1a0808","#fee2e2") : ac("#0a1428","#dbeafe"),
           border:`1px solid ${branchColor}44`, borderLeft:`3px solid ${branchColor}`,
           borderRadius:6, padding:"6px 10px", marginBottom:8,
           display:"flex", alignItems:"center", gap:8
@@ -2246,7 +2684,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
       {/* ACTION GRID */}
       {/* Access summary strip (if any successful access) */}
       {successfulAccess.length > 0 && (
-        <div style={{ background:"#0a1a28", border:"1px solid #1e3a8a55", borderRadius:7, padding:"6px 10px", marginBottom:6, display:"flex", alignItems:"center", gap:7, flexWrap:"wrap" }}>
+        <div style={{ background: ac("#0a1a28","#eff6ff"), border:`1px solid ${ac("#1e3a8a55","#bfdbfe")}`, borderRadius:7, padding:"6px 10px", marginBottom:6, display:"flex", alignItems:"center", gap:7, flexWrap:"wrap" }}>
           <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:"#60a5fa", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em", flexShrink:0 }}>
             💧 Access:
           </span>
@@ -2269,7 +2707,8 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
           icon="🔍" label="Rhythm Check"
           sub={rhythm ? `Last: ${rhythm}` : "Set algorithm branch"}
           onClick={() => setShowRhythmMenu(true)}
-          bg="#0d1f3a" bd="#1e3a8a" fg="#93c5fd" big
+          bg={ac("#0d1f3a","#dbeafe")} bd={ac("#1e3a8a","#2563eb")} fg={ac("#93c5fd","#1d4ed8")} big
+          subColor={subTxt}
         />
         <ActionBtn
           icon="⚡" label={`Shock${shockCount > 0 ? ` #${shockCount+1}` : ""}`}
@@ -2284,8 +2723,9 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
               : (shockCount > 0 ? `${shockCount} delivered` : "200/300/360 J")
           }
           onClick={() => setShowShockMenu(true)}
-          bg="#2a0808" bd="#7f1d1d" fg="#fca5a5" big
+          bg={ac("#2a0808","#fee2e2")} bd={ac("#7f1d1d","#dc2626")} fg={ac("#fca5a5","#b91c1c")} big
           disabled={(rhythm && rhythm !== "VF/pVT") || (isPeds && wkg === 0)}
+          subColor={subTxt}
         />
       </div>
 
@@ -2303,24 +2743,27 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
             if (isPeds && wkg === 0) return;
             recordMed("epi");
           }}
-          bg={isPeds && wkg === 0 ? "#0a0e1a" : epiDue ? "#7f1d1d" : epiWarn ? "#7c2d12" : "#1a1208"}
-          bd={isPeds && wkg === 0 ? "#1a1208" : epiDue ? "#ef4444" : epiWarn ? "#f97316" : "#7c2d12"}
-          fg={isPeds && wkg === 0 ? "#fcd34d" : epiDue ? "#fff" : epiWarn ? "#fff" : "#fdba74"}
+          bg={isPeds && wkg === 0 ? ac("#0a0e1a","#fef3c7") : epiDue ? ac("#7f1d1d","#fee2e2") : epiWarn ? ac("#7c2d12","#ffedd5") : ac("#1a1208","#fef3c7")}
+          bd={isPeds && wkg === 0 ? ac("#1a1208","#d97706") : epiDue ? "#ef4444" : epiWarn ? "#f97316" : ac("#7c2d12","#d97706")}
+          fg={isPeds && wkg === 0 ? ac("#fcd34d","#a16207") : epiDue ? ac("#fff","#b91c1c") : epiWarn ? ac("#fff","#c2410c") : ac("#fdba74","#92400e")}
           big
           flash={epiDue && !(isPeds && wkg === 0)}
           disabled={isPeds && wkg === 0}
+          subColor={subTxt}
         />
         <ActionBtn
           icon="💧" label={successfulAccess.length > 0 ? `Access ×${successfulAccess.length}` : "Access"}
           sub={successfulAccess.length > 0 ? "Add / fail" : "IV or IO"}
           onClick={() => setShowAccessMenu(true)}
-          bg="#0a1a28" bd="#1e3a8a" fg="#93c5fd" big
+          bg={ac("#0a1a28","#eff6ff")} bd={ac("#1e3a8a","#3b82f6")} fg={ac("#93c5fd","#1d4ed8")} big
+          subColor={subTxt}
         />
         <ActionBtn
           icon="🫁" label={airway ? "Airway ✓" : "Airway"}
           sub={airway || "OPA / iGel / ET"}
           onClick={() => setShowAirwayMenu(true)}
-          bg="#0a2318" bd="#14532d" fg="#86efac" big
+          bg={ac("#0a2318","#dcfce7")} bd={ac("#14532d","#16a34a")} fg={ac("#86efac","#15803d")} big
+          subColor={subTxt}
         />
       </div>
 
@@ -2346,11 +2789,11 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
           <div style={{ borderTop:"1px solid #141e32", padding:"10px" }}>
             {/* Weight warning */}
             {isPeds && wkg === 0 && (
-              <div style={{ background:"#1a1208", border:"1px solid #92400e", borderRadius:6, padding:"7px 9px", marginBottom:8 }}>
-                <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:"#fcd34d", fontWeight:700, marginBottom:2 }}>
+              <div style={{ background: ac("#1a1208","#fef3c7"), border:`1px solid ${ac("#92400e","#d97706")}`, borderRadius:6, padding:"7px 9px", marginBottom:8 }}>
+                <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color: ac("#fcd34d","#a16207"), fontWeight:700, marginBottom:2 }}>
                   ⚠ NO WEIGHT ENTERED
                 </div>
-                <div style={{ color:"var(--c-text3)", fontSize:10.5, lineHeight:1.4 }}>
+                <div style={{ color: subTxt, fontSize:10.5, lineHeight:1.4 }}>
                   Weight-based drugs are disabled. Scroll to top of app and enter weight in kg to enable dosing.
                 </div>
               </div>
@@ -2359,9 +2802,9 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
             {/* Phase tabs */}
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:4, marginBottom:10, background:"var(--c-deep)", border:"1px solid var(--c-border-sub)", borderRadius:7, padding:3 }}>
               {[
-                ["arrest", "Arrest", "#fca5a5", "#2a0808"],
-                ["peri", "Peri-arrest", "#fdba74", "#1a1208"],
-                ["postROSC", "Post-ROSC", "#4ade80", "#071a0e"],
+                ["arrest",   "Arrest",     ac("#fca5a5","#b91c1c"), ac("#2a0808","#fee2e2")],
+                ["peri",     "Peri-arrest",ac("#fdba74","#92400e"), ac("#1a1208","#fef3c7")],
+                ["postROSC", "Post-ROSC",  ac("#4ade80","#15803d"), ac("#071a0e","#dcfce7")],
               ].map(([k, l, fg, bg]) => (
                 <button
                   key={k}
@@ -2412,16 +2855,17 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
                 }
 
                 const disabled = needsWeight || maxReached;
+                const hasDarkCardBg = maxReached || count > 0 || needsWeight;
 
                 return (
                   <div key={drug.k} style={{
-                    background: maxReached ? "#0a0f18"
-                              : count > 0 ? "#0a1420"
-                              : needsWeight ? "#0a0e1a"
+                    background: maxReached ? ac("#0a0f18","#fee2e2")
+                              : count > 0 ? ac("#0a1420","#dcfce7")
+                              : needsWeight ? ac("#0a0e1a","#fef3c7")
                               : "var(--c-input)",
-                    border: `1px solid ${maxReached ? "#5a1010"
-                                         : count > 0 ? "#14532d"
-                                         : needsWeight ? "#1a1208"
+                    border: `1px solid ${maxReached ? ac("#5a1010","#dc2626")
+                                         : count > 0 ? ac("#14532d","#16a34a")
+                                         : needsWeight ? ac("#1a1208","#d97706")
                                          : "var(--c-border)"}`,
                     borderRadius: 7,
                     overflow: "hidden",
@@ -2441,7 +2885,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
                         <span style={{ fontSize:14, flexShrink:0, filter: disabled ? "grayscale(1)" : "none" }}>💉</span>
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
-                            <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11.5, fontWeight:700, color:"var(--c-text)" }}>
+                            <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11.5, fontWeight:700, color: hasDarkCardBg ? "#e2e8f0" : "var(--c-text)" }}>
                               {drug.name}
                             </span>
                             {count > 0 && !maxReached && (
@@ -2460,7 +2904,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
                               </span>
                             )}
                           </div>
-                          <div style={{ color:"var(--c-text-sub)", fontSize:10, marginTop:1, lineHeight:1.3 }}>
+                          <div style={{ color: hasDarkCardBg ? "#8aa0c2" : "var(--c-text-sub)", fontSize:10, marginTop:1, lineHeight:1.3 }}>
                             {drug.sub}
                           </div>
                           <div style={{ fontFamily:"'IBM Plex Mono',monospace", color: needsWeight ? "#fcd34d" : maxReached ? "#fca5a5" : "#60a5fa", fontSize:10.5, marginTop:2, fontWeight:600 }}>
@@ -2468,7 +2912,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
                           </div>
                           {/* Cumulative progress bar */}
                           {cumInfo.maxCumulative && count > 0 && wkg > 0 && (
-                            <div style={{ marginTop:4, fontSize:9, color:"var(--c-text4)", fontFamily:"'IBM Plex Mono',monospace" }}>
+                            <div style={{ marginTop:4, fontSize:9, color: hasDarkCardBg ? "#8aa0c2" : "var(--c-text4)", fontFamily:"'IBM Plex Mono',monospace" }}>
                               Cumulative: {cumInfo.cumulative.toFixed(2)} / {cumInfo.maxCumulative.toFixed(1)} {drug.unit || "mg"}
                               <div style={{ marginTop:2, height:3, background:"var(--c-border)", borderRadius:2, overflow:"hidden" }}>
                                 <div style={{
@@ -2480,7 +2924,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
                             </div>
                           )}
                           {cumInfo.maxDoses && count > 0 && !cumInfo.maxCumulative && (
-                            <div style={{ marginTop:3, fontSize:9, color:"var(--c-text4)", fontFamily:"'IBM Plex Mono',monospace" }}>
+                            <div style={{ marginTop:3, fontSize:9, color: hasDarkCardBg ? "#8aa0c2" : "var(--c-text4)", fontFamily:"'IBM Plex Mono',monospace" }}>
                               Dose {count} of {cumInfo.maxDoses} max
                             </div>
                           )}
@@ -2542,7 +2986,8 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
                   : (amioCount === 0 ? "300 mg IVP" : "150 mg IVP")
               }
               onClick={() => recordMed("amio")}
-              bg="#0d1f3a" bd="#1e3a8a" fg="#93c5fd"
+              bg={ac("#0d1f3a","#dbeafe")} bd={ac("#1e3a8a","#2563eb")} fg={ac("#93c5fd","#1d4ed8")}
+              subColor={subTxt}
               disabled={
                 (isPeds && wkg === 0) ||
                 (isPeds && amioCount >= 3) ||
@@ -2557,7 +3002,8 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
                   : (wkg > 0 ? `${(1.5 * wkg).toFixed(0)} mg (1.5 mg/kg)` : "1–1.5 mg/kg")
               }
               onClick={() => recordMed("lido")}
-              bg="#0d1f3a" bd="#1e3a8a" fg="#93c5fd"
+              bg={ac("#0d1f3a","#dbeafe")} bd={ac("#1e3a8a","#2563eb")} fg={ac("#93c5fd","#1d4ed8")}
+              subColor={subTxt}
               disabled={isPeds && wkg === 0}
             />
           </div>
@@ -2632,7 +3078,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
           onClick={() => setConfirmEnd(true)}
           style={{
             padding:"10px 0", borderRadius:7, cursor:"pointer",
-            background:"transparent", border:"1px solid #1a2540", color:"var(--c-text-sub)",
+            background:"transparent", border:`1px solid ${ac("#1a2540","#cbd5e1")}`, color: subTxt,
             fontFamily:"'IBM Plex Mono',monospace", fontSize:11, fontWeight:700, letterSpacing:"0.05em"
           }}
         >
@@ -2844,48 +3290,49 @@ function PedsWeightInput({ wkg, setWkg, setWlb, patientType }) {
   );
 }
 
-function NextActionCard({ epiWarn, epiDue, epiWindowOpen, epiSecs, cycleRemain, cycleEnded, rhythm, shockCount, epiCount, showAntiarrhythmic, amioCount, isPeds, wkg, patientType }) {
-  // Determine the most urgent "next action"
+function NextActionCard({ epiWarn, epiDue, epiWindowOpen, epiSecs, cycleRemain, cycleEnded, rhythm, shockCount, epiCount, showAntiarrhythmic, amioCount, isPeds, wkg, patientType, isDarkMode=true }) {
+  const a = (d, l) => isDarkMode ? d : l;
+  const labelTxt = a("#8aa0c2", "#64748b");
   let msg, sub, color, bg, bd, icon;
 
   if (!rhythm) {
     msg = "Set Rhythm";
     sub = "Tap rhythm check to select ACLS branch";
-    color = "#93c5fd"; bg = "#0d1f3a"; bd = "#1e3a8a"; icon = "🔍";
+    color = a("#93c5fd","#1d4ed8"); bg = a("#0d1f3a","#dbeafe"); bd = a("#1e3a8a","#2563eb"); icon = "🔍";
   } else if (cycleEnded) {
     msg = "Rhythm Check NOW";
     sub = "2-min CPR cycle complete";
-    color = "#f87171"; bg = "#2a0808"; bd = "#ef4444"; icon = "⚠";
+    color = "#f87171"; bg = a("#2a0808","#fee2e2"); bd = "#ef4444"; icon = "⚠";
   } else if (epiDue) {
     msg = "Epi Overdue";
     sub = isPeds && wkg > 0
       ? `${fmtArrestTime(epiSecs)} elapsed · give ${Math.min(0.01 * wkg, 1).toFixed(2)} mg IV/IO`
       : `${fmtArrestTime(epiSecs)} elapsed · give 1 mg IV/IO`;
-    color = "#f87171"; bg = "#2a0808"; bd = "#ef4444"; icon = "💉";
+    color = "#f87171"; bg = a("#2a0808","#fee2e2"); bd = "#ef4444"; icon = "💉";
   } else if (epiCount === 0 && rhythm === "PEA/Asystole") {
     msg = isPeds && wkg > 0
       ? `Give Epi ${Math.min(0.01 * wkg, 1).toFixed(2)} mg`
       : "Give Epi 1 mg IV/IO";
     sub = "PEA/Asystole — give epi ASAP";
-    color = "#fdba74"; bg = "#1a1208"; bd = "#f97316"; icon = "💉";
+    color = a("#fdba74","#92400e"); bg = a("#1a1208","#fef3c7"); bd = a("#f97316","#d97706"); icon = "💉";
   } else if (showAntiarrhythmic && amioCount === 0) {
     msg = "Antiarrhythmic Indicated";
     sub = isPeds && wkg > 0
       ? `Amiodarone ${Math.min(5 * wkg, 300).toFixed(0)} mg (5 mg/kg) IVP`
       : "Amiodarone 300 mg IVP after 2nd shock";
-    color = "#93c5fd"; bg = "#0d1f3a"; bd = "#1e3a8a"; icon = "💉";
+    color = a("#93c5fd","#1d4ed8"); bg = a("#0d1f3a","#dbeafe"); bd = a("#1e3a8a","#2563eb"); icon = "💉";
   } else if (epiWarn) {
     msg = "Epi Window Open";
     sub = `3–5 min interval · ${fmtArrestTime(epiSecs)} elapsed`;
-    color = "#fcd34d"; bg = "#1a1408"; bd = "#f59e0b"; icon = "💉";
+    color = a("#fcd34d","#a16207"); bg = a("#1a1408","#fef9c3"); bd = a("#f59e0b","#d97706"); icon = "💉";
   } else if (rhythm === "VF/pVT" && shockCount === 0) {
     msg = "Deliver Shock";
     sub = isPeds && wkg > 0 ? `VF/pVT — shock 2 J/kg (${Math.round(2 * wkg)} J)` : "VF/pVT — shock 200J biphasic";
-    color = "#fca5a5"; bg = "#2a0808"; bd = "#7f1d1d"; icon = "⚡";
+    color = a("#fca5a5","#b91c1c"); bg = a("#2a0808","#fee2e2"); bd = a("#7f1d1d","#dc2626"); icon = "⚡";
   } else {
     msg = "CPR in Progress";
     sub = `Next rhythm check in ${fmtArrestTime(cycleRemain)}`;
-    color = "#4ade80"; bg = "#071a0e"; bd = "#14532d"; icon = "↻";
+    color = a("#4ade80","#15803d"); bg = a("#071a0e","#dcfce7"); bd = a("#14532d","#16a34a"); icon = "↻";
   }
 
   return (
@@ -2896,13 +3343,13 @@ function NextActionCard({ epiWarn, epiDue, epiWindowOpen, epiSecs, cycleRemain, 
       <div style={{ display:"flex", alignItems:"center", gap:12 }}>
         <div style={{ fontSize:24 }}>{icon}</div>
         <div style={{ flex:1, minWidth:0 }}>
-          <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:"var(--c-text-sub)", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.1em" }}>
+          <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:labelTxt, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.1em" }}>
             Next Action
           </div>
           <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:15, color, fontWeight:700, marginTop:2, letterSpacing:"-0.01em" }}>
             {msg}
           </div>
-          <div style={{ color:"var(--c-text-sub)", fontSize:11, marginTop:2 }}>
+          <div style={{ color:labelTxt, fontSize:11, marginTop:2 }}>
             {sub}
           </div>
         </div>
@@ -2911,14 +3358,14 @@ function NextActionCard({ epiWarn, epiDue, epiWindowOpen, epiSecs, cycleRemain, 
   );
 }
 
-function TimerCard({ label, value, color, bg, pulse }) {
+function TimerCard({ label, value, color, bg, pulse, labelColor }) {
   return (
     <div style={{
       background: bg, border:`1px solid ${color}30`, borderRadius:8,
       padding:"9px 11px", textAlign:"center",
       animation: pulse ? "flash 1s ease-in-out infinite" : "none"
     }}>
-      <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:"var(--c-text4)", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:3 }}>
+      <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color: labelColor || "#8aa0c2", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:3 }}>
         {label}
       </div>
       <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:22, color, fontWeight:700, lineHeight:1, letterSpacing:"-0.02em" }}>
@@ -2928,7 +3375,7 @@ function TimerCard({ label, value, color, bg, pulse }) {
   );
 }
 
-function ActionBtn({ icon, label, sub, onClick, bg, bd, fg, big, disabled, flash }) {
+function ActionBtn({ icon, label, sub, onClick, bg, bd, fg, big, disabled, flash, subColor }) {
   return (
     <button
       onClick={onClick}
@@ -2948,7 +3395,7 @@ function ActionBtn({ icon, label, sub, onClick, bg, bd, fg, big, disabled, flash
         <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize: big ? 12.5 : 11.5, fontWeight:700, color: fg, letterSpacing:"0.01em" }}>
           {label}
         </div>
-        <div style={{ color:"var(--c-text-sub)", fontSize: 10, marginTop:1, lineHeight:1.2 }}>
+        <div style={{ color: subColor || "#8aa0c2", fontSize: 10, marginTop:1, lineHeight:1.2 }}>
           {sub}
         </div>
       </div>
@@ -2972,6 +3419,8 @@ function SumStat({ label, value, color }) {
 }
 
 function ArrestEventLog({ events, onDelete }) {
+  const [pendingDeleteId, setPendingDeleteId] = useState(null);
+
   if (events.length === 0) return null;
 
   return (
@@ -2984,10 +3433,12 @@ function ArrestEventLog({ events, onDelete }) {
       <div style={{ maxHeight:320, overflowY:"auto" }}>
         {events.map(e => {
           const def = ARREST_EVENT_COLORS[e.type] || ARREST_EVENT_COLORS.note;
+          const isPending = pendingDeleteId === e.id;
           return (
             <div key={e.id} style={{
               display:"flex", alignItems:"center", gap:9,
-              padding:"8px 11px", borderBottom:"1px solid #0e1525"
+              padding:"8px 11px", borderBottom:"1px solid #0e1525",
+              background: isPending ? "#1a0808" : "transparent"
             }}>
               <div style={{
                 width:26, height:26, borderRadius:6, background: def.bg, color: def.fg,
@@ -3009,14 +3460,21 @@ function ArrestEventLog({ events, onDelete }) {
                   </div>
                 )}
               </div>
-              <button
-                onClick={() => { if (confirm("Remove this event?")) onDelete(e.id); }}
-                style={{
-                  background:"transparent", border:"1px solid var(--c-border)", color:"#4a5a7a",
-                  borderRadius:4, padding:"3px 6px", cursor:"pointer", fontSize:10,
-                  fontFamily:"'IBM Plex Mono',monospace", flexShrink:0
-                }}
-              >✕</button>
+              {isPending ? (
+                <div style={{ display:"flex", gap:5, flexShrink:0 }}>
+                  <button onClick={()=>{ onDelete(e.id); setPendingDeleteId(null); }} style={{ background:"#7f1d1d", border:"1px solid #991b1b", color:"#fef2f2", borderRadius:4, padding:"3px 8px", cursor:"pointer", fontSize:10, fontFamily:"'IBM Plex Mono',monospace", fontWeight:700 }}>Remove</button>
+                  <button onClick={()=>setPendingDeleteId(null)} style={{ background:"transparent", border:"1px solid var(--c-border)", color:"var(--c-text-sub)", borderRadius:4, padding:"3px 8px", cursor:"pointer", fontSize:10, fontFamily:"'IBM Plex Mono',monospace" }}>Keep</button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setPendingDeleteId(e.id)}
+                  style={{
+                    background:"transparent", border:"1px solid var(--c-border)", color:"#4a5a7a",
+                    borderRadius:4, padding:"3px 6px", cursor:"pointer", fontSize:10,
+                    fontFamily:"'IBM Plex Mono',monospace", flexShrink:0
+                  }}
+                >✕</button>
+              )}
             </div>
           );
         })}
@@ -3243,6 +3701,7 @@ function AccessAttemptModal({ onClose, onSubmit, existingAttempts }) {
    MED LOG — chronological timestamp view of all given drugs
 ═══════════════════════════════════════════════════════ */
 function MedLog({ adminLog, findDrugLocation, onJump, onClearAll, onResetDrug, wkg }) {
+  const [confirmClear, setConfirmClear] = useState(false);
   // Flatten { drugName: { times: [t1,t2] } } into individual dose events
   const events = [];
   Object.entries(adminLog).forEach(([drugName, data]) => {
@@ -3296,7 +3755,15 @@ function MedLog({ adminLog, findDrugLocation, onJump, onClearAll, onResetDrug, w
         </div>
         <div style={{ display:"flex", gap:6 }}>
           <button onClick={copyLog} style={{ padding:"5px 10px", background:"#0d1f3a", border:"1px solid #1e3a8a", color:"#93c5fd", borderRadius:5, cursor:"pointer", fontSize:10, fontWeight:700, fontFamily:"'IBM Plex Mono',monospace" }}>📋 Copy</button>
-          <button onClick={() => { if (confirm("Clear all medication log entries?")) onClearAll(); }} style={{ padding:"5px 10px", background:"transparent", border:"1px solid #7a5a30", color:"#c08040", borderRadius:5, cursor:"pointer", fontSize:10, fontFamily:"'IBM Plex Mono',monospace" }}>Clear All</button>
+          {confirmClear ? (
+            <div style={{ display:"flex", gap:5, alignItems:"center" }}>
+              <span style={{ color:"#c08040", fontSize:10, fontFamily:"'IBM Plex Mono',monospace" }}>Clear all?</span>
+              <button onClick={()=>{ onClearAll(); setConfirmClear(false); }} style={{ padding:"4px 8px", background:"#7c2d12", border:"1px solid #9a3412", color:"#fed7aa", borderRadius:5, cursor:"pointer", fontSize:10, fontFamily:"'IBM Plex Mono',monospace", fontWeight:700 }}>Yes</button>
+              <button onClick={()=>setConfirmClear(false)} style={{ padding:"4px 8px", background:"transparent", border:"1px solid var(--c-border)", color:"var(--c-text-sub)", borderRadius:5, cursor:"pointer", fontSize:10, fontFamily:"'IBM Plex Mono',monospace" }}>No</button>
+            </div>
+          ) : (
+            <button onClick={()=>setConfirmClear(true)} style={{ padding:"5px 10px", background:"transparent", border:"1px solid #7a5a30", color:"#c08040", borderRadius:5, cursor:"pointer", fontSize:10, fontFamily:"'IBM Plex Mono',monospace" }}>Clear All</button>
+          )}
         </div>
       </div>
 
@@ -3378,7 +3845,7 @@ function MedLog({ adminLog, findDrugLocation, onJump, onClearAll, onResetDrug, w
    ePCR GENERATOR — patient demographics + auto-filled
    medication log + vitals trends → copyable narrative
 ═══════════════════════════════════════════════════════ */
-function Epcr({ patient, setPatient, adminLog, vitalsEntries, wkg, wlb, mode, findDrugLocation }) {
+function Epcr({ patient, setPatient, adminLog, vitalsEntries, wkg, wlb, mode, findDrugLocation, isDarkMode=true }) {
   const [copied, setCopied] = useState(false);
   const upd = (k, v) => setPatient({ ...patient, [k]: v });
 
@@ -3434,7 +3901,7 @@ function Epcr({ patient, setPatient, adminLog, vitalsEntries, wkg, wlb, mode, fi
     // mailto: URLs have a ~2000 char limit in many clients; truncate safely
     const MAX = 1800;
     const body = narrative.length > MAX
-      ? narrative.slice(0, MAX) + "\n\n[...truncated — see MedicAI app for full report]"
+      ? narrative.slice(0, MAX) + "\n\n[...truncated — see R.O.M.A.N. app for full report]"
       : narrative;
     const mailto = `mailto:?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}`;
     window.location.href = mailto;
@@ -3523,30 +3990,34 @@ function Epcr({ patient, setPatient, adminLog, vitalsEntries, wkg, wlb, mode, fi
             label="Share"
             sub="AirDrop · Files · Messages"
             onClick={shareReport}
-            bg="#0d1f3a" bd="#1e3a8a" fg="#93c5fd"
+            bg={isDarkMode?"#0d1f3a":"#dbeafe"} bd={isDarkMode?"#1e3a8a":"#93c5fd"} fg={isDarkMode?"#93c5fd":"#1e40af"}
+            isDarkMode={isDarkMode}
           />
           <TransferBtn
             icon="📧"
             label="Email"
             sub="Open in mail app"
             onClick={emailReport}
-            bg="#1a0e28" bd="#4c1d7c" fg="#c084fc"
+            bg={isDarkMode?"#1a0e28":"#ede9fe"} bd={isDarkMode?"#4c1d7c":"#c4b5fd"} fg={isDarkMode?"#c084fc":"#6b21a8"}
+            isDarkMode={isDarkMode}
           />
           <TransferBtn
             icon="▦"
             label={showQR ? "Hide QR" : "Show QR"}
             sub="Scan from 2nd device"
             onClick={() => setShowQR(v => !v)}
-            bg="#0a2318" bd="#14532d" fg="#86efac"
+            bg={isDarkMode?"#0a2318":"#dcfce7"} bd={isDarkMode?"#14532d":"#86efac"} fg={isDarkMode?"#86efac":"#15803d"}
+            isDarkMode={isDarkMode}
           />
           <TransferBtn
             icon={copied ? "✓" : "📋"}
             label={copied ? "Copied" : "Copy"}
             sub="To clipboard"
             onClick={copyReport}
-            bg={copied ? "#071a0e" : "#1a1208"}
-            bd={copied ? "#14532d" : "#7c2d12"}
-            fg={copied ? "#4ade80" : "#fb923c"}
+            bg={isDarkMode?(copied?"#071a0e":"#1a1208"):(copied?"#dcfce7":"#fff7ed")}
+            bd={isDarkMode?(copied?"#14532d":"#7c2d12"):(copied?"#86efac":"#fed7aa")}
+            fg={isDarkMode?(copied?"#4ade80":"#fb923c"):(copied?"#15803d":"#c2410c")}
+            isDarkMode={isDarkMode}
           />
         </div>
 
@@ -3608,7 +4079,7 @@ function Epcr({ patient, setPatient, adminLog, vitalsEntries, wkg, wlb, mode, fi
 }
 
 /* ── Transfer button (reusable) ── */
-function TransferBtn({ icon, label, sub, onClick, bg, bd, fg }) {
+function TransferBtn({ icon, label, sub, onClick, bg, bd, fg, isDarkMode=true }) {
   return (
     <button
       onClick={onClick}
@@ -3624,7 +4095,7 @@ function TransferBtn({ icon, label, sub, onClick, bg, bd, fg }) {
         <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 11.5, fontWeight: 700, color: fg, letterSpacing: "0.02em" }}>
           {label}
         </div>
-        <div style={{ color: "var(--c-text4)", fontSize: 9.5, marginTop: 1, lineHeight: 1.2 }}>
+        <div style={{ color: isDarkMode ? "var(--c-text4)" : "#374151", fontSize: 9.5, marginTop: 1, lineHeight: 1.2 }}>
           {sub}
         </div>
       </div>
@@ -3638,7 +4109,7 @@ function QRPanel({ narrative, patient }) {
   const subj = `ePCR — Run ${patient.run || "Unknown"}`;
   const MAX_QR = 900;
   const body = narrative.length > MAX_QR
-    ? narrative.slice(0, MAX_QR) + "\n\n[truncated — see MedicAI for full report]"
+    ? narrative.slice(0, MAX_QR) + "\n\n[truncated — see R.O.M.A.N. for full report]"
     : narrative;
   const mailtoUrl = `mailto:?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}`;
   const qrSize = 240;
@@ -3755,7 +4226,8 @@ function buildNarrative(p, adminLog, vitalsEntries, wkg, wlb, mode) {
         if (v.pain) parts.push(`Pain ${v.pain}/10`);
         if (v.gcsTotal) parts.push(`GCS ${v.gcsTotal}`);
         if (v.skin) parts.push(v.skin);
-        let line = `  ${t}  ${parts.join(" · ")}`;
+        const label = v.autoCapture && v.drugName ? `[Pre-check: ${v.drugName}]` : "";
+        let line = `  ${t}  ${parts.join(" · ")}${label ? `  ${label}` : ""}`;
         if (v.notes) line += `\n           └─ ${v.notes}`;
         return line;
       }).join("\n");
@@ -3801,7 +4273,7 @@ DISPOSITION
 ${line}
 Reference: GA SOP-2024 · NASEMSO v3 · AHA/AAP 2025 PALS
 Pre-checks and re-dose reassessments verified at time of
-administration via MedicAI clinical decision support.
+administration via R.O.M.A.N. clinical decision support.
 
 Provider signature: ${p.provider || "_________________"}
 ${line}`;
@@ -3902,7 +4374,7 @@ const PROTOCOL_SYSTEMS = [
   { id:"respiratory", label:"Respiratory", color:"#60a5fa" },
   { id:"neuro", label:"Neuro", color:"#c084fc" },
   { id:"trauma", label:"Trauma", color:"#f97316" },
-  { id:"metabolic", label:"Metabolic", color:"#facc15" },
+  { id:"metabolic", label:"Metabolic", color:"#facc15", lightColor:"#854d0e" },
   { id:"anaphylaxis", label:"Anaphylaxis", color:"#fb923c" },
 ];
 
@@ -3913,12 +4385,14 @@ const PROTOCOL_DEFINITIONS = [
     title:"Burn Protocol",
     sub:"TBSA, depth, airway, transfer triggers",
     special:"burns",
+    scope:"EMT",
   },
   {
     id:"acs",
     system:"cardiac",
     title:"Chest Pain / ACS",
     sub:"12-lead, aspirin, nitro screen, transport",
+    scope:"EMT",
     questions:[
       ["stemi","STEMI or concerning 12-lead changes?"],
       ["hypotension","SBP less than protocol threshold or signs of shock?"],
@@ -3941,6 +4415,7 @@ const PROTOCOL_DEFINITIONS = [
     system:"respiratory",
     title:"Respiratory Distress",
     sub:"Oxygen, bronchodilator, CPAP, airway escalation",
+    scope:"EMT",
     questions:[
       ["severe","Severe distress, exhaustion, cyanosis, or altered mental status?"],
       ["wheezing","Wheezing or diminished bronchospastic lung sounds?"],
@@ -3963,6 +4438,7 @@ const PROTOCOL_DEFINITIONS = [
     system:"neuro",
     title:"Suspected Stroke",
     sub:"Last known well, stroke scale, glucose, destination",
+    scope:"EMT",
     questions:[
       ["positiveScale","Positive stroke scale or new focal neuro deficit?"],
       ["lvo","Large vessel occlusion screen positive?"],
@@ -3984,6 +4460,7 @@ const PROTOCOL_DEFINITIONS = [
     system:"neuro",
     title:"Seizure",
     sub:"Active seizure, glucose, airway, benzodiazepine",
+    scope:"Medic",
     questions:[
       ["active","Active seizure or recurrent seizures without recovery?"],
       ["airway","Airway compromise or hypoxia?"],
@@ -4006,6 +4483,7 @@ const PROTOCOL_DEFINITIONS = [
     system:"trauma",
     title:"Trauma / Shock",
     sub:"MARCH, bleeding control, TXA screen, destination",
+    scope:"EMT",
     questions:[
       ["majorBleed","Life-threatening external bleeding?"],
       ["shock","Signs of shock or poor perfusion?"],
@@ -4028,6 +4506,7 @@ const PROTOCOL_DEFINITIONS = [
     system:"metabolic",
     title:"Hypoglycemia",
     sub:"BGL, mental status, oral vs IV/IO/IM therapy",
+    scope:"AEMT",
     questions:[
       ["lowBgl","BGL below local treatment threshold?"],
       ["canSwallow","Awake and able to swallow safely?"],
@@ -4049,6 +4528,7 @@ const PROTOCOL_DEFINITIONS = [
     system:"anaphylaxis",
     title:"Anaphylaxis",
     sub:"IM epi, airway, bronchodilator, shock support",
+    scope:"EMT",
     questions:[
       ["airway","Airway swelling, voice change, stridor, or respiratory compromise?"],
       ["shock","Hypotension, syncope, or poor perfusion?"],
@@ -4347,11 +4827,7 @@ function GenericProtocolAlgorithm({ protocol, values, setValues, onBack, isDarkM
         </div>
       </div>
 
-      {pedsWeightBlocked ? (
-        <PedsProtocolWeightGate wkg={wkg} wlb={wlb} setWkg={setWkg} setWlb={setWlb} isDarkMode={isDarkMode}/>
-      ) : (
-        <ActiveCallWorkspace {...activeCall} protocolTitle={protocol.title} isDarkMode={isDarkMode}/>
-      )}
+      {pedsWeightBlocked && <PedsProtocolWeightGate wkg={wkg} wlb={wlb} setWkg={setWkg} setWlb={setWlb} isDarkMode={isDarkMode}/>}
 
       <div style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:10}}>
         <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"var(--c-text4)",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}}>Decision points</div>
@@ -4499,11 +4975,7 @@ function BurnProtocolAlgorithm({ patientType, totals, active, values, setValues,
         </div>
       </div>
 
-      {pedsWeightBlocked ? (
-        <PedsProtocolWeightGate wkg={wkg} wlb={wlb} setWkg={setWkg} setWlb={setWlb} isDarkMode={isDarkMode}/>
-      ) : (
-        <ActiveCallWorkspace {...activeCall} protocolTitle="Burn Protocol" isDarkMode={isDarkMode}/>
-      )}
+      {pedsWeightBlocked && <PedsProtocolWeightGate wkg={wkg} wlb={wlb} setWkg={setWkg} setWlb={setWlb} isDarkMode={isDarkMode}/>}
 
       {surface}
 
@@ -4565,8 +5037,9 @@ function BurnProtocolAlgorithm({ patientType, totals, active, values, setValues,
   );
 }
 
-function ProtocolsScreen({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, onJumpDrug, findDrugLocation, wkg, wlb, setWkg, setWlb }) {
+function ProtocolsScreen({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, onJumpDrug, findDrugLocation, wkg, wlb, setWkg, setWlb, authUser }) {
   const [selectedSystem, setSelectedSystem] = useState("burns");
+  const [sysDropOpen, setSysDropOpen] = useState(false);
   const [activeProtocol, setActiveProtocol] = useState(null);
   const [protocolValues, setProtocolValues] = useState({});
   const [protocolEvents, setProtocolEvents] = useState([]);
@@ -4577,6 +5050,7 @@ function ProtocolsScreen({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, onJ
   const patientType = mode === "peds" ? "peds" : "adult";
   const regions = BURN_REGIONS[patientType];
   const selectedSystemInfo = PROTOCOL_SYSTEMS.find(system => system.id === selectedSystem) || PROTOCOL_SYSTEMS[0];
+  const sysColor = (sys) => (!isDarkMode && sys.lightColor) ? sys.lightColor : sys.color;
   const availableProtocols = PROTOCOL_DEFINITIONS.filter(protocol => protocol.system === selectedSystem);
   const currentProtocol = PROTOCOL_DEFINITIONS.find(protocol => protocol.id === activeProtocol);
   const totals = useMemo(() => {
@@ -4705,59 +5179,77 @@ function ProtocolsScreen({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, onJ
         </div>
       </div>
 
-      <div style={{display:"flex",overflowX:"auto",gap:6,paddingBottom:2,scrollbarWidth:"none"}}>
-        {PROTOCOL_SYSTEMS.map(system => {
-          const count = PROTOCOL_DEFINITIONS.filter(protocol => protocol.system === system.id).length;
-          const selected = selectedSystem === system.id;
-          return (
-            <button
-              key={system.id}
-              onClick={()=>setSelectedSystem(system.id)}
-              style={{
-                flexShrink:0,
-                padding:"7px 10px",
-                borderRadius:20,
-                border:selected?`1px solid ${system.color}`:"1px solid var(--c-border-sub)",
-                background:selected?system.color+"22":"var(--c-input)",
-                color:selected?system.color:"var(--c-text4)",
-                fontFamily:"'IBM Plex Mono',monospace",
-                fontSize:10,
-                fontWeight:800,
-                cursor:"pointer",
-              }}
-            >
-              {system.label} {count}
-            </button>
-          );
-        })}
+      <div style={{position:"relative"}}>
+        {sysDropOpen&&<div onClick={()=>setSysDropOpen(false)} style={{position:"fixed",inset:0,zIndex:98}}/>}
+        <button
+          onClick={()=>setSysDropOpen(v=>!v)}
+          style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderRadius:10,border:`1px solid ${sysColor(selectedSystemInfo)}`,background:sysColor(selectedSystemInfo)+"22",color:sysColor(selectedSystemInfo),fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,cursor:"pointer",letterSpacing:"0.06em",boxSizing:"border-box"}}
+        >
+          <span>{selectedSystemInfo.label} · {PROTOCOL_DEFINITIONS.filter(p=>p.system===selectedSystem).length} protocols</span>
+          <span style={{fontSize:9,opacity:0.7}}>{sysDropOpen?"▲":"▼"}</span>
+        </button>
+        {sysDropOpen&&(
+          <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,right:0,zIndex:99,background:"var(--c-nav)",border:"1px solid var(--c-border-sub)",borderRadius:10,padding:4,display:"grid",gap:3,boxShadow:"0 8px 24px rgba(0,0,0,0.25)"}}>
+            {PROTOCOL_SYSTEMS.map(system=>{
+              const count=PROTOCOL_DEFINITIONS.filter(p=>p.system===system.id).length;
+              const active=selectedSystem===system.id;
+              return(
+                <button key={system.id} onClick={()=>{setSelectedSystem(system.id);setSysDropOpen(false);}} style={{padding:"11px 14px",borderRadius:8,border:active?`1px solid ${sysColor(system)}`:"none",background:active?sysColor(system)+"22":"transparent",color:active?sysColor(system):"var(--c-text4)",fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span>{system.label}</span>
+                  <span style={{fontSize:10,opacity:0.6}}>{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:10}}>
-        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:selectedSystemInfo.color,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}}>{selectedSystemInfo.label} protocols</div>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:sysColor(selectedSystemInfo),letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}}>{selectedSystemInfo.label} protocols</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-          {availableProtocols.map(protocol => (
-          <button
-            key={protocol.id}
-            onClick={()=>setActiveProtocol(protocol.id)}
-            style={{
-              minHeight:96,
-              textAlign:"left",
-              border:`1px solid ${selectedSystemInfo.color}`,
-              borderLeft:`4px solid ${selectedSystemInfo.color}`,
-              background:"var(--c-input)",
-              color:"var(--c-text)",
-              borderRadius:8,
-              padding:10,
-              cursor:"pointer",
-            }}
-          >
-            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,letterSpacing:"0.06em",textTransform:"uppercase",color:selectedSystemInfo.color,marginBottom:5}}>{protocol.title}</div>
-            <div style={{fontSize:11,color:"var(--c-text4)",lineHeight:1.35}}>{protocol.sub}</div>
-            <div style={{marginTop:10,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:selectedSystemInfo.color,textTransform:"uppercase"}}>
-              Start protocol
-            </div>
-          </button>
-          ))}
+          {(()=>{
+            const CERT_SCOPE_MAP_PROTO={EMT:"EMT",AEMT:"AEMT",Paramedic:"Medic"};
+            const scopeRank={EMT:1,AEMT:2,Medic:3};
+            const SCOPE_BADGE_COLORS={EMT:{bg:"#052e16",text:"#86efac",border:"#166534"},AEMT:{bg:"#1e3a5f",text:"#93c5fd",border:"#1e40af"},Medic:{bg:"#3b1a6a",text:"#d8b4fe",border:"#7c3aed"}};
+            const fullRoles=["Student","PaidGuest"];
+            const certKey=(authUser?.certLevel && !fullRoles.includes(authUser?.role)) ? CERT_SCOPE_MAP_PROTO[authUser.certLevel] : null;
+            const certRank=certKey ? (scopeRank[certKey]||3) : 3;
+            return availableProtocols.map(protocol => {
+              const pRank=protocol.scope ? (scopeRank[protocol.scope]||1) : 1;
+              const locked=certKey && pRank>certRank;
+              const badgeColor=protocol.scope ? SCOPE_BADGE_COLORS[protocol.scope] : null;
+              return (
+                <button
+                  key={protocol.id}
+                  onClick={()=>{ if(!locked) setActiveProtocol(protocol.id); }}
+                  style={{
+                    minHeight:96,
+                    textAlign:"left",
+                    border:`1px solid ${locked?"var(--c-border-sub)":sysColor(selectedSystemInfo)}`,
+                    borderLeft:`4px solid ${locked?"#6b7280":sysColor(selectedSystemInfo)}`,
+                    background:locked?"var(--c-nav)":"var(--c-input)",
+                    color:locked?"var(--c-text4)":"var(--c-text)",
+                    borderRadius:8,
+                    padding:10,
+                    cursor:locked?"not-allowed":"pointer",
+                    opacity:locked?0.6:1,
+                    position:"relative",
+                  }}
+                >
+                  {protocol.scope && badgeColor && (
+                    <div style={{position:"absolute",top:6,right:6,background:badgeColor.bg,color:badgeColor.text,border:`1px solid ${badgeColor.border}`,borderRadius:4,padding:"1px 5px",fontFamily:"'IBM Plex Mono',monospace",fontSize:8,fontWeight:800,letterSpacing:"0.08em"}}>
+                      {locked?"🔒 ":""}{protocol.scope==="Medic"?"MEDIC":protocol.scope}
+                    </div>
+                  )}
+                  <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,letterSpacing:"0.06em",textTransform:"uppercase",color:locked?"var(--c-text4)":sysColor(selectedSystemInfo),marginBottom:5,paddingRight:protocol.scope?36:0}}>{protocol.title}</div>
+                  <div style={{fontSize:11,color:"var(--c-text4)",lineHeight:1.35}}>{protocol.sub}</div>
+                  <div style={{marginTop:10,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:locked?"#6b7280":sysColor(selectedSystemInfo),textTransform:"uppercase"}}>
+                    {locked?"🔒 Scope locked":("Start protocol")}
+                  </div>
+                </button>
+              );
+            });
+          })()}
         </div>
       </div>
 
@@ -4860,6 +5352,39 @@ function BurnsTool({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, embedded=
 }
 
 const AUTH_USERS_KEY = "medic-ai-users";
+const GUEST_COUNT_KEY = "medic-ai-guest-count";
+
+function getGuestCount(){
+  if(typeof window==="undefined") return 0;
+  return parseInt(localStorage.getItem(GUEST_COUNT_KEY)||"0",10);
+}
+function incrementGuestCount(){
+  if(typeof window!=="undefined") localStorage.setItem(GUEST_COUNT_KEY,String(getGuestCount()+1));
+}
+
+const PAID_ACCESS_KEY  = "medic-ai-paid-access";
+const PAID_ACCESS_PRICE = "$4.99";
+const VALID_SCHOOL_CODES = ["EMSCLASS2025","NREMT-PREP","MEDIC-EDU101","AAOS-ACCESS"];
+
+function getPaidAccess(){
+  if(typeof window==="undefined") return null;
+  try{
+    const raw=localStorage.getItem(PAID_ACCESS_KEY);
+    if(!raw) return null;
+    const d=JSON.parse(raw);
+    if(Date.now()>d.expiresAt){ localStorage.removeItem(PAID_ACCESS_KEY); return null; }
+    return d;
+  }catch{ return null; }
+}
+function activatePaidAccess(certLevel){
+  const d={ purchasedAt:Date.now(), expiresAt:Date.now()+24*3600*1000, certLevel:certLevel||null };
+  if(typeof window!=="undefined") localStorage.setItem(PAID_ACCESS_KEY,JSON.stringify(d));
+  return d;
+}
+function updatePaidAccessCertLevel(certLevel){
+  const d=getPaidAccess();
+  if(d) localStorage.setItem(PAID_ACCESS_KEY,JSON.stringify({...d,certLevel}));
+}
 
 function getStoredUsers(){
   if(typeof window==="undefined") return [];
@@ -4880,7 +5405,254 @@ function providerNameFromEmail(email){
   return label.replace(/\b\w/g,c=>c.toUpperCase());
 }
 
-function HomeScreen({ isDarkMode, onLogin, onSignup, onGuest, onToggleTheme }) {
+function GuestBlockedScreen({ isDarkMode, onLogin, onSignup, onStudentCode, on24hr, onToggleTheme }) {
+  const bg = "#020617";
+  const text = "#f8fafc";
+  const muted = "#94a3b8";
+  const buttonBase = { width:"100%", height:52, borderRadius:10, fontSize:16, fontWeight:800, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif" };
+
+  return (
+    <>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}body{background:${bg}}button{font:inherit}`}</style>
+      <main style={{minHeight:"100vh",background:"#020617",color:text,fontFamily:"'DM Sans',sans-serif",display:"flex",justifyContent:"center",alignItems:"center"}}>
+        <div style={{width:"100%",maxWidth:430,padding:"32px 20px",display:"flex",flexDirection:"column",gap:0}}>
+
+          <div style={{textAlign:"center",marginBottom:28}}>
+            <div style={{fontSize:48,marginBottom:16}}>🔒</div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:12,fontWeight:800,textTransform:"uppercase",letterSpacing:1.2,color:"#14b8a6",marginBottom:10}}>Guest limit reached</div>
+            <h1 style={{fontSize:30,fontWeight:800,color:text,margin:"0 0 12px",lineHeight:1.1}}>You've used your 2 free sessions.</h1>
+            <p style={{fontSize:15,color:muted,lineHeight:1.6}}>Choose how you'd like to continue.</p>
+          </div>
+
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            <button onClick={onSignup} style={{...buttonBase,background:"linear-gradient(135deg,#2dd4bf,#0284c7)",color:"#fff",border:"1px solid rgba(125,249,255,.88)",boxShadow:"0 14px 34px rgba(20,184,166,.26)"}}>Create Free Account</button>
+            <button onClick={onLogin} style={{...buttonBase,background:"rgba(2,14,38,.9)",color:"#f8fafc",border:"1px solid rgba(125,249,255,.72)"}}>Log In</button>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:2}}>
+              <button onClick={onStudentCode} style={{height:48,borderRadius:10,border:"1px solid #7c3aed",background:"rgba(124,58,237,.15)",color:"#d8b4fe",fontWeight:800,fontSize:14,cursor:"pointer"}}>🎓 School Code</button>
+              <button onClick={on24hr} style={{height:48,borderRadius:10,border:"1px solid #d97706",background:"rgba(217,119,6,.12)",color:"#fde68a",fontWeight:800,fontSize:14,cursor:"pointer"}}>⚡ 24hr — {PAID_ACCESS_PRICE}</button>
+            </div>
+            <p style={{fontSize:12,color:muted,textAlign:"center",marginTop:4,lineHeight:1.5}}>
+              EMS student? Enter your school access code for full, unlimited access.
+            </p>
+          </div>
+
+        </div>
+      </main>
+    </>
+  );
+}
+
+function StudentCodeScreen({ isDarkMode, onBack, onEnter, onToggleTheme }){
+  const bg=isDarkMode?"#060a15":"#f4efe7";
+  const panel=isDarkMode?"#0d1120":"#fbf7f0";
+  const text=isDarkMode?"#e2e8f0":"#0f172a";
+  const muted=isDarkMode?"#8aa0c2":"#374151";
+  const border=isDarkMode?"#1a2338":"#9a9286";
+  const inputBg=isDarkMode?"#090e1c":"#f2ece4";
+  const[code,setCode]=useState("");
+  const[error,setError]=useState("");
+  const[step,setStep]=useState("code"); // "code" | "level"
+  const[validCode,setValidCode]=useState("");
+  const inp={width:"100%",height:46,borderRadius:8,border:`1px solid ${border}`,background:inputBg,color:text,padding:"0 13px",outline:"none",fontSize:16,fontFamily:"'IBM Plex Mono',monospace",letterSpacing:"0.12em",textTransform:"uppercase"};
+
+  function handleSubmit(e){
+    e.preventDefault();
+    const t=code.trim().toUpperCase();
+    if(VALID_SCHOOL_CODES.includes(t)){ setValidCode(t); setStep("level"); }
+    else setError("Invalid access code. Check with your instructor or program director.");
+  }
+
+  const LEVELS=[
+    {key:"EMT",       label:"EMT",        sub:"Basic life support · EMT-level drugs & protocols",      bd:"#166534", bg:isDarkMode?"#052e16":"#f0fdf4", fg:isDarkMode?"#86efac":"#14532d"},
+    {key:"AEMT",      label:"AEMT",        sub:"EMT + advanced airway · AEMT-level drugs & protocols",  bd:"#1e40af", bg:isDarkMode?"#060f1e":"#eff6ff", fg:isDarkMode?"#93c5fd":"#1e3a8a"},
+    {key:"Paramedic", label:"Paramedic",   sub:"Full ALS · all drugs, all protocols",                   bd:"#7c3aed", bg:isDarkMode?"#100a1f":"#faf5ff", fg:isDarkMode?"#d8b4fe":"#4c1d95"},
+  ];
+
+  return(
+    <>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}body{background:${bg}}button,input{font:inherit}`}</style>
+      <main style={{minHeight:"100vh",background:bg,color:text,fontFamily:"'DM Sans',sans-serif",display:"flex",justifyContent:"center"}}>
+        <div style={{width:"100%",maxWidth:480,minHeight:"100vh",padding:"18px 16px 32px",display:"flex",flexDirection:"column"}}>
+          <header style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:32}}>
+            <button onClick={step==="level"?()=>setStep("code"):onBack} style={{height:38,padding:"0 13px",borderRadius:8,border:`1px solid ${border}`,background:panel,color:text,cursor:"pointer",fontWeight:700}}>← Back</button>
+            <button onClick={onToggleTheme} style={{width:38,height:38,borderRadius:8,border:`1px solid ${border}`,background:panel,color:text,cursor:"pointer",fontWeight:800}}>{isDarkMode?"L":"D"}</button>
+          </header>
+
+          {step==="code"&&(<>
+            <div style={{marginBottom:18}}>
+              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,textTransform:"uppercase",letterSpacing:1.3,color:"#a78bfa",marginBottom:8}}>🎓 Student Access</div>
+              <h1 style={{fontSize:32,lineHeight:1.1,fontWeight:800,color:text,margin:"0 0 10px"}}>Enter your school access code.</h1>
+              <p style={{fontSize:14.5,lineHeight:1.6,color:muted}}>Your instructor or EMS program director will provide a school access code. Access is scoped to your cert level.</p>
+            </div>
+            <form onSubmit={handleSubmit} style={{background:panel,border:`1px solid ${border}`,borderRadius:10,padding:18,display:"grid",gap:14}}>
+              <label style={{display:"grid",gap:6,fontSize:13,fontWeight:700,color:text}}>
+                School Access Code
+                <input value={code} onChange={e=>{setCode(e.target.value);setError("");}} placeholder="ENTER-YOUR-CODE" style={inp} autoFocus autoComplete="off" spellCheck={false}/>
+              </label>
+              {error&&<div style={{border:"1px solid #fecaca",background:isDarkMode?"#2a0808":"#fff1f2",color:isDarkMode?"#fecaca":"#991b1b",borderRadius:8,padding:"10px 12px",fontSize:13}}>{error}</div>}
+              <button type="submit" style={{height:50,borderRadius:9,border:"1px solid #7c3aed",background:"linear-gradient(135deg,#7c3aed,#5b21b6)",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:15,letterSpacing:"0.01em"}}>
+                Continue
+              </button>
+            </form>
+            <p style={{fontSize:12,color:muted,textAlign:"center",marginTop:14,lineHeight:1.55}}>No account required. Contact your program director if you don't have a code.</p>
+          </>)}
+
+          {step==="level"&&(<>
+            <div style={{marginBottom:24}}>
+              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,textTransform:"uppercase",letterSpacing:1.3,color:"#a78bfa",marginBottom:8}}>🎓 Student Access</div>
+              <h1 style={{fontSize:28,lineHeight:1.1,fontWeight:800,color:text,margin:"0 0 10px"}}>What level are you studying for?</h1>
+              <p style={{fontSize:14,lineHeight:1.6,color:muted}}>Your drug and protocol access will be scoped to match your program level.</p>
+            </div>
+            <div style={{display:"grid",gap:10}}>
+              {LEVELS.map(({key,label,sub,bd,bg:lbg,fg})=>(
+                <button key={key} onClick={()=>onEnter(validCode,key)} style={{width:"100%",padding:"16px 18px",borderRadius:10,border:`1px solid ${bd}`,background:lbg,color:fg,fontWeight:800,fontSize:16,cursor:"pointer",textAlign:"left",display:"grid",gap:3}}>
+                  {label}
+                  <span style={{fontSize:12,fontWeight:500,opacity:0.8}}>{sub}</span>
+                </button>
+              ))}
+            </div>
+          </>)}
+        </div>
+      </main>
+    </>
+  );
+}
+
+function Purchase24hrScreen({ isDarkMode, onBack, onSuccess, onToggleTheme }){
+  const bg=isDarkMode?"#060a15":"#f4efe7";
+  const panel=isDarkMode?"#0d1120":"#fbf7f0";
+  const text=isDarkMode?"#e2e8f0":"#0f172a";
+  const muted=isDarkMode?"#8aa0c2":"#374151";
+  const border=isDarkMode?"#1a2338":"#9a9286";
+  const existing=getPaidAccess();
+  const[step,setStep]=useState(()=>existing ? (existing.certLevel?"active":"certlevel") : "info");
+  const[accessData,setAccessData]=useState(existing);
+
+  function fmtRemaining(ms){
+    if(ms<=0) return "Expired";
+    const h=Math.floor(ms/3600000);
+    const m=Math.floor((ms%3600000)/60000);
+    return h>0 ? `${h}h ${m}m remaining` : `${m}m remaining`;
+  }
+
+  function handlePurchase(){
+    // TODO: integrate Stripe or PayPal here before going live
+    const d=activatePaidAccess(null);
+    setAccessData(d);
+    setStep("certlevel");
+  }
+
+  function handleCertLevel(certLevel){
+    updatePaidAccessCertLevel(certLevel);
+    onSuccess(certLevel);
+  }
+
+  const CERT_LEVELS=[
+    {key:"EMT",       label:"EMT",       sub:"Basic life support · EMT-level drugs & protocols",     bd:"#166534", bg:isDarkMode?"#052e16":"#f0fdf4", fg:isDarkMode?"#86efac":"#14532d"},
+    {key:"AEMT",      label:"AEMT",      sub:"EMT + advanced airway · AEMT-level drugs & protocols",  bd:"#1e40af", bg:isDarkMode?"#060f1e":"#eff6ff", fg:isDarkMode?"#93c5fd":"#1e3a8a"},
+    {key:"Paramedic", label:"Paramedic", sub:"Full ALS · all drugs, all protocols",                   bd:"#7c3aed", bg:isDarkMode?"#100a1f":"#faf5ff", fg:isDarkMode?"#d8b4fe":"#4c1d95"},
+  ];
+
+  const features=[
+    "Full drug calculator — all cert levels",
+    "All adult & PALS guided protocols",
+    "ACLS arrest tracker with real-time timers",
+    "Patient vitals log & med documentation",
+    "No session limits for 24 hours",
+  ];
+
+  if(step==="active"){
+    const rem=accessData ? accessData.expiresAt-Date.now() : 0;
+    return(
+      <>
+        <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}body{background:${bg}}button{font:inherit}`}</style>
+        <main style={{minHeight:"100vh",background:bg,color:text,fontFamily:"'DM Sans',sans-serif",display:"flex",justifyContent:"center",alignItems:"center",padding:20}}>
+          <div style={{width:"100%",maxWidth:420,textAlign:"center",display:"grid",gap:16}}>
+            <div style={{fontSize:52}}>⚡</div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,textTransform:"uppercase",letterSpacing:1.3,color:"#fbbf24"}}>Active Pass</div>
+            <h2 style={{fontSize:28,fontWeight:800,color:text,margin:0}}>Your 24-hour pass is active</h2>
+            <div style={{background:isDarkMode?"#1a1200":"#fffbeb",border:"1px solid #92400e",borderRadius:10,padding:"14px 16px",fontFamily:"'IBM Plex Mono',monospace",fontSize:16,fontWeight:800,color:"#fde68a"}}>
+              {fmtRemaining(rem)}
+            </div>
+            <button onClick={()=>onSuccess(accessData?.certLevel)} style={{height:52,borderRadius:9,border:"1px solid #f59e0b",background:"linear-gradient(135deg,#d97706,#b45309)",color:"#fff",fontWeight:800,fontSize:16,cursor:"pointer"}}>
+              Enter R.O.M.A.N.
+            </button>
+            <button onClick={onBack} style={{background:"none",border:"none",color:muted,cursor:"pointer",fontSize:14,padding:"6px 0"}}>← Back</button>
+          </div>
+        </main>
+      </>
+    );
+  }
+
+  if(step==="certlevel"){
+    return(
+      <>
+        <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}body{background:${bg}}button{font:inherit}`}</style>
+        <main style={{minHeight:"100vh",background:bg,color:text,fontFamily:"'DM Sans',sans-serif",display:"flex",justifyContent:"center"}}>
+          <div style={{width:"100%",maxWidth:480,minHeight:"100vh",padding:"18px 16px 32px",display:"flex",flexDirection:"column"}}>
+            <div style={{marginBottom:28,marginTop:24}}>
+              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,textTransform:"uppercase",letterSpacing:1.3,color:"#fbbf24",marginBottom:8}}>⚡ 24HR Pass</div>
+              <h1 style={{fontSize:28,lineHeight:1.1,fontWeight:800,color:text,margin:"0 0 10px"}}>What's your cert level?</h1>
+              <p style={{fontSize:14,lineHeight:1.6,color:muted}}>Your drug and protocol access will be scoped to your certification level.</p>
+            </div>
+            <div style={{display:"grid",gap:10}}>
+              {CERT_LEVELS.map(({key,label,sub,bd,bg:lbg,fg})=>(
+                <button key={key} onClick={()=>handleCertLevel(key)} style={{width:"100%",padding:"16px 18px",borderRadius:10,border:`1px solid ${bd}`,background:lbg,color:fg,fontWeight:800,fontSize:16,cursor:"pointer",textAlign:"left",display:"grid",gap:3}}>
+                  {label}
+                  <span style={{fontSize:12,fontWeight:500,opacity:0.8}}>{sub}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </main>
+      </>
+    );
+  }
+
+  return(
+    <>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}body{background:${bg}}button{font:inherit}`}</style>
+      <main style={{minHeight:"100vh",background:bg,color:text,fontFamily:"'DM Sans',sans-serif",display:"flex",justifyContent:"center"}}>
+        <div style={{width:"100%",maxWidth:480,minHeight:"100vh",padding:"18px 16px 32px",display:"flex",flexDirection:"column"}}>
+          <header style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:32}}>
+            <button onClick={onBack} style={{height:38,padding:"0 13px",borderRadius:8,border:`1px solid ${border}`,background:panel,color:text,cursor:"pointer",fontWeight:700}}>← Back</button>
+            <button onClick={onToggleTheme} style={{width:38,height:38,borderRadius:8,border:`1px solid ${border}`,background:panel,color:text,cursor:"pointer",fontWeight:800}}>{isDarkMode?"L":"D"}</button>
+          </header>
+          <div style={{marginBottom:18}}>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,textTransform:"uppercase",letterSpacing:1.3,color:"#fbbf24",marginBottom:8}}>⚡ 24-Hour Full Access</div>
+            <h1 style={{fontSize:32,lineHeight:1.1,fontWeight:800,color:text,margin:"0 0 10px"}}>Unlock everything for 24 hours.</h1>
+            <p style={{fontSize:14.5,lineHeight:1.6,color:muted}}>No account required. Pay once and get full access from the time of purchase — automatically restored if you reopen the app.</p>
+          </div>
+          <div style={{background:isDarkMode?"#120d00":"#fffbeb",border:"1px solid #92400e",borderRadius:10,padding:"12px 16px",marginBottom:18}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+              <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:13,fontWeight:800,color:isDarkMode?"#fde68a":"#92400e"}}>24-Hour Full Access Pass</span>
+              <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:20,fontWeight:800,color:isDarkMode?"#fbbf24":"#b45309"}}>{PAID_ACCESS_PRICE}</span>
+            </div>
+            {features.map(f=>(
+              <div key={f} style={{display:"flex",gap:9,alignItems:"flex-start",marginBottom:6}}>
+                <span style={{color:"#fbbf24",fontSize:13,flexShrink:0,marginTop:1}}>✓</span>
+                <span style={{fontSize:13,color:isDarkMode?"#fde68a":"#92400e"}}>{f}</span>
+              </div>
+            ))}
+          </div>
+          <button onClick={handlePurchase} style={{height:52,borderRadius:9,border:"1px solid #f59e0b",background:"linear-gradient(135deg,#d97706,#92400e)",color:"#fff",fontWeight:800,fontSize:16,cursor:"pointer",letterSpacing:"0.01em",marginBottom:10}}>
+            Purchase Access — {PAID_ACCESS_PRICE}
+          </button>
+          <p style={{fontSize:11,color:muted,textAlign:"center",lineHeight:1.6,margin:0}}>
+            ⚠ Payment processor integration required before live billing.<br/>
+            Access is stored locally on this device for 24 hours from purchase.
+          </p>
+          <p style={{fontSize:12,color:muted,textAlign:"center",marginTop:16,lineHeight:1.55}}>
+            Prefer unlimited access?{" "}
+            <button onClick={onBack} style={{background:"none",border:"none",color:"#14b8a6",fontWeight:700,cursor:"pointer",fontSize:12,padding:0}}>Create a free account →</button>
+          </p>
+        </div>
+      </main>
+    </>
+  );
+}
+
+function HomeScreen({ isDarkMode, onLogin, onSignup, onGuest, onStudentCode, on24hr, onToggleTheme }) {
   const bg = "#020617";
   const text = "#f8fafc";
   const muted = "#d9f8ff";
@@ -4893,34 +5665,37 @@ function HomeScreen({ isDarkMode, onLogin, onSignup, onGuest, onToggleTheme }) {
     fontSize:18,
     letterSpacing:0,
   };
+  const hasPaidAccess = !!getPaidAccess();
 
   return (
     <>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}body{background:${bg}}button,input{font:inherit}`}</style>
       <main style={{minHeight:"100vh",background:"#020617",color:text,fontFamily:"'DM Sans',sans-serif",overflow:"hidden",display:"flex",justifyContent:"center",alignItems:"center"}}>
-        <div style={{width:"100%",maxWidth:430,minHeight:"100vh",background:"#020617",overflow:"hidden",display:"flex",flexDirection:"column",padding:"14px 18px 18px"}}>
-          <section style={{height:"min(62vh, 590px)",minHeight:405,borderRadius:22,overflow:"hidden",boxShadow:"0 24px 70px rgba(0,0,0,.45)",background:"#031a3f"}}>
+        <div style={{width:"100%",maxWidth:430,minHeight:"100vh",background:"#020617",overflow:"hidden",display:"flex",flexDirection:"column",padding:"14px 18px 28px"}}>
+          <section style={{flex:1,borderRadius:22,overflow:"hidden",boxShadow:"0 24px 70px rgba(0,0,0,.45)",background:"#031a3f"}}>
             <img src="/login-screen.png" alt="R.O.M.A.N Medic-AI login screen" style={{width:"100%",height:"100%",objectFit:"cover",objectPosition:"top center",display:"block"}} />
           </section>
-          <section style={{padding:"18px 0 0",display:"flex",flexDirection:"column",gap:12}}>
-            <button onClick={onLogin} style={{...buttonBase,border:"1px solid rgba(125,249,255,.88)",background:"linear-gradient(135deg,#2dd4bf,#0284c7)",color:"#ffffff",boxShadow:"0 14px 34px rgba(20,184,166,.26)"}}>Log In</button>
-            <button onClick={onSignup} style={{...buttonBase,border:"1px solid rgba(125,249,255,.72)",background:"rgba(2,14,38,.9)",color:"#f8fafc"}}>Create Account</button>
-            <button onClick={onGuest} style={{border:"none",background:"transparent",color:"#5eead4",fontSize:16,fontWeight:800,cursor:"pointer",padding:"8px 0 2px"}}>Continue as Guest</button>
+          <section style={{padding:"20px 0 0",display:"flex",flexDirection:"column",gap:10}}>
+            <button onClick={onLogin} style={{...buttonBase,border:"1px solid rgba(125,249,255,.88)",background:"linear-gradient(135deg,#2dd4bf,#0284c7)",color:"#ffffff",boxShadow:"0 14px 34px rgba(20,184,166,.26)"}}>Let's Get Started</button>
           </section>
-          <div style={{textAlign:"center",color:muted,fontSize:13,fontWeight:700,letterSpacing:0,paddingTop:6}}>Secure. Reliable. Built for EMS.</div>
+          <div style={{textAlign:"center",color:muted,fontSize:13,fontWeight:700,letterSpacing:0,paddingTop:8}}>Secure. Reliable. Built for EMS.</div>
         </div>
       </main>
     </>
   );
 }
 
-function LoginScreen({ isDarkMode, values, onChange, onSubmit, onBack, onSignup, onGuest, error, onToggleTheme }) {
+function LoginScreen({ isDarkMode, values, onChange, onSubmit, onBack, onSignup, onGuest, onStudentCode, on24hr, error, onToggleTheme }) {
   const bg = isDarkMode ? "#060a15" : "#f4efe7";
   const panel = isDarkMode ? "var(--c-surface)" : "#fbf7f0";
   const inputBg = isDarkMode ? "var(--c-input)" : "#f2ece4";
   const text = isDarkMode ? "var(--c-text)" : "#0f172a";
   const muted = isDarkMode ? "#8aa0c2" : "#374151";
   const border = isDarkMode ? "var(--c-border)" : "#9a9286";
+
+  const [forgotModal, setForgotModal] = useState(null); // "password" | "login" | null
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotResult, setForgotResult] = useState(null); // { type:"success"|"error", msg }
 
   const inputStyle = {
     width:"100%",
@@ -4934,8 +5709,91 @@ function LoginScreen({ isDarkMode, values, onChange, onSubmit, onBack, onSignup,
     fontSize:15,
   };
 
+  function openModal(type) {
+    setForgotModal(type);
+    setForgotEmail("");
+    setForgotResult(null);
+  }
+
+  function closeModal() {
+    setForgotModal(null);
+    setForgotEmail("");
+    setForgotResult(null);
+  }
+
+  function handleForgotPassword(e) {
+    e.preventDefault();
+    const users = getStoredUsers();
+    const account = users.find(u => u.email === forgotEmail.trim().toLowerCase());
+    if (!account) {
+      setForgotResult({ type:"error", msg:"No account found with that email. Try signing up." });
+    } else {
+      setForgotResult({ type:"success", msg:`Your password is: ${account.password}` });
+    }
+  }
+
+  function handleForgotLogin(e) {
+    e.preventDefault();
+    const users = getStoredUsers();
+    if (!users.length) {
+      setForgotResult({ type:"error", msg:"No accounts have been registered on this device yet." });
+    } else {
+      setForgotResult({ type:"success", msg:`Registered email${users.length > 1 ? "s" : ""} on this device:\n${users.map(u => u.email).join("\n")}` });
+    }
+  }
+
+  const modalOverlay = forgotModal && (
+    <div onClick={closeModal} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,padding:16}}>
+      <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:400,background:isDarkMode?"#0f1e38":"#fbf7f0",border:`1px solid ${border}`,borderRadius:12,padding:24,display:"grid",gap:14}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{fontWeight:800,fontSize:17,color:text}}>
+            {forgotModal==="password" ? "Forgot Password" : "Forgot Login"}
+          </span>
+          <button onClick={closeModal} style={{background:"transparent",border:"none",color:muted,fontSize:20,cursor:"pointer",lineHeight:1}}>&times;</button>
+        </div>
+
+        {forgotModal==="password" ? (
+          <form onSubmit={handleForgotPassword} style={{display:"grid",gap:12}}>
+            <p style={{fontSize:13,color:muted,lineHeight:1.5}}>Enter the email you signed up with and we'll show your password.</p>
+            <input
+              type="email"
+              value={forgotEmail}
+              onChange={e=>{setForgotEmail(e.target.value);setForgotResult(null);}}
+              placeholder="provider@medic.ai"
+              style={inputStyle}
+              autoFocus
+            />
+            {forgotResult && (
+              <div style={{borderRadius:8,padding:"10px 12px",fontSize:13,whiteSpace:"pre-wrap",
+                border:`1px solid ${forgotResult.type==="success"?"#6ee7b7":"#fecaca"}`,
+                background:forgotResult.type==="success"?(isDarkMode?"#052e16":"#ecfdf5"):(isDarkMode?"#2a0808":"#fff1f2"),
+                color:forgotResult.type==="success"?(isDarkMode?"#6ee7b7":"#065f46"):(isDarkMode?"#fecaca":"#991b1b")}}>
+                {forgotResult.msg}
+              </div>
+            )}
+            <button type="submit" style={{height:44,borderRadius:8,border:"1px solid #0f766e",background:"#14b8a6",color:"#042f2e",fontWeight:800,cursor:"pointer"}}>Look up password</button>
+          </form>
+        ) : (
+          <form onSubmit={handleForgotLogin} style={{display:"grid",gap:12}}>
+            <p style={{fontSize:13,color:muted,lineHeight:1.5}}>Tap the button below to see all emails registered on this device.</p>
+            {forgotResult && (
+              <div style={{borderRadius:8,padding:"10px 12px",fontSize:13,whiteSpace:"pre-wrap",
+                border:`1px solid ${forgotResult.type==="success"?"#6ee7b7":"#fecaca"}`,
+                background:forgotResult.type==="success"?(isDarkMode?"#052e16":"#ecfdf5"):(isDarkMode?"#2a0808":"#fff1f2"),
+                color:forgotResult.type==="success"?(isDarkMode?"#6ee7b7":"#065f46"):(isDarkMode?"#fecaca":"#991b1b")}}>
+                {forgotResult.msg}
+              </div>
+            )}
+            <button type="submit" style={{height:44,borderRadius:8,border:"1px solid #0f766e",background:"#14b8a6",color:"#042f2e",fontWeight:800,cursor:"pointer"}}>Show registered emails</button>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <>
+      {modalOverlay}
       <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}body{background:${bg}}button,input{font:inherit}`}</style>
       <main style={{minHeight:"100vh",background:bg,color:text,fontFamily:"'DM Sans',sans-serif",display:"flex",justifyContent:"center"}}>
         <div style={{width:"100%",maxWidth:480,minHeight:"100vh",padding:"18px 16px 28px",display:"flex",flexDirection:"column"}}>
@@ -4947,7 +5805,7 @@ function LoginScreen({ isDarkMode, values, onChange, onSubmit, onBack, onSignup,
           </header>
 
           <section style={{textAlign:"left",marginBottom:22}}>
-            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:12,fontWeight:800,textTransform:"uppercase",letterSpacing:1.2,color:"#14b8a6",marginBottom:10}}>MedicAI access</div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:12,fontWeight:800,textTransform:"uppercase",letterSpacing:1.2,color:"#14b8a6",marginBottom:10}}>R.O.M.A.N. access</div>
             <h1 style={{fontSize:36,lineHeight:1.08,letterSpacing:0,fontWeight:800,color:text,margin:"0 0 10px"}}>Log in for your shift.</h1>
             <p style={{fontSize:15,lineHeight:1.55,color:muted}}>Enter the email and password you signed up with to continue into the medication calculator.</p>
           </section>
@@ -4962,11 +5820,428 @@ function LoginScreen({ isDarkMode, values, onChange, onSubmit, onBack, onSignup,
               <input name="password" type="password" value={values.password} onChange={onChange} placeholder="Enter password" style={inputStyle} />
             </label>
             {error && <div style={{border:"1px solid #fecaca",background:isDarkMode?"#2a0808":"#fff1f2",color:isDarkMode?"#fecaca":"#991b1b",borderRadius:8,padding:"10px 12px",fontSize:13}}>{error}</div>}
-            <button type="submit" style={{height:48,borderRadius:8,border:"1px solid #0f766e",background:"#14b8a6",color:"#042f2e",fontWeight:800,cursor:"pointer",marginTop:2}}>Enter MedicAI</button>
+            <button type="submit" style={{height:48,borderRadius:8,border:"1px solid #0f766e",background:"#14b8a6",color:"#042f2e",fontWeight:800,cursor:"pointer",marginTop:2}}>Enter R.O.M.A.N.</button>
           </form>
 
-          <button onClick={onSignup} style={{height:46,borderRadius:8,border:`1px solid ${border}`,background:panel,color:text,fontWeight:700,cursor:"pointer",marginTop:12}}>Create account</button>
-          <button onClick={onGuest} style={{height:46,borderRadius:8,border:`1px solid ${border}`,background:"transparent",color:muted,fontWeight:700,cursor:"pointer",marginTop:12}}>Continue as guest</button>
+          <div style={{display:"flex",justifyContent:"space-between",marginTop:10,padding:"0 2px"}}>
+            <button onClick={()=>openModal("password")} style={{background:"transparent",border:"none",color:"#14b8a6",fontSize:13,fontWeight:700,cursor:"pointer",padding:"6px 0"}}>Forgot password?</button>
+            <button onClick={()=>openModal("login")} style={{background:"transparent",border:"none",color:"#14b8a6",fontSize:13,fontWeight:700,cursor:"pointer",padding:"6px 0"}}>Forgot login?</button>
+          </div>
+
+          <button onClick={onSignup} style={{height:46,borderRadius:8,border:`1px solid ${border}`,background:panel,color:text,fontWeight:700,cursor:"pointer",marginTop:8}}>Create account</button>
+          <button onClick={onGuest} style={{height:46,borderRadius:8,border:`1px solid ${border}`,background:"transparent",color:muted,fontWeight:700,cursor:"pointer",marginTop:10}}>Continue as guest (EMT scope)</button>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:10}}>
+            <button onClick={onStudentCode} style={{height:42,borderRadius:8,border:`1px solid ${isDarkMode?"#7c3aed":"#5b21b6"}`,background:isDarkMode?"transparent":"rgba(109,40,217,.1)",color:isDarkMode?"#a78bfa":"#4c1d95",fontWeight:700,fontSize:13,cursor:"pointer"}}>🎓 School Code</button>
+            <button onClick={on24hr} style={{height:42,borderRadius:8,border:`1px solid ${isDarkMode?"#d97706":"#b45309"}`,background:isDarkMode?"transparent":"rgba(180,83,9,.08)",color:isDarkMode?"#fbbf24":"#92400e",fontWeight:700,fontSize:13,cursor:"pointer"}}>⚡ 24hr Full Access</button>
+          </div>
+        </div>
+      </main>
+    </>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════
+   PROVIDER PROFILE SETUP SCREEN
+═══════════════════════════════════════════════════════ */
+function daysUntil(dateStr){
+  if(!dateStr) return null;
+  let d;
+  if(/^\d{4}-\d{2}-\d{2}$/.test(dateStr)){
+    // YYYY-MM-DD from type="date" — parse as local to avoid UTC offset issues
+    const [y,m,day]=dateStr.split("-");
+    d=new Date(+y,+m-1,+day);
+  } else if(/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)){
+    const [m,day,y]=dateStr.split("/");
+    d=new Date(+y,+m-1,+day);
+  } else {
+    d=new Date(dateStr);
+  }
+  if(isNaN(d)) return null;
+  return Math.ceil((d - new Date()) / 86400000);
+}
+function expBadge(dateStr){
+  const d = daysUntil(dateStr);
+  if(d === null) return null;
+  if(d < 0)  return { label:`Expired ${Math.abs(d)}d ago`, color:"#fca5a5", bg:"#2a0808", bd:"#7f1d1d" };
+  if(d <= 30) return { label:`Expires in ${d}d`, color:"#fdba74", bg:"#1a0c04", bd:"#9a3412" };
+  if(d <= 90) return { label:`Expires in ${d}d`, color:"#fde68a", bg:"#1a1604", bd:"#92400e" };
+  return { label:`Valid · ${d}d left`, color:"#86efac", bg:"#071a0e", bd:"#14532d" };
+}
+
+function fmtDateInput(raw){
+  const d=raw.replace(/\D/g,"").slice(0,8);
+  if(d.length<=2) return d;
+  if(d.length<=4) return d.slice(0,2)+"/"+d.slice(2);
+  return d.slice(0,2)+"/"+d.slice(2,4)+"/"+d.slice(4);
+}
+
+function DateRow({ label, issVal, issSet, expVal, expSet, required=false, bdr, inp, text, isDarkMode }){
+  const badge=expBadge(expVal);
+  const ls={ display:"grid", gap:5, fontSize:12, fontWeight:700, color:text };
+  const ds={ width:"100%", height:42, borderRadius:7, border:`1px solid ${bdr}`, background:inp, color:text, padding:"0 11px", outline:"none", fontSize:14, fontFamily:"'IBM Plex Mono',monospace", letterSpacing:"0.06em" };
+  return(
+    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+      <label style={ls}>
+        {label} — Issue date
+        <input type="text" inputMode="numeric" value={issVal} onChange={e=>issSet(fmtDateInput(e.target.value))} placeholder="MM/DD/YYYY" maxLength={10} style={ds}/>
+      </label>
+      <label style={ls}>
+        <span>{label} — Exp. date{required&&<span style={{color:"#f87171",marginLeft:3}}>*</span>}</span>
+        <input type="text" inputMode="numeric" value={expVal} onChange={e=>expSet(fmtDateInput(e.target.value))} placeholder="MM/DD/YYYY" maxLength={10} style={ds}/>
+      </label>
+      {badge&&<div style={{gridColumn:"1/-1",display:"inline-flex",alignItems:"center",gap:6,background:badge.bg,border:`1px solid ${badge.bd}`,borderRadius:5,padding:"3px 9px",width:"fit-content"}}>
+        <span style={{fontSize:10,fontWeight:700,color:badge.color,fontFamily:"'IBM Plex Mono',monospace"}}>{badge.label}</span>
+      </div>}
+    </div>
+  );
+}
+
+function ProfileSetupScreen({ isDarkMode, providerName, onSave, onSkip, onToggleTheme, initialData={} }){
+  const bg    = isDarkMode ? "#060a15" : "#f4efe7";
+  const panel = isDarkMode ? "#0d1120" : "#fbf7f0";
+  const text  = isDarkMode ? "#e2e8f0" : "#0f172a";
+  const muted = isDarkMode ? "#8aa0c2" : "#374151";
+  const bdr   = isDarkMode ? "#1a2338" : "#9a9286";
+  const inp   = isDarkMode ? "#090e1c" : "#f2ece4";
+
+  const [certLevel, setCertLevel]   = useState(initialData.certLevel || "");
+  const [phone,     setPhone]       = useState(initialData.phone || "");
+  const [agency,    setAgency]      = useState(initialData.agency || "");
+  const [unit,      setUnit]        = useState(initialData.unit || "");
+  const [stateL,    setStateL]      = useState(initialData.stateOfLicense || "");
+  const [nremt,     setNremt]       = useState(initialData.nremtNumber || "");
+  const [stateCert, setStateCert]   = useState(initialData.stateCertNumber || "");
+  const [certIss,   setCertIss]     = useState(initialData.certIssueDate || "");
+  const [certExp,   setCertExp]     = useState(initialData.certExpDate || "");
+  const [cprType,    setCprType]    = useState(()=>{ const v=initialData.cprType; return Array.isArray(v)?v:(v?[v]:[]); });
+  const [cprDetails, setCprDetails] = useState(()=>{
+    const d=initialData.cprDetails||{};
+    // migrate old single-card format
+    if(!Object.keys(d).length && initialData.cprNumber){
+      const t=Array.isArray(initialData.cprType)?initialData.cprType[0]:initialData.cprType;
+      if(t) return { [t]:{ number:initialData.cprNumber||"", issueDate:initialData.cprIssueDate||"", expDate:initialData.cprExpDate||"" } };
+    }
+    return d;
+  });
+  const [aclsNum,   setAclsNum]     = useState(initialData.aclsNumber || "");
+  const [aclsIss,   setAclsIss]     = useState(initialData.aclsIssueDate || "");
+  const [aclsExp,   setAclsExp]     = useState(initialData.aclsExpDate || "");
+  const [palsNum,   setPalsNum]     = useState(initialData.palsNumber || "");
+  const [palsIss,   setPalsIss]     = useState(initialData.palsIssueDate || "");
+  const [palsExp,   setPalsExp]     = useState(initialData.palsExpDate || "");
+  const [error,     setError]       = useState("");
+
+  const inpStyle = { width:"100%", height:42, borderRadius:7, border:`1px solid ${bdr}`, background:inp, color:text, padding:"0 11px", outline:"none", fontSize:13, fontFamily:"'DM Sans',sans-serif" };
+  const labelStyle = { display:"grid", gap:5, fontSize:12, fontWeight:700, color:text };
+
+  function SectionHead({ title, sub }){
+    return(
+      <div style={{ borderBottom:`1px solid ${bdr}`, paddingBottom:8, marginBottom:14, marginTop:6 }}>
+        <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, fontWeight:800, textTransform:"uppercase", letterSpacing:1.1, color:"#14b8a6" }}>{title}</div>
+        {sub && <div style={{ fontSize:11, color:muted, marginTop:2 }}>{sub}</div>}
+      </div>
+    );
+  }
+
+  const DR = { bdr, inp, text, isDarkMode };
+
+  const CERT_LEVELS = [
+    { key:"EMT",       label:"EMT",       sub:"Emergency Medical Technician",  color:isDarkMode?"#86efac":"#14532d", bg:isDarkMode?"#071a0e":"#d1fae5", bd:isDarkMode?"#14532d":"#15803d" },
+    { key:"AEMT",      label:"AEMT",      sub:"Advanced EMT",                  color:isDarkMode?"#93c5fd":"#1e3a8a", bg:isDarkMode?"#060f1e":"#dbeafe", bd:isDarkMode?"#1e3a8a":"#1d4ed8" },
+    { key:"Paramedic", label:"Paramedic", sub:"Licensed Paramedic / EMT-P",    color:isDarkMode?"#fdba74":"#7c2d12", bg:isDarkMode?"#1a0c04":"#ffedd5", bd:isDarkMode?"#9a3412":"#b45309" },
+  ];
+  const CPR_TYPES = ["AHA BLS Provider","AHA Heartsaver","AHA ACLS","AHA PALS"];
+
+  const handleSave = () => {
+    if(!certLevel){ setError("Select your certification level to continue."); return; }
+    if(cprType.length===0){ setError("Select at least one CPR card type."); return; }
+    const hasAnyCprExp=cprType.some(t=>cprDetails[t]?.expDate);
+    if(!hasAnyCprExp){ setError("Enter an expiration date for at least one CPR card."); return; }
+    // expose primary CPR exp for cert warning system (use earliest expiring card)
+    const cprExpDate=cprType.reduce((earliest,t)=>{
+      const e=cprDetails[t]?.expDate||"";
+      if(!e) return earliest;
+      if(!earliest) return e;
+      return daysUntil(e)<daysUntil(earliest)?e:earliest;
+    },"");
+    const profile = {
+      phone, agency, unit, stateOfLicense:stateL,
+      nremtNumber:nremt, stateCertNumber:stateCert, certIssueDate:certIss, certExpDate:certExp,
+      cprType, cprDetails, cprExpDate,
+      aclsNumber:aclsNum, aclsIssueDate:aclsIss, aclsExpDate:aclsExp,
+      palsNumber:palsNum, palsIssueDate:palsIss, palsExpDate:palsExp,
+    };
+    onSave(certLevel, profile);
+  };
+
+  return(
+    <>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}body{background:${bg}}button,input,select{font:inherit}input[type=date]{color-scheme:${isDarkMode?"dark":"light"}}`}</style>
+      <main style={{ minHeight:"100vh", background:bg, color:text, fontFamily:"'DM Sans',sans-serif", display:"flex", justifyContent:"center" }}>
+        <div style={{ width:"100%", maxWidth:480, padding:"18px 16px 40px", display:"flex", flexDirection:"column" }}>
+
+          {/* Header */}
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:22 }}>
+            <div>
+              <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11, fontWeight:800, textTransform:"uppercase", letterSpacing:1.2, color:"#14b8a6" }}>Account created</div>
+              <h1 style={{ fontSize:24, fontWeight:800, color:text, margin:"4px 0 0" }}>
+                {providerName ? `Complete your profile, ${providerName.split(" ")[0]}.` : "Complete your provider profile."}
+              </h1>
+              <div style={{ fontSize:12, color:muted, marginTop:4, lineHeight:1.5 }}>
+                This verifies your scope of practice and tracks your certification renewals.
+              </div>
+            </div>
+            <button onClick={onToggleTheme} style={{ flexShrink:0, width:36, height:36, borderRadius:8, border:`1px solid ${bdr}`, background:panel, color:text, fontWeight:800, cursor:"pointer", marginLeft:10 }}>
+              {isDarkMode?"L":"D"}
+            </button>
+          </div>
+
+          <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+
+            {/* ── CERT LEVEL ── */}
+            <div style={{ background:panel, border:`1px solid ${bdr}`, borderRadius:10, padding:"14px 16px" }}>
+              <SectionHead title="Certification Level" sub="Required — determines your drug scope of practice"/>
+              <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                {CERT_LEVELS.map(lv=>(
+                  <button key={lv.key} onClick={()=>setCertLevel(lv.key)} style={{
+                    width:"100%", textAlign:"left", padding:"12px 14px", cursor:"pointer",
+                    background: certLevel===lv.key ? lv.bg : "transparent",
+                    border: `2px solid ${certLevel===lv.key ? lv.color : bdr}`,
+                    borderRadius:8, transition:"all 0.12s",
+                  }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                      {certLevel===lv.key && <span style={{ color:lv.color, fontSize:13 }}>✓</span>}
+                      <div>
+                        <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:13, fontWeight:800, color: certLevel===lv.key ? lv.color : text }}>{lv.label}</span>
+                        <span style={{ fontSize:11, color:muted, marginLeft:9 }}>{lv.sub}</span>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* ── EMS LICENSE ── */}
+            <div style={{ background:panel, border:`1px solid ${bdr}`, borderRadius:10, padding:"14px 16px" }}>
+              <SectionHead title="EMS License / Certification" sub="NREMT & state license details"/>
+              <div style={{ display:"grid", gap:10 }}>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                  <label style={labelStyle}>
+                    NREMT Number
+                    <input value={nremt} onChange={e=>setNremt(e.target.value)} placeholder="e.g. E-12345678" style={inpStyle}/>
+                  </label>
+                  <label style={labelStyle}>
+                    State Cert Number
+                    <input value={stateCert} onChange={e=>setStateCert(e.target.value)} placeholder="e.g. GA-987654" style={inpStyle}/>
+                  </label>
+                </div>
+                <label style={labelStyle}>
+                  State of Licensure
+                  <input value={stateL} onChange={e=>setStateL(e.target.value)} placeholder="e.g. Georgia" style={inpStyle}/>
+                </label>
+                <DateRow label="EMS Cert" issVal={certIss} issSet={setCertIss} expVal={certExp} expSet={setCertExp} required {...DR}/>
+              </div>
+            </div>
+
+            {/* ── CPR / BLS ── */}
+            <div style={{ background:panel, border:`1px solid ${bdr}`, borderRadius:10, padding:"14px 16px" }}>
+              <SectionHead title="CPR / BLS Certification" sub="Required for all provider levels"/>
+              <div style={{ display:"grid", gap:12 }}>
+
+                {/* Dropdown to add a card */}
+                <label style={labelStyle}>
+                  <span>Add CPR Card<span style={{color:"#f87171",marginLeft:3}}>*</span></span>
+                  <select
+                    value=""
+                    onChange={e=>{
+                      const t=e.target.value;
+                      if(t&&!cprType.includes(t)) setCprType(prev=>[...prev,t]);
+                    }}
+                    style={{...inpStyle, height:42}}
+                  >
+                    <option value="">Select card type to add…</option>
+                    {CPR_TYPES.filter(t=>!cprType.includes(t)).map(t=>(
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </label>
+
+                {/* Per-card info panels */}
+                {cprType.map(t=>{
+                  const cd=cprDetails[t]||{};
+                  const upd=(f,v)=>setCprDetails(p=>({...p,[t]:{...(p[t]||{}),[f]:v}}));
+                  return(
+                    <div key={t} style={{background:isDarkMode?"#110808":"#fff5f5",border:"1px solid #ef444450",borderRadius:8,padding:"12px 12px 10px",display:"grid",gap:9}}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                        <div>
+                          <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#f87171",letterSpacing:"0.1em",textTransform:"uppercase"}}>AHA</span>
+                          <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,color:text,marginLeft:6}}>{t.replace("AHA ","")}</span>
+                        </div>
+                        <button type="button" onClick={()=>setCprType(prev=>prev.filter(x=>x!==t))} style={{background:"none",border:"none",color:"#f87171",fontSize:16,cursor:"pointer",padding:"0 2px",lineHeight:1}}>×</button>
+                      </div>
+                      <label style={labelStyle}>
+                        Card / Cert Number
+                        <input value={cd.number||""} onChange={e=>upd("number",e.target.value)} placeholder="Card or cert number" style={inpStyle}/>
+                      </label>
+                      <DateRow label={t.replace("AHA ","")} issVal={cd.issueDate||""} issSet={v=>upd("issueDate",v)} expVal={cd.expDate||""} expSet={v=>upd("expDate",v)} required {...DR}/>
+                    </div>
+                  );
+                })}
+
+                {cprType.length===0&&(
+                  <div style={{fontSize:12,color:muted,fontStyle:"italic",paddingLeft:2}}>No CPR cards added yet — select a card type above.</div>
+                )}
+              </div>
+            </div>
+
+            {/* ── AGENCY ── */}
+            <div style={{ background:panel, border:`1px solid ${bdr}`, borderRadius:10, padding:"14px 16px" }}>
+              <SectionHead title="Agency & Contact" sub="Optional — pre-fills ePCR fields"/>
+              <div style={{ display:"grid", gap:10 }}>
+                <label style={labelStyle}>
+                  Agency / Department
+                  <input value={agency} onChange={e=>setAgency(e.target.value)} placeholder="e.g. Fulton County EMS" style={inpStyle}/>
+                </label>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                  <label style={labelStyle}>
+                    Unit / Station
+                    <input value={unit} onChange={e=>setUnit(e.target.value)} placeholder="e.g. Medic 12" style={inpStyle}/>
+                  </label>
+                  <label style={labelStyle}>
+                    Phone Number
+                    <input
+                      value={phone}
+                      onChange={e=>{
+                        const digits=e.target.value.replace(/\D/g,"").slice(0,10);
+                        let fmt=digits;
+                        if(digits.length>6) fmt=digits.slice(0,3)+"-"+digits.slice(3,6)+"-"+digits.slice(6);
+                        else if(digits.length>3) fmt=digits.slice(0,3)+"-"+digits.slice(3);
+                        setPhone(fmt);
+                      }}
+                      placeholder="555-867-5309"
+                      inputMode="tel"
+                      style={inpStyle}
+                    />
+                  </label>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          {/* Error */}
+          {error && (
+            <div style={{ marginTop:14, padding:"10px 13px", background:"#1a0808", border:"1px solid #7f1d1d", borderRadius:7, color:"#fca5a5", fontSize:12 }}>{error}</div>
+          )}
+
+          {/* Actions */}
+          <div style={{ display:"grid", gap:9, marginTop:18 }}>
+            <button onClick={handleSave} style={{ height:50, borderRadius:9, border:"1px solid #0f766e", background:"#14b8a6", color:"#042f2e", fontWeight:800, fontSize:15, cursor:"pointer" }}>
+              Save Profile &amp; Enter R.O.M.A.N.
+            </button>
+            <button onClick={onSkip} style={{ height:44, borderRadius:9, border:`1px solid ${bdr}`, background:"transparent", color:muted, fontWeight:600, fontSize:13, cursor:"pointer" }}>
+              Skip for now — complete later
+            </button>
+          </div>
+
+        </div>
+      </main>
+    </>
+  );
+}
+
+function CertSetupScreen({ isDarkMode, providerName, onSelect, onToggleTheme }) {
+  const bg     = isDarkMode ? "#060a15" : "#f4efe7";
+  const panel  = isDarkMode ? "var(--c-surface)" : "#fbf7f0";
+  const text   = isDarkMode ? "var(--c-text)" : "#0f172a";
+  const muted  = isDarkMode ? "#8aa0c2" : "#374151";
+  const border = isDarkMode ? "var(--c-border)" : "#9a9286";
+
+  const levels = [
+    {
+      key: "EMT",
+      label: "EMT",
+      sub: "Emergency Medical Technician",
+      desc: "Basic life support · BLS drugs only · Epinephrine auto-injector, Aspirin, Albuterol, Naloxone, Oral glucose, Nitroglycerin",
+      color: isDarkMode ? "#86efac" : "#14532d",
+      bg: isDarkMode ? "#071a0e" : "#d1fae5",
+      bd: isDarkMode ? "#14532d" : "#15803d",
+    },
+    {
+      key: "AEMT",
+      label: "AEMT",
+      sub: "Advanced Emergency Medical Technician",
+      desc: "Advanced BLS · IV/IO access · D50, Atropine, Epi 1:10,000, Diphenhydramine, Normal Saline, Glucagon",
+      color: isDarkMode ? "#93c5fd" : "#1e3a8a",
+      bg: isDarkMode ? "#060f1e" : "#dbeafe",
+      bd: isDarkMode ? "#1e3a8a" : "#1d4ed8",
+    },
+    {
+      key: "Paramedic",
+      label: "Paramedic",
+      sub: "Licensed Paramedic / EMT-P",
+      desc: "Full ALS scope · All drugs · RSI, cardiac medications, sedation, pain management, advanced airway",
+      color: isDarkMode ? "#fdba74" : "#7c2d12",
+      bg: isDarkMode ? "#1a0c04" : "#ffedd5",
+      bd: isDarkMode ? "#9a3412" : "#b45309",
+    },
+  ];
+
+  return (
+    <>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}body{background:${bg}}button{font:inherit;cursor:pointer}`}</style>
+      <main style={{ minHeight:"100vh", background:bg, color:text, fontFamily:"'DM Sans',sans-serif", display:"flex", justifyContent:"center" }}>
+        <div style={{ width:"100%", maxWidth:480, minHeight:"100vh", padding:"24px 16px 32px", display:"flex", flexDirection:"column" }}>
+
+          <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:28 }}>
+            <button onClick={onToggleTheme} style={{ width:38, height:38, borderRadius:8, border:`1px solid ${border}`, background:panel, color:text, fontWeight:800 }}>
+              {isDarkMode ? "L" : "D"}
+            </button>
+          </div>
+
+          <div style={{ marginBottom:28 }}>
+            <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11, fontWeight:800, textTransform:"uppercase", letterSpacing:1.2, color:"#14b8a6", marginBottom:10 }}>
+              Account created
+            </div>
+            <h1 style={{ fontSize:30, lineHeight:1.1, fontWeight:800, color:text, margin:"0 0 8px" }}>
+              {providerName ? `Welcome, ${providerName.split(" ")[0]}.` : "One more step."}
+            </h1>
+            <p style={{ fontSize:14, lineHeight:1.6, color:muted }}>
+              Select your certification level. R.O.M.A.N. will lock your drug access to your scope of practice — you will only be able to administer medications within your cert level.
+            </p>
+          </div>
+
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {levels.map(lv => (
+              <button
+                key={lv.key}
+                onClick={() => onSelect(lv.key)}
+                style={{
+                  width:"100%", textAlign:"left", padding:"16px 18px",
+                  background: lv.bg, border:`2px solid ${lv.bd}`,
+                  borderRadius:12, transition:"transform 0.1s, border-color 0.15s",
+                }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = lv.color}
+                onMouseLeave={e => e.currentTarget.style.borderColor = lv.bd}
+              >
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:5 }}>
+                  <div>
+                    <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:16, fontWeight:800, color:lv.color }}>{lv.label}</span>
+                    <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:muted, marginLeft:10 }}>{lv.sub}</span>
+                  </div>
+                  <span style={{ color:lv.color, fontSize:16 }}>→</span>
+                </div>
+                <div style={{ fontSize:11.5, color: isDarkMode ? "#6b82a8" : "#4b5563", lineHeight:1.55 }}>{lv.desc}</div>
+              </button>
+            ))}
+          </div>
+
+          <div style={{ marginTop:20, padding:"11px 14px", background: isDarkMode ? "#0a1020" : "#e8f0f8", border:`1px solid ${border}`, borderRadius:8 }}>
+            <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9.5, color: isDarkMode ? "#4a6a8a" : "#374151", lineHeight:1.6 }}>
+              Your cert level is saved to your account on this device. Drugs outside your scope will be visible but locked — you will not be able to administer them.
+            </div>
+          </div>
+
         </div>
       </main>
     </>
@@ -5007,7 +6282,7 @@ function SignupScreen({ isDarkMode, values, onChange, onSubmit, onBack, onLogin,
 
           <section style={{textAlign:"left",marginBottom:22}}>
             <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:12,fontWeight:800,textTransform:"uppercase",letterSpacing:1.2,color:"#14b8a6",marginBottom:10}}>New provider account</div>
-            <h1 style={{fontSize:36,lineHeight:1.08,letterSpacing:0,fontWeight:800,color:text,margin:"0 0 10px"}}>Sign up for MedicAI.</h1>
+            <h1 style={{fontSize:36,lineHeight:1.08,letterSpacing:0,fontWeight:800,color:text,margin:"0 0 10px"}}>Sign up for R.O.M.A.N..</h1>
             <p style={{fontSize:15,lineHeight:1.55,color:muted}}>Create a local demo account on this device, then use it to log in for future shifts.</p>
           </section>
 
@@ -5039,6 +6314,24 @@ function SignupScreen({ isDarkMode, values, onChange, onSubmit, onBack, onLogin,
   );
 }
 
+function getCertWarnings(user){
+  if(!user || ["Guest","Student","PaidGuest"].includes(user.role)) return [];
+  const p = user.profile || {};
+  const warnings = [];
+  const check = (label, expDate) => {
+    const d = daysUntil(expDate);
+    if(d === null) return;
+    if(d < 0)   warnings.push({ label, msg:`EXPIRED ${Math.abs(d)} day${Math.abs(d)!==1?"s":""} ago`, color:"#fca5a5", bg:"#2a0808", bd:"#7f1d1d", urgent:true });
+    else if(d <= 30) warnings.push({ label, msg:`Expires in ${d} day${d!==1?"s":""}`, color:"#fdba74", bg:"#1a0c04", bd:"#9a3412", urgent:true });
+    else if(d <= 90) warnings.push({ label, msg:`Expires in ${d} days`, color:"#fde68a", bg:"#1a1604", bd:"#92400e", urgent:false });
+  };
+  check("EMS Cert",  p.certExpDate);
+  check("CPR/BLS",   p.cprExpDate);
+  check("ACLS",      p.aclsExpDate);
+  check("PALS",      p.palsExpDate);
+  return warnings;
+}
+
 export default function App(){
   const[isDarkMode,setIsDarkMode]=useState(()=>{
     if(typeof window==="undefined") return true;
@@ -5046,9 +6339,18 @@ export default function App(){
     if(saved) return saved==="dark";
     return window.matchMedia("(prefers-color-scheme: dark)").matches;
   });
-  const[appView,setAppView]=useState("home");
+  const[appView,setAppView]=useState(()=>{
+    if(typeof window==="undefined") return "home";
+    const paid=getPaidAccess();
+    if(paid) return paid.certLevel ? "app" : "purchase24hr";
+    const saved=localStorage.getItem("medic-ai-user");
+    try { return saved && JSON.parse(saved) ? "app" : "home"; }
+    catch { return "home"; }
+  });
   const[authUser,setAuthUser]=useState(()=>{
     if(typeof window==="undefined") return null;
+    const paid=getPaidAccess();
+    if(paid) return { name:"R.O.M.A.N. Pass", email:"paid@medic.ai", role:"PaidGuest", certLevel:paid.certLevel||null };
     const saved=localStorage.getItem("medic-ai-user");
     try { return saved ? JSON.parse(saved) : null; }
     catch { return null; }
@@ -5057,6 +6359,8 @@ export default function App(){
   const[loginError,setLoginError]=useState("");
   const[signupForm,setSignupForm]=useState({ name:"", email:"", password:"", confirmPassword:"" });
   const[signupError,setSignupError]=useState("");
+  const[certSetupUser,setCertSetupUser]=useState(null); // temp user pending cert selection
+  const[showGuestAck,setShowGuestAck]=useState(false);
 
   const[mode,setMode]=useState("adult");
   const[aSys,setASys]=useState("cardiac");
@@ -5072,8 +6376,11 @@ export default function App(){
   const[reChecks,setReChecks]=useState({});
   const[tick,setTick]=useState(0);
   const[screen,setScreen]=useState("home");
+  const[navOpen,setNavOpen]=useState(false);
+  const[sysDdOpen,setSysDdOpen]=useState(false);
   const[vitalsEntries,setVitalsEntries]=useState([]);
   const[highlightDrug,setHighlightDrug]=useState(null);
+  const highlightTimerRef=useRef(null);
   const[arrestState,setArrestState]=useState({
     startTs:null, endTs:null, endReason:null,
     rhythm:null, cycleStartTs:null, lastEpiTs:null,
@@ -5089,10 +6396,14 @@ export default function App(){
     interventions:"",response:"",dispo:""
   });
 
+  const CERT_SCOPE_MAP={ EMT:"EMT", AEMT:"AEMT", Paramedic:"Medic" };
+
   const enterApp=useCallback((user)=>{
     setAuthUser(user);
-    if(typeof window!=="undefined") localStorage.setItem("medic-ai-user", JSON.stringify(user));
+    const noSave=["Guest","Student","PaidGuest"];
+    if(!noSave.includes(user.role)) localStorage.setItem("medic-ai-user", JSON.stringify(user));
     setPatient(p=>p.provider ? p : { ...p, provider:user.name });
+    if(user.certLevel) setScope(CERT_SCOPE_MAP[user.certLevel] || "all");
     setScreen("drugs");
     setAppView("app");
   },[]);
@@ -5107,10 +6418,6 @@ export default function App(){
     setAppView("signup");
   },[]);
 
-  const handleShowLogin=useCallback(()=>{
-    setLoginError("");
-    setAppView("login");
-  },[]);
 
   const handleLoginChange=useCallback((e)=>{
     const { name, value } = e.target;
@@ -5131,7 +6438,12 @@ export default function App(){
       setLoginError("Email or password is incorrect. Sign up first if you do not have an account.");
       return;
     }
-    enterApp({ name:account.name, email:account.email, role:"Provider" });
+    if(!account.certLevel){
+      setCertSetupUser({ name:account.name, email:account.email, role:"Provider" });
+      setAppView("profilesetup");
+    } else {
+      enterApp({ name:account.name, email:account.email, role:"Provider", certLevel:account.certLevel, profile: account.profile || {} });
+    }
   },[enterApp,loginForm.email,loginForm.password]);
 
   const handleSignupChange=useCallback((e)=>{
@@ -5163,22 +6475,42 @@ export default function App(){
       setSignupError("An account already exists for this email. Log in instead.");
       return;
     }
-    const nextUser={ name, email, password };
+    const nextUser={ name, email, password, certLevel: null };
     saveStoredUsers([...users,nextUser]);
     setSignupForm({ name:"", email:"", password:"", confirmPassword:"" });
     setLoginForm({ email, password:"" });
-    enterApp({ name, email, role:"Provider" });
+    setCertSetupUser({ name, email, role:"Provider" });
+    setAppView("profilesetup");
   },[enterApp,signupForm.confirmPassword,signupForm.email,signupForm.name,signupForm.password]);
 
   const handleGuest=useCallback(()=>{
-    enterApp({ name:"Guest Provider", email:"guest@medic.ai", role:"Guest" });
+    if(getGuestCount()>=2){
+      setAppView("guestBlocked");
+      return;
+    }
+    setShowGuestAck(true);
+  },[]);
+
+  const handleGuestAckConfirm=useCallback(()=>{
+    setShowGuestAck(false);
+    incrementGuestCount();
+    enterApp({ name:"Guest Provider", email:"guest@medic.ai", role:"Guest", certLevel:"EMT" });
+  },[enterApp]);
+
+  const handleStudentCode=useCallback(()=>setAppView("studentcode"),[]);
+  const handle24hr=useCallback(()=>setAppView("purchase24hr"),[]);
+  const handleStudentEnter=useCallback((code,certLevel)=>{
+    enterApp({ name:"Student Access", email:`student-${code.toLowerCase()}@medic.ai`, role:"Student", certLevel });
+  },[enterApp]);
+  const handle24hrSuccess=useCallback((certLevel)=>{
+    enterApp({ name:"R.O.M.A.N. Pass", email:"paid@medic.ai", role:"PaidGuest", certLevel });
   },[enterApp]);
 
   const handleLogout=useCallback(()=>{
     if(typeof window!=="undefined") localStorage.removeItem("medic-ai-user");
     setAuthUser(null);
     setLoginForm({ email:"", password:"" });
-    setAppView("home");
+    setAppView("login");
   },[]);
 
   useEffect(()=>{
@@ -5195,16 +6527,26 @@ export default function App(){
     setScreen("drugs");
     setMode(loc.mode);
     if(loc.mode==="adult") setASys(loc.sys); else setPSys(loc.sys);
+    setSysDdOpen(false);
+    clearTimeout(highlightTimerRef.current);
     setHighlightDrug(name);
-    setTimeout(()=>setHighlightDrug(null), 3000);
+    highlightTimerRef.current=setTimeout(()=>setHighlightDrug(null), 3000);
   },[findDrugLocation]);
 
   useEffect(()=>{const id=setInterval(()=>setTick(t=>t+1),1000);return()=>clearInterval(id);},[]);
   useEffect(()=>setSearch(""),[mode,aSys,pSys]);
 
   const handleGive=useCallback((name)=>{
-    setAdminLog(p=>{const e=p[name]||{times:[]};return{...p,[name]:{times:[...e.times,Date.now()]}};});
-  },[]);
+    const ts=Date.now();
+    setAdminLog(p=>{const e=p[name]||{times:[]};return{...p,[name]:{times:[...e.times,ts]}};});
+    const PRE_CHECK_VITALS=['sbp','dbp','hr','rr','spo2','bgl'];
+    const drugChecks=initChecks[name]||{};
+    const captured={};
+    PRE_CHECK_VITALS.forEach(k=>{if(drugChecks[k]&&drugChecks[k]!=='') captured[k]=drugChecks[k];});
+    if(Object.keys(captured).length>0){
+      setVitalsEntries(p=>[...p,{...EMPTY_VITALS,...captured,gcsTotal:null,ts,autoCapture:true,drugName:name}]);
+    }
+  },[initChecks]);
   const handleReset=useCallback(name=>{setAdminLog(p=>{const n={...p};delete n[name];return n;});setInitChecks(p=>{const n={...p};delete n[name];return n;});setReChecks(p=>{const n={...p};delete n[name];return n;});},[]);
   const handleInitUpdate=useCallback((dn,id,v)=>setInitChecks(p=>({...p,[dn]:{...(p[dn]||{}),[id]:v}})),[]);
   const handleReUpdate=useCallback((dn,id,v)=>setReChecks(p=>({...p,[dn]:{...(p[dn]||{}),[id]:v}})),[]);
@@ -5232,27 +6574,107 @@ export default function App(){
     textTertiary:isDarkMode?"var(--c-text-ghost)":"#4b5563",
   }),[isDarkMode]);
 
+  const CERT_SCOPE_MAP_DRUG={EMT:"EMT",AEMT:"AEMT",Paramedic:"Medic"};
+  const certScopeKey=authUser?.certLevel ? CERT_SCOPE_MAP_DRUG[authUser.certLevel] : null;
+
   const list=useMemo(()=>{
     const raw=bank[activeSys]||[];
     const q=search.trim().toLowerCase();
     const scopeRank={EMT:1,AEMT:2,Medic:3};
-    return raw.filter(d=>(!q||d.name.toLowerCase().includes(q)||(d.sub||"").toLowerCase().includes(q))&&(scope==="all"||scopeRank[d.scope]<=scopeRank[scope]));
-  },[bank,activeSys,search,scope]);
+    const certRank=certScopeKey ? scopeRank[certScopeKey] : 3;
+    const selRank=scope==="all" ? certRank : Math.min(scopeRank[scope]||3, certRank);
+    return raw.filter(d=>(!q||d.name.toLowerCase().includes(q)||(d.sub||"").toLowerCase().includes(q))&&(scopeRank[d.scope]||1)<=selRank);
+  },[bank,activeSys,search,scope,certScopeKey]);
 
   const numInp=useCallback((v,fn,ph,max,step)=>({type:"number",value:v||"",onChange:e=>fn(Math.max(0,parseFloat(e.target.value)||0)),placeholder:ph,min:0,max,step,style:{width:58,padding:"5px 7px",background:colors.surface,border:`1px solid ${colors.border}`,borderRadius:6,color:colors.text,fontSize:13,fontFamily:"'IBM Plex Mono',monospace",textAlign:"right",outline:"none"}}),[colors]);
   const activeDrugs=useMemo(()=>Object.entries(adminLog).map(([name,log])=>({name,count:log.times.length,lastAt:log.times[log.times.length-1]})),[adminLog]);
   const totalDoses=useMemo(()=>activeDrugs.reduce((sum,d)=>sum+d.count,0),[activeDrugs]);
 
+  const guestSessionNum = useMemo(()=> showGuestAck ? getGuestCount() + 1 : 0, [showGuestAck]);
+
+  if(appView==="guestBlocked"){
+    return <GuestBlockedScreen isDarkMode={isDarkMode} onLogin={handleHomeLogin} onSignup={handleShowSignup} onStudentCode={handleStudentCode} on24hr={handle24hr} onToggleTheme={()=>setIsDarkMode(v=>!v)} />;
+  }
+
+  const guestAckModal = showGuestAck && (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,padding:"16px",backdropFilter:"blur(4px)"}}>
+      <div style={{width:"100%",maxWidth:440,background:"#060f1e",border:"1px solid #1e3a5f",borderRadius:14,padding:"28px 24px",display:"grid",gap:20,boxShadow:"0 32px 80px rgba(0,0,0,.6)"}}>
+
+        <div>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,textTransform:"uppercase",letterSpacing:1.4,color:"#14b8a6",marginBottom:10}}>Guest Access — Demo Mode</div>
+          <h2 style={{fontSize:22,fontWeight:800,color:"#f1f5f9",margin:"0 0 4px",lineHeight:1.2}}>Temporary Access Acknowledgment</h2>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:"#475569",marginTop:6}}>Session {guestSessionNum} of 2</div>
+        </div>
+
+        <div style={{background:"#0a1628",border:"1px solid #1e3a5f",borderRadius:8,padding:"16px 18px",display:"grid",gap:12}}>
+          <p style={{fontSize:13.5,color:"#94a3b8",lineHeight:1.65,margin:0}}>
+            You are accessing <strong style={{color:"#e2e8f0"}}>R.O.M.A.N.</strong> as a guest in <strong style={{color:"#e2e8f0"}}>Demo Mode</strong>. This provides temporary, limited access to the application's core features for evaluation purposes only.
+          </p>
+          <div style={{borderTop:"1px solid #1e3a5f",paddingTop:12,display:"grid",gap:8}}>
+            {[
+              ["2-Patient Limit","Guest access is capped at 2 patient sessions total. You are currently using session "+guestSessionNum+" of 2."],
+              ["EMT-Scope Only","Drugs, protocols, and clinical tools are limited to EMT-level scope. AEMT and Paramedic content is locked. Create a free account and set your cert level to unlock your full scope."],
+              ["No Data Persistence","Medication logs, vitals, and ePCR records entered during a guest session are not saved and will be lost when you exit."],
+              ["Full Access Lockout","Once both guest sessions are exhausted, all features will be inaccessible until a free account is created."],
+            ].map(([title,body])=>(
+              <div key={title} style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+                <span style={{color:"#14b8a6",fontSize:14,marginTop:1,flexShrink:0}}>›</span>
+                <div>
+                  <div style={{fontSize:12,fontWeight:700,color:"#cbd5e1",marginBottom:2}}>{title}</div>
+                  <div style={{fontSize:12,color:"#64748b",lineHeight:1.55}}>{body}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <p style={{fontSize:12,color:"#475569",lineHeight:1.6,margin:0,textAlign:"center"}}>
+          By continuing, you acknowledge and accept these access limitations. To unlock unlimited access and full documentation features, create a free R.O.M.A.N. account at any time.
+        </p>
+
+        <div style={{display:"grid",gap:10}}>
+          <button onClick={handleGuestAckConfirm} style={{height:50,borderRadius:9,border:"1px solid rgba(125,249,255,.5)",background:"linear-gradient(135deg,#0f766e,#0284c7)",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",letterSpacing:"0.01em"}}>
+            I Acknowledge — Continue as Guest
+          </button>
+          <button onClick={()=>setShowGuestAck(false)} style={{height:44,borderRadius:9,border:"1px solid #1e3a5f",background:"transparent",color:"#64748b",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+            Cancel
+          </button>
+        </div>
+
+      </div>
+    </div>
+  );
+
   if(appView==="home"){
-    return <HomeScreen isDarkMode={isDarkMode} onLogin={handleHomeLogin} onSignup={handleShowSignup} onGuest={handleGuest} onToggleTheme={()=>setIsDarkMode(v=>!v)} />;
+    return <>{guestAckModal}<HomeScreen isDarkMode={isDarkMode} onLogin={handleHomeLogin} onSignup={handleShowSignup} onGuest={handleGuest} onStudentCode={handleStudentCode} on24hr={handle24hr} onToggleTheme={()=>setIsDarkMode(v=>!v)} /></>;
   }
 
   if(appView==="login"){
-    return <LoginScreen isDarkMode={isDarkMode} values={loginForm} onChange={handleLoginChange} onSubmit={handleLoginSubmit} onBack={()=>setAppView("home")} onSignup={handleShowSignup} onGuest={handleGuest} error={loginError} onToggleTheme={()=>setIsDarkMode(v=>!v)} />;
+    return <>{guestAckModal}<LoginScreen isDarkMode={isDarkMode} values={loginForm} onChange={handleLoginChange} onSubmit={handleLoginSubmit} onBack={()=>setAppView("home")} onSignup={handleShowSignup} onGuest={handleGuest} onStudentCode={handleStudentCode} on24hr={handle24hr} error={loginError} onToggleTheme={()=>setIsDarkMode(v=>!v)} /></>;
+  }
+
+  if(appView==="studentcode"){
+    return <StudentCodeScreen isDarkMode={isDarkMode} onBack={()=>setAppView("home")} onEnter={handleStudentEnter} onToggleTheme={()=>setIsDarkMode(v=>!v)} />;
+  }
+
+  if(appView==="purchase24hr"){
+    return <Purchase24hrScreen isDarkMode={isDarkMode} onBack={()=>setAppView("home")} onSuccess={handle24hrSuccess} onToggleTheme={()=>setIsDarkMode(v=>!v)} />;
   }
 
   if(appView==="signup"){
-    return <SignupScreen isDarkMode={isDarkMode} values={signupForm} onChange={handleSignupChange} onSubmit={handleSignupSubmit} onBack={()=>setAppView("home")} onLogin={handleShowLogin} error={signupError} onToggleTheme={()=>setIsDarkMode(v=>!v)} />;
+    return <SignupScreen isDarkMode={isDarkMode} values={signupForm} onChange={handleSignupChange} onSubmit={handleSignupSubmit} onBack={()=>setAppView("home")} onLogin={handleHomeLogin} error={signupError} onToggleTheme={()=>setIsDarkMode(v=>!v)} />;
+  }
+
+  if(appView==="profilesetup"){
+    const handleProfileSave=(certLevel, profile)=>{
+      if(!certSetupUser) return;
+      const users=getStoredUsers();
+      const updated=users.map(u=>u.email===certSetupUser.email ? { ...u, certLevel, profile } : u);
+      saveStoredUsers(updated);
+      setCertSetupUser(null);
+      enterApp({ ...certSetupUser, certLevel, profile });
+    };
+    return <ProfileSetupScreen isDarkMode={isDarkMode} providerName={certSetupUser?.name||""} onSave={handleProfileSave} onSkip={()=>{ setCertSetupUser(null); enterApp({ ...certSetupUser }); }} onToggleTheme={()=>setIsDarkMode(v=>!v)} />;
   }
 
   return(
@@ -5265,7 +6687,7 @@ export default function App(){
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:7}}>
-              <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:19,fontWeight:700,color:isDarkMode?"var(--c-text)":"#0f0f0f",letterSpacing:"-0.02em"}}>MedicAI</span>
+              <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:19,fontWeight:700,color:isDarkMode?"var(--c-text)":"#0f0f0f",letterSpacing:"-0.02em"}}>R.O.M.A.N.</span>
               <span style={{fontSize:9,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",background:isDarkMode?"#0d1d3a":"#d5bee2",color:isDarkMode?"#60a5fa":"#4c1d95",border:isDarkMode?"1px solid #1a3060":"1px solid #8b5fb0",borderRadius:4,padding:"2px 7px"}}>Drug Calc</span>
             </div>
             <div style={{color:isDarkMode?"var(--c-text-ghost)":"#374151",fontSize:9,marginTop:2,letterSpacing:"0.03em",fontFamily:"'IBM Plex Mono',monospace"}}>GA SOP-2024 · NASEMSO v3 · AHA/AAP 2025 PALS</div>
@@ -5291,31 +6713,97 @@ export default function App(){
             >
               {isDarkMode?"☀️":"🌙"}
             </button>
-            <button
-              onClick={() => setAppView("home")}
-              style={{
-                border:isDarkMode?"1px solid var(--c-border)":"1px solid #9a9286",
-                background:isDarkMode?"var(--c-surface)":"#eee7dd",
-                color:isDarkMode?"#8aa0c2":"#374151",
-                borderRadius:6,
-                padding:"4px 8px",
-                fontSize:9,
-                fontWeight:700,
-                cursor:"pointer",
-                fontFamily:"'IBM Plex Mono',monospace",
-              }}
-              title="Home"
-            >
-              Home
-            </button>
+            {(()=>{
+              const NAV=[
+                ["drugs","💊 Drugs",isDarkMode?"#0d1f3a":"#9fbce2",isDarkMode?"#93c5fd":"#172554"],
+                ["protocols","Protocols",isDarkMode?"#1a0e28":"#c7a4e6",isDarkMode?"#c084fc":"#4c1d95"],
+                ["arrest","❤ Arrest",isDarkMode?"#2a0808":"#e5a2a2",isDarkMode?"#fca5a5":"#7f1d1d"],
+                ["medlog","⏱ Log",isDarkMode?"#1a0a18":"#e4b07e",isDarkMode?"#fb923c":"#7c2d12"],
+                ["epcr","📝 ePCR",isDarkMode?"#1a0e28":"#c7a4e6",isDarkMode?"#c084fc":"#4c1d95"],
+                ["savedcalls","☁ Saved",isDarkMode?"#0a1a28":"#9fbce2",isDarkMode?"#38bdf8":"#075985"],
+                ["profile","👤 Profile",isDarkMode?"#0a1a28":"#c4d4e0",isDarkMode?"#7dd3fc":"#075985"],
+                ["report","📞 Report",isDarkMode?"#0a1a28":"#d4e0c4",isDarkMode?"#86efac":"#166534"],
+                ["__logout","⬅ Sign Out",isDarkMode?"var(--c-surface)":"#eee7dd",isDarkMode?"#8aa0c2":"#374151"],
+              ];
+              const cur=NAV.find(([s])=>s===screen)||NAV[0];
+              const [,curL,curBg,curFg]=cur;
+              const isArrestActive=arrestState.startTs&&!arrestState.endTs;
+              return(
+                <div style={{position:"relative"}}>
+                  {navOpen&&<div onClick={()=>setNavOpen(false)} style={{position:"fixed",inset:0,zIndex:98}}/>}
+                  <button
+                    onClick={()=>setNavOpen(v=>!v)}
+                    style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px",borderRadius:8,border:`1px solid var(--c-border-sub)`,background:curBg,color:curFg,fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,cursor:"pointer",letterSpacing:"0.04em",whiteSpace:"nowrap"}}
+                  >
+                    <span style={{display:"flex",alignItems:"center",gap:5}}>
+                      {curL}
+                      {isArrestActive&&screen!=="arrest"&&<span style={{width:6,height:6,borderRadius:"50%",background:"#ef4444",display:"inline-block",animation:"pulse 1.5s ease-in-out infinite"}}/>}
+                    </span>
+                    <span style={{fontSize:9,opacity:0.6}}>{navOpen?"▲":"▼"}</span>
+                  </button>
+                  {navOpen&&(
+                    <div style={{position:"absolute",top:"calc(100% + 4px)",right:0,left:"auto",zIndex:99,background:"var(--c-nav)",border:"1px solid var(--c-border-sub)",borderRadius:10,padding:4,display:"grid",gridTemplateColumns:"1fr 1fr",gap:3,boxShadow:"0 8px 24px rgba(0,0,0,0.25)",minWidth:210}}>
+                      {NAV.map(([s,l,bg,fg])=>{
+                        let cnt=0;
+                        if(s==="medlog") cnt=totalDoses;
+                        else if(s==="arrest"&&arrestState.startTs) cnt=arrestState.events.length;
+                        const active=screen===s;
+                        const arrAct=s==="arrest"&&isArrestActive;
+                        return(
+                          <button key={s} onClick={()=>{
+                            if(s==="__logout"){handleLogout();}
+                            else{setScreen(s);}
+                            setNavOpen(false);
+                          }} style={{padding:"10px 6px",borderRadius:8,border:"none",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontSize:10.5,fontWeight:700,letterSpacing:"0.02em",background:active?bg:arrAct?"#2a0808":"transparent",color:active?fg:arrAct?"#fca5a5":"var(--c-text4)",transition:"all 0.12s",position:"relative",textAlign:"center"}}>
+                            {l}{cnt>0?` (${cnt})`:""}
+                            {arrAct&&!active&&<span style={{position:"absolute",top:4,right:4,width:6,height:6,borderRadius:"50%",background:"#ef4444",animation:"pulse 1.5s ease-in-out infinite"}}/>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             <div style={{textAlign:"right",fontFamily:"'IBM Plex Mono',monospace"}}>
-              {authUser&&<div style={{color:isDarkMode?"#14b8a6":"#0f766e",fontSize:10,maxWidth:88,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{authUser.name}</div>}
+              {authUser&&<div style={{color:isDarkMode?"#14b8a6":"#0f766e",fontSize:10,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{authUser.name}</div>}
+              {authUser&&(()=>{
+                if(authUser.role==="Student")   return <div style={{display:"inline-block",marginTop:2,background:"#100a1f",border:"1px solid #7c3aed",borderRadius:4,padding:"1px 6px",fontSize:9,fontWeight:800,color:"#d8b4fe",letterSpacing:"0.06em"}}>🎓 STUDENT</div>;
+                if(authUser.role==="PaidGuest") return <div style={{display:"inline-block",marginTop:2,background:"#120d00",border:"1px solid #d97706",borderRadius:4,padding:"1px 6px",fontSize:9,fontWeight:800,color:"#fde68a",letterSpacing:"0.06em"}}>⚡ 24HR PASS</div>;
+                if(authUser.role==="Guest")     return <div style={{display:"inline-block",marginTop:2,background:"#111827",border:"1px solid #374151",borderRadius:4,padding:"1px 6px",fontSize:9,fontWeight:800,color:"#6b7280",letterSpacing:"0.06em"}}>GUEST · EMT-SCOPE</div>;
+                if(!authUser.certLevel) return null;
+                const CERT_COLORS={EMT:{bg:"#071a0e",fg:"#86efac",bd:"#14532d"},AEMT:{bg:"#060f1e",fg:"#93c5fd",bd:"#1e3a8a"},Paramedic:{bg:"#1a0c04",fg:"#fdba74",bd:"#9a3412"}};
+                const cc=CERT_COLORS[authUser.certLevel]||CERT_COLORS.EMT;
+                return <div style={{display:"inline-block",marginTop:2,background:cc.bg,border:`1px solid ${cc.bd}`,borderRadius:4,padding:"1px 6px",fontSize:9,fontWeight:800,color:cc.fg,letterSpacing:"0.06em"}}>{authUser.certLevel==="Paramedic"?"MEDIC":authUser.certLevel}</div>;
+              })()}
               <div style={{color:isDarkMode?"var(--c-text-ghost)":"#374151",fontSize:10}}>{list.length} drugs</div>
               {wkg>0&&<div style={{color:"#4ade80",fontSize:11,marginTop:1}}>{wkg} kg</div>}
               {activeCount>0&&<div style={{color:"#f97316",fontSize:10,marginTop:1}}>⏱ {activeCount} active</div>}
             </div>
           </div>
         </div>
+
+        {/* CERT EXPIRATION WARNINGS */}
+        {(()=>{
+          const warnings = getCertWarnings(authUser);
+          if(!warnings.length) return null;
+          return(
+            <div style={{ display:"flex", flexDirection:"column", gap:5, marginBottom:10 }}>
+              {warnings.map((w,i)=>(
+                <div key={i} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 11px", background:w.bg, border:`1px solid ${w.bd}`, borderRadius:7 }}>
+                  <span style={{ fontSize:13 }}>{w.urgent ? "⚠️" : "🔔"}</span>
+                  <div style={{ flex:1 }}>
+                    <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, fontWeight:800, color:w.color }}>{w.label}: </span>
+                    <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:w.color }}>{w.msg}</span>
+                  </div>
+                  <button onClick={()=>setScreen("profile")} style={{ background:"transparent", border:`1px solid ${w.bd}`, borderRadius:5, color:w.color, fontSize:9, fontWeight:700, cursor:"pointer", padding:"2px 7px", fontFamily:"'IBM Plex Mono',monospace", whiteSpace:"nowrap" }}>
+                    Renew →
+                  </button>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
 
         {/* ACTIVE SUMMARY */}
         {activeDrugs.length>0&&(
@@ -5339,44 +6827,20 @@ export default function App(){
           </div>
         )}
 
-        {/* PRIMARY NAV */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",background:"var(--c-nav)",border:"1px solid var(--c-border-sub)",borderRadius:10,padding:3,gap:3,marginBottom:14}}>
-          {[
-            ["home","🏠 Home",isDarkMode?"#0d1f3a":"#9fbce2",isDarkMode?"#93c5fd":"#172554"],
-            ["drugs","💊 Drugs",isDarkMode?"#0d1f3a":"#9fbce2",isDarkMode?"#93c5fd":"#172554"],
-            ["vitals","📋 Vitals",isDarkMode?"#0a2318":"#99c7ae",isDarkMode?"#86efac":"#064e3b"],
-            ["protocols","Protocols",isDarkMode?"#1a0e28":"#c7a4e6",isDarkMode?"#c084fc":"#4c1d95"],
-            ["arrest","❤ Arrest",isDarkMode?"#2a0808":"#e5a2a2",isDarkMode?"#fca5a5":"#7f1d1d"],
-            ["medlog","⏱ Log",isDarkMode?"#1a0a18":"#e4b07e",isDarkMode?"#fb923c":"#7c2d12"],
-            ["epcr","📝 ePCR",isDarkMode?"#1a0e28":"#c7a4e6",isDarkMode?"#c084fc":"#4c1d95"],
-          ].map(([s,l,bg,fg])=>{
-            let cnt=0;
-            if(s==="vitals") cnt=vitalsEntries.length;
-            else if(s==="medlog") cnt=totalDoses;
-            else if(s==="arrest" && arrestState.startTs) cnt=arrestState.events.length;
-            const isArrestActive = s==="arrest" && arrestState.startTs && !arrestState.endTs;
-            return(
-              <button key={s} onClick={()=>s==="home" ? setAppView("home") : setScreen(s)} style={{padding:"9px 2px",borderRadius:8,border:"none",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontSize:9.5,fontWeight:700,letterSpacing:"0.02em",background:screen===s?bg:isArrestActive?"#2a0808":"transparent",color:screen===s?fg:isArrestActive?"#fca5a5":"var(--c-text4)",transition:"all 0.15s",position:"relative"}}>
-                {l}{cnt>0?` ${cnt}`:""}
-                {isArrestActive && screen !== s && <span style={{position:"absolute",top:4,right:4,width:6,height:6,borderRadius:"50%",background:"#ef4444",animation:"pulse 1.5s ease-in-out infinite"}}/>}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* VITALS LOG SCREEN */}
-        {screen==="vitals"&&(
-          <VitalsLog initChecks={initChecks} reChecks={reChecks} entries={vitalsEntries} setEntries={setVitalsEntries} onClearCall={()=>{setAdminLog({});setInitChecks({});setReChecks({});setVitalsEntries([]); }}/>
-        )}
-
         {/* PROTOCOLS SCREEN */}
         {screen==="protocols"&&(
-          <ProtocolsScreen mode={mode} setMode={setMode} isDarkMode={isDarkMode} burnMaps={burnMaps} setBurnMaps={setBurnMaps} onJumpDrug={handlePillClick} findDrugLocation={findDrugLocation} wkg={wkg} wlb={wlb} setWkg={setWkg} setWlb={setWlb}/>
+          <ProtocolsScreen mode={mode} setMode={setMode} isDarkMode={isDarkMode} burnMaps={burnMaps} setBurnMaps={setBurnMaps} onJumpDrug={handlePillClick} findDrugLocation={findDrugLocation} wkg={wkg} wlb={wlb} setWkg={setWkg} setWlb={setWlb} authUser={authUser}/>
         )}
 
-        {/* ARREST SCREEN */}
+        {/* ARREST SCREEN + VITALS */}
         {screen==="arrest"&&(
-          <ArrestTracker arrestState={arrestState} setArrestState={setArrestState} tick={tick} onLogMed={handleGive} wkg={wkg} setWkg={setWkg} setWlb={setWlb} mode={mode} isDarkMode={isDarkMode}/>
+          <>
+            <ArrestTracker arrestState={arrestState} setArrestState={setArrestState} tick={tick} onLogMed={handleGive} wkg={wkg} setWkg={setWkg} setWlb={setWlb} mode={mode} isDarkMode={isDarkMode} patient={patient}/>
+            <VitalsLog initChecks={initChecks} reChecks={reChecks} entries={vitalsEntries} setEntries={setVitalsEntries} onClearCall={()=>{
+              setAdminLog({});setInitChecks({});setReChecks({});setVitalsEntries([]);
+              setPatient(p=>({run:"",unit:p.unit,provider:p.provider,name:"",age:"",sex:"",allergies:"",meds:"",cc:"",hpi:"",pmh:"",interventions:"",response:"",dispo:""}));
+            }}/>
+          </>
         )}
 
         {/* MED LOG SCREEN */}
@@ -5386,7 +6850,52 @@ export default function App(){
 
         {/* ePCR SCREEN */}
         {screen==="epcr"&&(
-          <Epcr patient={patient} setPatient={setPatient} adminLog={adminLog} vitalsEntries={vitalsEntries} wkg={wkg} wlb={wlb} mode={mode} findDrugLocation={findDrugLocation}/>
+          <Epcr patient={patient} setPatient={setPatient} adminLog={adminLog} vitalsEntries={vitalsEntries} wkg={wkg} wlb={wlb} mode={mode} findDrugLocation={findDrugLocation} isDarkMode={isDarkMode}/>
+        )}
+
+        {/* SAVED CALLS SCREEN */}
+        {screen==="savedcalls"&&(
+          <SavedCallsScreen isDarkMode={isDarkMode}/>
+        )}
+
+        {/* PROFILE SCREEN */}
+        {screen==="profile"&&authUser&&authUser.role!=="Guest"&&(
+          <ProfileSetupScreen
+            isDarkMode={isDarkMode}
+            providerName={authUser.name}
+            initialData={{ certLevel: authUser.certLevel, ...(authUser.profile||{}) }}
+            onSave={(certLevel, profile)=>{
+              const CERT_SCOPE_MAP3={EMT:"EMT",AEMT:"AEMT",Paramedic:"Medic"};
+              if(authUser.role==="PaidGuest"){
+                updatePaidAccessCertLevel(certLevel);
+              } else {
+                const users=getStoredUsers();
+                const updated=users.map(u=>u.email===authUser.email ? { ...u, certLevel, profile } : u);
+                saveStoredUsers(updated);
+                localStorage.setItem("medic-ai-user", JSON.stringify({ ...authUser, certLevel, profile }));
+              }
+              const next={ ...authUser, certLevel, profile };
+              setAuthUser(next);
+              setScope(CERT_SCOPE_MAP3[certLevel]||"all");
+              setScreen("drugs");
+            }}
+            onSkip={()=>setScreen("drugs")}
+            onToggleTheme={()=>setIsDarkMode(v=>!v)}
+          />
+        )}
+
+        {/* RADIO REPORT SCREEN */}
+        {screen==="report"&&(
+          <RadioReportScreen
+            patient={patient}
+            vitalsEntries={vitalsEntries}
+            adminLog={adminLog}
+            authUser={authUser}
+            wkg={wkg}
+            mode={mode}
+            arrestState={arrestState}
+            isDarkMode={isDarkMode}
+          />
         )}
 
         {/* DRUG CALC SCREEN */}
@@ -5416,27 +6925,76 @@ export default function App(){
           {wkg>0&&<span style={{marginLeft:"auto",color:"#4ade80",fontSize:11,fontFamily:"'IBM Plex Mono',monospace"}}>{wkg} kg ✓</span>}
         </div>
 
-        {/* SYSTEM TABS */}
-        <div style={{display:"flex",overflowX:"auto",gap:5,marginBottom:9,paddingBottom:2,scrollbarWidth:"none"}}>
-          {systems.map(s=>{
-            const light=LIGHT_TABS[s.k]||{bg:s.lc+"22",fg:s.lc,bd:s.lc};
-            const sc=isDarkMode?s.c:light.fg;
-            const isActive=activeSys===s.k;
-            return(<button key={s.k} onClick={()=>setSys(s.k)} style={{flexShrink:0,padding:"6px 11px",borderRadius:20,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:700,background:isDarkMode?(isActive?sc+"20":"transparent"):(isActive?light.bg:"#e0e5eb"),color:isDarkMode?(isActive?sc:"var(--c-text4)"):sc,border:isDarkMode?(isActive?`1px solid ${sc}45`:"1px solid transparent"):`1px solid ${isActive?light.bd:"#9aa6b4"}`,boxShadow:!isDarkMode&&isActive?`0 5px 14px ${light.bd}40`:"none",transition:"all 0.12s",whiteSpace:"nowrap"}}>{s.e} {s.l}</button>);})}
-        </div>
+        {/* SYSTEM DROPDOWN */}
+        {(()=>{
+          const light=LIGHT_TABS[sysInfo.k]||{bg:sysInfo.lc+"22",fg:sysInfo.lc,bd:sysInfo.lc};
+          const sc=isDarkMode?sysInfo.c:light.fg;
+          return(
+            <div style={{position:"relative",marginBottom:9}}>
+              <button
+                onClick={()=>setSysDdOpen(v=>!v)}
+                style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",borderRadius:10,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:700,background:isDarkMode?sc+"18":light.bg,color:sc,border:`1px solid ${isDarkMode?sc+"50":light.bd}`,transition:"all 0.12s"}}
+              >
+                <span>{sysInfo.e} {sysInfo.l}</span>
+                <span style={{fontSize:10,opacity:0.7,marginLeft:8}}>{sysDdOpen?"▲":"▼"} {systems.length} systems</span>
+              </button>
+              {sysDdOpen&&(
+                <>
+                  <div onClick={()=>setSysDdOpen(false)} style={{position:"fixed",inset:0,zIndex:40}}/>
+                  <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,right:0,zIndex:50,background:isDarkMode?"#0d1120":"#f0f4f8",border:`1px solid ${isDarkMode?"#1a2338":"#9aa6b4"}`,borderRadius:10,padding:8,boxShadow:"0 12px 32px rgba(0,0,0,.35)",display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
+                    {systems.map(s=>{
+                      const sl=LIGHT_TABS[s.k]||{bg:s.lc+"22",fg:s.lc,bd:s.lc};
+                      const sc2=isDarkMode?s.c:sl.fg;
+                      const isActive=activeSys===s.k;
+                      return(
+                        <button key={s.k} onClick={()=>{setSys(s.k);setSysDdOpen(false);}}
+                          style={{display:"flex",alignItems:"center",gap:7,padding:"8px 10px",borderRadius:8,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:700,background:isActive?(isDarkMode?sc2+"25":sl.bg):"transparent",color:isActive?sc2:isDarkMode?"var(--c-text4)":"#374151",border:isActive?`1px solid ${isDarkMode?sc2+"55":sl.bd}`:"1px solid transparent",textAlign:"left"}}
+                        >
+                          <span style={{fontSize:15}}>{s.e}</span>
+                          <span>{s.l}</span>
+                          {isActive&&<span style={{marginLeft:"auto",fontSize:9,opacity:0.6}}>✓</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })()}
 
         {/* SCOPE FILTER */}
-        <div style={{display:"flex",gap:5,marginBottom:10,flexWrap:"wrap"}}>
-          {[["all","All Scopes",null],["EMT","EMT+","EMT"],["AEMT","AEMT+","AEMT"],["Medic","Paramedic","Medic"]].map(([k,l,sk])=>{
-            const sd=sk?SS[sk]:null;
-            const bg=sd?(isDarkMode?sd.bg:sd.lbg):(isDarkMode?"#1a2030":"#dde5f0");
-            const fg=sd?(isDarkMode?sd.fg:sd.lfg):(isDarkMode?"#7090b8":"#3a5070");
-            const bd=sd?(isDarkMode?sd.bd:sd.lbd):(isDarkMode?"#2a3f60":"#8fa0b6");
-            return(
-              <button key={k} onClick={()=>setScope(k)} style={{padding:"4px 10px",borderRadius:16,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif",background:scope===k?bg:"transparent",color:scope===k?fg:"var(--c-text4)",border:scope===k?`1px solid ${bd}`:"1px solid transparent",transition:"all 0.12s"}}>{l}</button>
-            );
-          })}
-        </div>
+        {(()=>{
+          const scopeRankMap={EMT:1,AEMT:2,Medic:3};
+          const maxRank=certScopeKey ? scopeRankMap[certScopeKey] : 3;
+          const totalInSys=(bank[activeSys]||[]).length;
+          const hiddenCount=certScopeKey ? (bank[activeSys]||[]).filter(d=>(scopeRankMap[d.scope]||1)>maxRank).length : 0;
+          return(
+            <div>
+              <div style={{display:"flex",gap:5,marginBottom:hiddenCount?4:10,flexWrap:"wrap"}}>
+                {[["all","All Scopes",null],["EMT","EMT+","EMT"],["AEMT","AEMT+","AEMT"],["Medic","Paramedic","Medic"]].map(([k,l,sk])=>{
+                  const sd=sk?SS[sk]:null;
+                  const bg=sd?(isDarkMode?sd.bg:sd.lbg):(isDarkMode?"#1a2030":"#dde5f0");
+                  const fg=sd?(isDarkMode?sd.fg:sd.lfg):(isDarkMode?"#7090b8":"#3a5070");
+                  const bd=sd?(isDarkMode?sd.bd:sd.lbd):(isDarkMode?"#2a3f60":"#8fa0b6");
+                  const blocked=certScopeKey ? k!==certScopeKey : false;
+                  return(
+                    <button key={k} disabled={blocked} onClick={()=>!blocked&&setScope(k)}
+                      title={blocked?`Locked to your ${authUser.certLevel} cert level`:undefined}
+                      style={{padding:"4px 10px",borderRadius:16,cursor:blocked?"not-allowed":"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif",background:scope===k&&!blocked?bg:"transparent",color:blocked?"var(--c-text-ghost)":scope===k?fg:"var(--c-text4)",border:scope===k&&!blocked?`1px solid ${bd}`:"1px solid transparent",transition:"all 0.12s",opacity:blocked?0.35:1}}>
+                      {l}{blocked?" 🔒":""}
+                    </button>
+                  );
+                })}
+              </div>
+              {hiddenCount>0&&(
+                <div style={{marginBottom:10,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:"var(--c-text-ghost)"}}>
+                  {hiddenCount} drug{hiddenCount!==1?"s":""} outside your {authUser.certLevel} scope
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* SECTION HEADER */}
         <div style={{display:"flex",alignItems:"center",gap:7,paddingBottom:8,borderBottom:`1px solid #0e1525`,marginBottom:10}}>
