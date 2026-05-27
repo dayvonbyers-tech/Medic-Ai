@@ -1,0 +1,4 @@
+{
+  "command": "(Get-Content \"C:\\Users\\Dayvon Byers\\OneDrive\\Desktop\\medic-ai\\src\\App.jsx\" | Measure-Object -Line).Lines",
+  "description": "Count lines in App.jsx"
+}

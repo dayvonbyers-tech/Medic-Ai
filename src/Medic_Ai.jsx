@@ -269,8 +269,8 @@ const ADULT = {
   cardiac: [
     { name:"Aspirin", sub:"ACS / Chest Pain", dose:"324 mg PO (4 tablets, chewed)", route:"PO", conc:"81 mg/tablet", draw:"4 tablets — subtract any taken prior to arrival", notes:"Give early in suspected ACS. Must be chewed, not swallowed whole. Screen for allergy and prior dose before giving.", ci:["Aspirin/NSAID allergy","Active GI bleed","Hemorrhagic stroke"], scope:"EMT", redoseMins:null, maxDoses:1 },
     { name:"Nitroglycerin", sub:"ACS / Pulmonary Edema", dose:"0.4 mg SL q5min × 3", route:"SL", conc:"0.4 mg/tablet or spray", draw:"1 tablet or 1 spray SL", notes:"Hold if SBP <100, HR <50 or >100, suspected RVI, or PDE-5 use in past 24–48 h.", ci:["SBP <100","RVI","PDE-5 inhibitor <24–48h","HR <50"], scope:"EMT", redoseMins:5, maxDoses:3 },
-    { name:"Epinephrine 1:10,000", sub:"Cardiac Arrest (all rhythms)", dose:"1 mg IV/IO q3–5 min", route:"IV/IO", conc:"0.1 mg/mL", draw:"10 mL", syringe:"10 mL syringe", notes:"Flush with 20 mL NS after each dose. Continue CPR without interruption. No established maximum dose per AHA/ACLS — continue every 3–5 min throughout arrest.", maxDoseNote:"No max — continue per arrest protocol (AHA/ACLS)", ci:[], scope:"AEMT", redoseMins:4, maxDoses:null },
-    { name:"Amiodarone", sub:"VF / Pulseless VT", dose:"Dose 1: 300 mg IVP · Dose 2: 150 mg IVP", route:"IV/IO", conc:"50 mg/mL", draw:"Dose 1: 6 mL (300 mg) · Dose 2: 3 mL (150 mg)", notes:"Stable VT: 150 mg IV over 10 min. Avoid in iodine allergy. Do NOT mix with other drugs.", maxDoseNote:"Max 450 mg total (2 doses)", doseSteps:[{label:"Dose 1",dose:"300 mg IVP",draw:"6 mL",mg:300},{label:"Dose 2",dose:"150 mg IVP",draw:"3 mL",mg:150}], ci:["Iodine allergy (relative)","Cardiogenic shock"], scope:"Medic", redoseMins:null, maxDoses:2 },
+    { name:"Epinephrine 1:10,000", sub:"Cardiac Arrest (all rhythms)", dose:"1 mg IV/IO q3–5 min", route:"IV/IO", conc:"0.1 mg/mL", draw:"10 mL", syringe:"10 mL syringe", notes:"Flush with 20 mL NS after each dose. Continue CPR without interruption. No established maximum dose per AHA/ACLS — continue every 3–5 min throughout arrest.", ci:[], scope:"AEMT", redoseMins:4, maxDoses:null },
+    { name:"Amiodarone", sub:"VF / Pulseless VT", dose:"Dose 1: 300 mg IVP · Dose 2: 150 mg IVP", route:"IV/IO", conc:"50 mg/mL", draw:"Dose 1: 6 mL (300 mg) · Dose 2: 3 mL (150 mg)", notes:"Stable VT: 150 mg IV over 10 min. Avoid in iodine allergy. Do NOT mix with other drugs.", maxDoseNote:"Max 450 mg total (2 doses)", doseSteps:[{label:"Dose 1",dose:"300 mg IVP",draw:"6 mL",mg:300},{label:"Dose 2",dose:"150 mg IVP",draw:"3 mL",mg:150}], ci:["Iodine allergy (relative)","Cardiogenic shock"], scope:"Medic", redoseMins:2, maxDoses:2 },
     { name:"Adenosine", sub:"SVT", dose:"6 mg rapid IVP; repeat 12 mg ×2", route:"IV (proximal site)", conc:"3 mg/mL", draw:"2 mL (6 mg) · 4 mL (12 mg)", syringe:"5 mL", notes:"PUSH FAST — flush 20 mL NS immediately. 2nd & 3rd doses = 12 mg each.", ci:["2nd/3rd degree AV block","Sick sinus syndrome","Asthma (relative)"], scope:"Medic", redoseMins:2, maxDoses:3 },
     { name:"Atropine", sub:"Symptomatic Bradycardia", dose:"0.5 mg IV q3–5 min (max 3 mg)", route:"IV/IO", conc:"0.1 mg/mL", draw:"5 mL per dose", syringe:"10 mL", notes:"Min 0.5 mg to avoid paradoxical bradycardia. Max 3 mg total (6 doses).", ci:["Glaucoma (relative)","Infranodal block – Type II"], scope:"AEMT", redoseMins:4, maxDoses:6 },
     { name:"Dopamine", sub:"Cardiogenic Shock / Hypotension", dose:"2–20 mcg/kg/min IV infusion", route:"IV infusion", conc:"1,600 mcg/mL (400 mg/250 mL)", draw:"Titrate via IV pump", notes:"2–5 mcg/kg/min = renal. 5–10 = inotropic. 10–20 = vasopressor.", ci:["Pheochromocytoma"], scope:"Medic", redoseMins:null, maxDoses:null },
@@ -298,6 +298,9 @@ const ADULT = {
     { name:"Glucagon", sub:"Hypoglycemia (No IV) / Beta-Blocker OD", dose:"1 mg IM · 3–10 mg IV (OD)", route:"IM / IV", conc:"1 mg/mL (reconstituted)", draw:"1 mL IM", notes:"Reconstitute per kit. Onset 5–20 min IM. May cause vomiting.", ci:["Pheochromocytoma","Insulinoma"], scope:"AEMT", redoseMins:null, maxDoses:1 },
     { name:"Oral Glucose (Glutose)", sub:"Conscious Hypoglycemia", dose:"15–20 g PO", route:"PO", conc:"15 g/tube", draw:"1 tube (15 g)", notes:"Patient MUST be conscious with intact gag reflex. Recheck BGL in 15 min.", ci:["Unconscious","Impaired swallow"], scope:"EMT", redoseMins:15, maxDoses:2 },
     { name:"Normal Saline (0.9% NaCl)", sub:"Volume Replacement / DKA / Heat Emergency", dose:"250–1,000 mL IV bolus (titrate)", route:"IV/IO", conc:"0.9% NaCl", draw:"250–1,000 mL bag", notes:"Caution in pulmonary edema or CHF.", ci:["Cardiogenic pulmonary edema (large volumes)"], scope:"AEMT", redoseMins:null, maxDoses:null },
+    { name:"Sodium Bicarbonate", sub:"Metabolic Acidosis / DKA / Hyperkalemia", dose:"1 mEq/kg IV", route:"IV", conc:"1 mEq/mL (8.4%)", draw:"1 mL/kg", notes:"DKA: use only if pH <7.0 and hemodynamically unstable. Alkalinizes serum. Do NOT mix with calcium or epinephrine. Flush line before and after.", ci:["Metabolic alkalosis","Hypernatremia"], scope:"Medic", wt:true, mpk:1, cmpml:1, unit:"mEq", redoseMins:null, maxDoses:null },
+    { name:"Calcium Chloride 10%", sub:"Hyperkalemia — Cardiac Membrane Stabilization", dose:"1 g (10 mL) IV slow push over 3–5 min", route:"IV", conc:"100 mg/mL (10%)", draw:"10 mL prefilled syringe", notes:"Stabilizes cardiac membrane — does NOT lower potassium. Combine with bicarb and albuterol for full hyperkalemia treatment. Do NOT mix with bicarb in same line.", ci:["Ventricular fibrillation","Digitalis toxicity","Hypercalcemia"], scope:"Medic", redoseMins:null, maxDoses:null },
+    { name:"Thiamine (B1)", sub:"Pre-Glucose Administration / Wernicke's Prevention", dose:"100 mg IV/IM", route:"IV/IM", conc:"100 mg/mL", draw:"1 mL", notes:"Give BEFORE dextrose in known or suspected alcoholism or malnourished patients. Prevents Wernicke's encephalopathy.", ci:[], scope:"Medic", redoseMins:null, maxDoses:1 },
   ],
   anaphylaxis: [
     { name:"Epinephrine 1:1,000", sub:"Anaphylaxis — FIRST LINE", dose:"0.3–0.5 mg IM (lateral thigh)", route:"IM", conc:"1 mg/mL", draw:"0.3–0.5 mL", notes:"FIRST-LINE. Lateral mid-thigh preferred. Repeat every 5–15 min.", ci:["None absolute in anaphylaxis"], scope:"EMT", redoseMins:10, maxDoses:3 },
@@ -349,9 +352,9 @@ const ADULT = {
 
 const PEDS = {
   cardiac: [
-    { name:"Epinephrine 1:10,000", sub:"Cardiac Arrest", dose:"0.01 mg/kg IV/IO q3–5 min", route:"IV/IO", conc:"0.1 mg/mL", draw:"0.1 mL/kg (max 10 mL)", notes:"Max 1 mg per dose. Flush 3–5 mL NS after each dose. No established maximum dose per AHA/ACLS — continue every 3–5 min throughout arrest.", maxDoseNote:"No max — continue per arrest protocol (AHA/ACLS)", ci:[], scope:"AEMT", wt:true, mpk:0.01, cmpml:0.1, maxd:1, redoseMins:4, maxDoses:null },
+    { name:"Epinephrine 1:10,000", sub:"Cardiac Arrest", dose:"0.01 mg/kg IV/IO q3–5 min", route:"IV/IO", conc:"0.1 mg/mL", draw:"0.1 mL/kg (max 10 mL)", notes:"Max 1 mg per dose. Flush 3–5 mL NS after each dose. No established maximum dose per AHA/ACLS — continue every 3–5 min throughout arrest.", ci:[], scope:"AEMT", wt:true, mpk:0.01, cmpml:0.1, maxd:1, redoseMins:4, maxDoses:null },
     { name:"Adenosine", sub:"SVT", dose:"0.1 mg/kg rapid IVP (max 6 mg)", route:"Rapid IV proximal + flush", conc:"3 mg/mL", draw:"Varies by weight (max 2 mL)", notes:"Push FAST + flush 10–20 mL NS. 2nd dose: 0.2 mg/kg (max 12 mg).", ci:["2nd/3rd degree AV block","Asthma (relative)"], scope:"Medic", wt:true, mpk:0.1, cmpml:3, maxd:6, redoseMins:2, maxDoses:3 },
-    { name:"Amiodarone", sub:"VF / pVT (refractory)", dose:"5 mg/kg IV/IO (max 300 mg per dose)", route:"IV/IO", conc:"50 mg/mL", draw:"Varies by weight (max 6 mL per dose)", notes:"Max 300 mg per dose. Dilute in D5W. Both doses are equal weight-based amounts. Stable arrhythmia: give over 20–60 min.", maxDoseNote:"Max 300 mg/dose · Max 2 doses (600 mg total)", ci:[], scope:"Medic", wt:true, mpk:5, cmpml:50, maxd:300, redoseMins:null, maxDoses:2 },
+    { name:"Amiodarone", sub:"VF / pVT (refractory)", dose:"5 mg/kg IV/IO (max 300 mg per dose)", route:"IV/IO", conc:"50 mg/mL", draw:"Varies by weight (max 6 mL per dose)", notes:"Max 300 mg per dose. Dilute in D5W. Both doses are equal weight-based amounts. Stable arrhythmia: give over 20–60 min.", maxDoseNote:"Max 300 mg/dose · Max 2 doses (600 mg total)", ci:[], scope:"Medic", wt:true, mpk:5, cmpml:50, maxd:300, redoseMins:2, maxDoses:2 },
     { name:"Atropine", sub:"Symptomatic Bradycardia", dose:"0.02 mg/kg IV/IO", route:"IV/IO", conc:"0.1 mg/mL", draw:"Varies by weight", notes:"Min 0.1 mg; max 0.5 mg (child), 1 mg (adolescent).", ci:[], scope:"AEMT", wt:true, mpk:0.02, cmpml:0.1, maxd:0.5, mind:0.1, redoseMins:4, maxDoses:2 },
   ],
   airway: [
@@ -593,7 +596,7 @@ const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,
     }
   },[highlighted]);
   const calc=calcDose(drug,wt);
-  const s=SS[scopeFilter!=="all"?scopeFilter:drug.scope]||SS.EMT;
+  const s=SS[drug.scope]||SS.EMT;
   const initChecks=INIT_CHECKS[drug.name]||[];
   const reChecks=RE_CHECKS[drug.name]||[];
   const hasInitChecks=initChecks.length>0;
@@ -676,7 +679,7 @@ const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,
           <div style={{color:isDarkMode?"var(--c-text-sub)":"#1e3a58",fontSize:11,marginTop:3,lineHeight:1.3}}>{drug.sub}</div>
         </div>
         {calc&&wt>0&&<div style={{background:"var(--c-deep)",border:`1px solid ${color}30`,borderRadius:6,padding:"5px 8px",textAlign:"center",flexShrink:0,minWidth:52}}><div style={{fontFamily:"'IBM Plex Mono',monospace",color,fontSize:14,fontWeight:700,lineHeight:1}}>{calc.display}</div><div style={{color:"var(--c-text-sub)",fontSize:8,textTransform:"uppercase",marginTop:1}}>{calc.unit}</div>{calc.mL!=null&&<div style={{color:"var(--c-text3)",fontSize:9,marginTop:1}}>{calc.mL} mL</div>}{calc.mL!=null&&<div style={{color:"var(--c-text4)",fontSize:8,marginTop:1}}>({getSyringeSize(calc.mL)})</div>}</div>}
-        {hasActivity&&!open&&<div style={{background:timerCol+"18",border:`1px solid ${timerCol}55`,borderRadius:6,padding:"4px 7px",textAlign:"center",flexShrink:0}}>{maxReached?<div style={{color:"#ef4444",fontSize:9,fontWeight:700,textTransform:"uppercase"}}>MAX</div>:needsRe?<div style={{color:"#f97316",fontSize:9,fontWeight:700}}>📋</div>:remainSecs!=null?<><div style={{fontFamily:"'IBM Plex Mono',monospace",color:timerCol,fontSize:12,fontWeight:700,lineHeight:1}}>{fmt(remainSecs)}</div><div style={{color:timerCol,fontSize:8,marginTop:1,fontWeight:600}}>{isDue?"DUE NOW":isWarning?"PREP":"next"}</div></>:<div style={{fontFamily:"'IBM Plex Mono',monospace",color:timerCol,fontSize:9,fontWeight:700}}>×{doseCount}</div>}</div>}
+        {hasActivity&&<div style={{background:timerCol+"18",border:`1px solid ${timerCol}55`,borderRadius:6,padding:"4px 7px",textAlign:"center",flexShrink:0}}>{maxReached?<div style={{color:"#ef4444",fontSize:9,fontWeight:700,textTransform:"uppercase"}}>MAX</div>:needsRe?<div style={{color:"#f97316",fontSize:9,fontWeight:700}}>📋</div>:remainSecs!=null?<><div style={{fontFamily:"'IBM Plex Mono',monospace",color:timerCol,fontSize:12,fontWeight:700,lineHeight:1}}>{fmt(remainSecs)}</div><div style={{color:timerCol,fontSize:8,marginTop:1,fontWeight:600}}>{isDue?"DUE NOW":isWarning?"PREP":"next"}</div></>:elapsedSecs!=null?<><div style={{fontFamily:"'IBM Plex Mono',monospace",color:timerCol,fontSize:12,fontWeight:700,lineHeight:1}}>{Math.floor(elapsedSecs/60)}:{String(elapsedSecs%60).padStart(2,"0")}</div><div style={{color:timerCol,fontSize:8,marginTop:1,fontWeight:600}}>ago</div></>:<div style={{fontFamily:"'IBM Plex Mono',monospace",color:timerCol,fontSize:9,fontWeight:700}}>×{doseCount}</div>}</div>}
         <span style={{color:"#2a3450",fontSize:12,flexShrink:0,display:"inline-block",transition:"transform 0.2s",transform:open?"rotate(180deg)":"none"}}>▼</span>
       </div>
 
@@ -6582,8 +6585,12 @@ export default function App(){
     const q=search.trim().toLowerCase();
     const scopeRank={EMT:1,AEMT:2,Medic:3};
     const certRank=certScopeKey ? scopeRank[certScopeKey] : 3;
-    const selRank=scope==="all" ? certRank : Math.min(scopeRank[scope]||3, certRank);
-    return raw.filter(d=>(!q||d.name.toLowerCase().includes(q)||(d.sub||"").toLowerCase().includes(q))&&(scopeRank[d.scope]||1)<=selRank);
+    return raw.filter(d=>{
+      const dRank=scopeRank[d.scope]||1;
+      const selRank=scope==="all" ? certRank : Math.min(scopeRank[scope]||3, certRank);
+      const scopeOk=dRank<=selRank;
+      return (!q||d.name.toLowerCase().includes(q)||(d.sub||"").toLowerCase().includes(q))&&scopeOk;
+    });
   },[bank,activeSys,search,scope,certScopeKey]);
 
   const numInp=useCallback((v,fn,ph,max,step)=>({type:"number",value:v||"",onChange:e=>fn(Math.max(0,parseFloat(e.target.value)||0)),placeholder:ph,min:0,max,step,style:{width:58,padding:"5px 7px",background:colors.surface,border:`1px solid ${colors.border}`,borderRadius:6,color:colors.text,fontSize:13,fontFamily:"'IBM Plex Mono',monospace",textAlign:"right",outline:"none"}}),[colors]);
@@ -6977,7 +6984,7 @@ export default function App(){
                   const bg=sd?(isDarkMode?sd.bg:sd.lbg):(isDarkMode?"#1a2030":"#dde5f0");
                   const fg=sd?(isDarkMode?sd.fg:sd.lfg):(isDarkMode?"#7090b8":"#3a5070");
                   const bd=sd?(isDarkMode?sd.bd:sd.lbd):(isDarkMode?"#2a3f60":"#8fa0b6");
-                  const blocked=certScopeKey ? k!==certScopeKey : false;
+                  const blocked=sk ? (certScopeKey ? (scopeRankMap[sk]||1)!==(scopeRankMap[certScopeKey]||1) : false) : false;
                   return(
                     <button key={k} disabled={blocked} onClick={()=>!blocked&&setScope(k)}
                       title={blocked?`Locked to your ${authUser.certLevel} cert level`:undefined}
