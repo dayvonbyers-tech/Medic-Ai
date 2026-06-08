@@ -1,9 +1,67 @@
-import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import { saveArrestReport, loadArrestReports, isFirebaseConfigured } from "./firebase.js";
+﻿import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { saveArrestReport, loadArrestReports, saveCallRecord, isFirebaseConfigured } from "./firebase.js";
 
-/* ═══════════════════════════════════════════════════════
+/* �������������������������������������������������������
+   AUDIO + NOTIFICATION UTILITIES
+������������������������������������������������������� */
+let _audioCtx = null;
+// iOS requires AudioContext to be created AND resumed inside a user gesture.
+// We unlock it on the first tap anywhere, then keep it alive.
+function _unlockAudio() {
+  try {
+    if (!_audioCtx || _audioCtx.state === 'closed') {
+      _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (_audioCtx.state === 'suspended') _audioCtx.resume();
+  } catch(_) {}
+}
+if (typeof window !== 'undefined') {
+  const unlock = () => { _unlockAudio(); document.removeEventListener('touchstart', unlock, true); document.removeEventListener('click', unlock, true); };
+  document.addEventListener('touchstart', unlock, true);
+  document.addEventListener('click', unlock, true);
+}
+function getAudioCtx() {
+  _unlockAudio();
+  return _audioCtx;
+}
+function playTone(freq, dur, vol = 0.35, type = 'sine', delay = 0) {
+  try {
+    const ctx = getAudioCtx();
+    if (!ctx || ctx.state !== 'running') return; // iOS: bail if not unlocked yet
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = type; osc.frequency.value = freq;
+    const t = ctx.currentTime + delay;
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(vol, t + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + dur / 1000);
+    osc.start(t); osc.stop(t + dur / 1000 + 0.05);
+  } catch(_) {}
+}
+const SOUNDS = {
+  cprCycle:    () => { playTone(880,120,0.5,'square'); playTone(880,120,0.5,'square',0.18); playTone(1100,220,0.55,'square',0.38); },
+  epiDue:      () => { playTone(740,150,0.45,'sawtooth'); playTone(740,150,0.45,'sawtooth',0.22); playTone(880,300,0.5,'sine',0.46); },
+  drugDue:     () => { playTone(660,180,0.35,'sine'); playTone(660,180,0.35,'sine',0.28); },
+  wipeWarning: () => { playTone(520,200,0.4); playTone(440,200,0.4,'sine',0.28); playTone(360,400,0.4,'sine',0.56); },
+  callStart:   () => { playTone(440,120,0.25); playTone(550,200,0.28,'sine',0.18); },
+  callClose:   () => { playTone(550,150,0.3); playTone(440,300,0.25,'sine',0.22); },
+};
+function swNotify(title, body, tag, delay = 0, requireInteraction = false) {
+  if (typeof window === 'undefined' || Notification.permission !== 'granted') return;
+  const msg = { type: delay > 0 ? 'SCHEDULE' : 'NOTIFY', title, body, tag, delay, requireInteraction };
+  navigator.serviceWorker?.controller?.postMessage(msg);
+  if (!navigator.serviceWorker?.controller && delay === 0) {
+    try { new Notification(title, { body, tag, icon: '/favicon.svg' }); } catch(_) {}
+  }
+}
+function swCancel(tag) {
+  navigator.serviceWorker?.controller?.postMessage({ type: 'CANCEL', tag });
+}
+
+/* �������������������������������������������������������
    CHECK BUILDING BLOCKS
-═══════════════════════════════════════════════════════ */
+������������������������������������������������������� */
 const CHK = {
   sbp:  { id:"sbp",  label:"Blood Pressure (SBP / DBP)", type:"value", unit:"mmHg", placeholder:"SBP" },
   hr:   { id:"hr",   label:"Heart Rate",   type:"value", unit:"bpm",  placeholder:"e.g. 76"  },
@@ -264,7 +322,7 @@ const RE_CHECKS = {
   ],
 };
 
-/* ═══ DRUG DATABASE ═══ */
+/* ��� DRUG DATABASE ��� */
 const ADULT = {
   cardiac: [
     { name:"Aspirin", sub:"ACS / Chest Pain", dose:"324 mg PO (4 tablets, chewed)", route:"PO", conc:"81 mg/tablet", draw:"4 tablets — subtract any taken prior to arrival", notes:"Give early in suspected ACS. Must be chewed, not swallowed whole. Screen for allergy and prior dose before giving.", ci:["Aspirin/NSAID allergy","Active GI bleed","Hemorrhagic stroke"], scope:"EMT", redoseMins:null, maxDoses:1 },
@@ -364,6 +422,15 @@ const PEDS = {
     { name:"Midazolam (Versed)", sub:"RSI Pre-medication / Sedation", dose:"0.1–0.3 mg/kg IV/IM/IN", route:"IV/IM/IN", conc:"5 mg/mL", draw:"Varies by weight (max 1 mL)", notes:"IN: use MAD device, max 0.5 mL per nostril.", ci:[], scope:"Medic", wt:true, mpk:0.1, cmpml:5, maxd:5, redoseMins:10, maxDoses:2 },
     { name:"Atropine (RSI pre-tx)", sub:"RSI Pre-medication — under 1 yr", dose:"0.02 mg/kg IV (3 min before intubation)", route:"IV", conc:"0.1 mg/mL", draw:"Varies by weight", notes:"Prevents vagal bradycardia from laryngoscopy. Min 0.1 mg.", ci:[], scope:"Medic", wt:true, mpk:0.02, cmpml:0.1, maxd:0.5, mind:0.1, redoseMins:null, maxDoses:1 },
   ],
+  respiratory: [
+    { name:"Albuterol", sub:"Bronchospasm / Asthma — Pediatric", dose:"≥20 kg: 2.5 mg neb · <20 kg: 1.25 mg neb", route:"Nebulizer", conc:"0.83 mg/mL (2.5 mg/3 mL unit)", draw:"Unit dose — see weight", notes:"Repeat q20 min. Continuous neb in severe asthma. Mix with ipratropium in same neb cup.", ci:["Tachyarrhythmia (relative)"], scope:"EMT", redoseMins:20, maxDoses:null },
+    { name:"Ipratropium (Atrovent)", sub:"Bronchospasm — Pediatric Adjunct", dose:"<20 kg: 0.25 mg neb · ≥20 kg: 0.5 mg neb (once)", route:"Nebulizer", conc:"0.02% (0.5 mg/2.5 mL)", draw:"Unit dose — mix with albuterol", notes:"Give ONCE with albuterol. Not effective as sole bronchodilator.", ci:["Peanut/soy allergy (relative)"], scope:"AEMT", redoseMins:null, maxDoses:1 },
+    { name:"Epinephrine 1:1,000 (Nebulized)", sub:"Croup (Laryngotracheobronchitis)", dose:"5 mL of 1:1,000 undiluted via neb", route:"Nebulizer", conc:"1 mg/mL (1:1,000)", draw:"5 mL undiluted in neb cup", notes:"For moderate-severe croup with stridor at rest. Watch for rebound — observe 2+ hrs. Use racemic epi if protocol permits.", ci:[], scope:"Medic", redoseMins:20, maxDoses:2 },
+    { name:"Epinephrine 1:1,000", sub:"Severe Bronchospasm / Near-Fatal Asthma", dose:"0.01 mg/kg IM (max 0.5 mg)", route:"IM (lateral thigh)", conc:"1 mg/mL", draw:"0.01 mL/kg (max 0.5 mL)", notes:"Reserve for life-threatening bronchospasm refractory to nebulized treatment. Monitor HR and rhythm.", ci:[], scope:"AEMT", wt:true, mpk:0.01, cmpml:1, maxd:0.5, redoseMins:15, maxDoses:2 },
+    { name:"Methylprednisolone", sub:"Severe Asthma / Reactive Airway Disease", dose:"1–2 mg/kg IV/IM (max 125 mg)", route:"IV/IM", conc:"125 mg/2 mL", draw:"Varies by weight (max 2 mL)", notes:"Start early — onset ~1–2 hr. Single-dose EMS intervention.", ci:["Active systemic fungal infection"], scope:"Medic", wt:true, mpk:1, cmpml:62.5, maxd:125, redoseMins:null, maxDoses:1 },
+    { name:"Magnesium Sulfate", sub:"Severe Refractory Bronchospasm", dose:"25–75 mg/kg IV over 20 min (max 2 g)", route:"IV infusion — dilute in 100 mL NS", conc:"500 mg/mL (diluted in 100 mL NS)", draw:"Varies by weight (max 4 mL = 2 g) in 100 mL NS", notes:"Reserve for life-threatening asthma unresponsive to bronchodilators. Monitor RR, BP, deep tendon reflexes. Antidote: Calcium Gluconate.", ci:["Renal failure","Hypotension","Heart block"], scope:"Medic", wt:true, mpk:50, cmpml:500, maxd:2000, redoseMins:null, maxDoses:1 },
+    { name:"Dexamethasone", sub:"Croup — Corticosteroid", dose:"0.6 mg/kg IM/IV/PO (max 16 mg)", route:"IM/IV/PO", conc:"4 mg/mL (injection)", draw:"Varies by weight (max 4 mL)", notes:"For moderate-severe croup. Single dose. May give orally if tolerated.", ci:["Active systemic infection (relative)"], scope:"Medic", wt:true, mpk:0.6, cmpml:4, maxd:16, redoseMins:null, maxDoses:1 },
+  ],
   seizure: [
     { name:"Midazolam (Versed)", sub:"Active Seizure — 1st Line", dose:"0.2 mg/kg IM/IN · 0.1 mg/kg IV", route:"IM/IN/IV", conc:"5 mg/mL", draw:"Varies by weight (max 2 mL)", notes:"IM/IN preferred if no IV access. IN: MAD, max 0.5 mL per nostril.", ci:[], scope:"Medic", wt:true, mpk:0.2, cmpml:5, maxd:10, redoseMins:10, maxDoses:2 },
     { name:"Diazepam (Valium)", sub:"Active Seizure", dose:"0.2–0.5 mg/kg IV · 0.5 mg/kg PR", route:"IV/PR", conc:"5 mg/mL", draw:"Varies by weight (max 2 mL)", notes:"PR when no IV access. Max 10 mg. Monitor airway.", ci:[], scope:"Medic", wt:true, mpk:0.3, cmpml:5, maxd:10, redoseMins:10, maxDoses:2 },
@@ -379,6 +446,12 @@ const PEDS = {
     { name:"Ketamine", sub:"Moderate–Severe Pain / Sedation", dose:"0.5–1 mg/kg IV · 2–3 mg/kg IM", route:"IV/IM", conc:"10 mg/mL", draw:"Varies by weight", notes:"Sub-dissociative (0.5 mg/kg IV) for pain.", ci:["Age <3 months"], scope:"Medic", wt:true, mpk:0.5, cmpml:10, maxd:100, redoseMins:null, maxDoses:null },
     { name:"Morphine", sub:"Moderate–Severe Pain", dose:"0.1 mg/kg IV/IM", route:"IV/IM", conc:"2 mg/mL", draw:"Varies by weight (max 2 mL)", notes:"Titrate carefully. Monitor for respiratory depression.", ci:[], scope:"Medic", wt:true, mpk:0.1, cmpml:2, maxd:4, redoseMins:10, maxDoses:null },
     { name:"Acetaminophen IV (Ofirmev)", sub:"Moderate Pain / Fever", dose:"15 mg/kg IV over 15 min (max 750 mg if <50 kg)", route:"IV infusion over 15 min", conc:"10 mg/mL", draw:"Varies by weight (max 75 mL)", notes:"Max 750 mg if <50 kg. Max 4 g/day.", ci:["Hepatic failure"], scope:"Medic", wt:true, mpk:15, cmpml:10, maxd:750, redoseMins:null, maxDoses:1 },
+  ],
+  toxicology: [
+    { name:"Naloxone (Narcan)", sub:"Opioid Overdose — Pediatric", dose:"0.01 mg/kg IV/IM/IN (titrate) · 0.1 mg/kg for full reversal (max 2 mg)", route:"IV/IM/IN", conc:"0.4 mg/mL or 1 mg/mL (IN)", draw:"0.025 mL/kg IV/IM · 0.1 mL/kg per nostril IN using 1 mg/mL", notes:"Titrate to adequate respirations — not full reversal in opioid-dependent patients. IN via MAD. Re-dose q3–5 min PRN.", ci:[], scope:"EMT", wt:true, mpk:0.01, cmpml:0.4, maxd:2, redoseMins:3, maxDoses:null },
+    { name:"Activated Charcoal", sub:"Toxic Ingestion — within 1 hr of ingestion", dose:"1 g/kg PO (max 50 g)", route:"PO", conc:"25 g/120 mL or 50 g/240 mL", draw:"1 g/kg — see weight (max 50 g)", notes:"ONLY if conscious with intact airway/gag reflex and within 1 hr of ingestion. NOT for caustics, hydrocarbons, or AMS.", ci:["AMS or impaired airway","Caustic ingestion","Hydrocarbon ingestion","Ingestion >1 hr ago"], scope:"Medic", redoseMins:null, maxDoses:1 },
+    { name:"Atropine (Organophosphate)", sub:"Organophosphate / Nerve Agent Poisoning", dose:"0.05 mg/kg IV/IM; double dose q5 min until secretions dry", route:"IV/IM", conc:"0.1 mg/mL", draw:"0.5 mL/kg initial dose — titrate", notes:"ENDPOINT = DRYING OF SECRETIONS, not HR. Min 0.1 mg per dose. May require massive cumulative doses.", ci:[], scope:"Medic", redoseMins:7, maxDoses:null },
+    { name:"Sodium Bicarbonate", sub:"TCA Overdose / Salicylate Toxicity", dose:"1 mEq/kg IV bolus", route:"IV/IO", conc:"1 mEq/mL (8.4%)", draw:"1 mL/kg", notes:"TCA OD: give until QRS narrows to <100 ms. Do NOT mix with calcium or epinephrine. Flush line before/after.", ci:["Metabolic alkalosis","Hypernatremia"], scope:"Medic", wt:true, mpk:1, cmpml:1, unit:"mEq", redoseMins:null, maxDoses:null },
   ],
   glucose: [
     { name:"Dextrose 25% (D25)", sub:"Hypoglycemia — preferred in peds", dose:"0.5–1 g/kg IV (2–4 mL/kg of D25)", route:"IV", conc:"250 mg/mL (25%)", draw:"2–4 mL/kg", notes:"Make D25 by diluting D50 1:1 with NS. Recheck BGL in 5 min.", ci:[], scope:"AEMT", wt:true, mpk:500, cmpml:250, maxd:25000, redoseMins:5, maxDoses:2 },
@@ -404,19 +477,19 @@ const PEDS = {
   ],
 };
 
-/* ═══ CONFIG ═══ */
+/* ��� CONFIG ��� */
 const A_SYS=[{k:"cardiac",l:"Cardiac",c:"#f87171",lc:"#dc2626",e:"♥"},{k:"respiratory",l:"Respiratory",c:"#60a5fa",lc:"#1d4ed8",e:"🌬"},{k:"neurological",l:"Neuro",c:"#c084fc",lc:"#7e22ce",e:"⚡"},{k:"metabolic",l:"Metabolic",c:"#facc15",lc:"#a16207",e:"⚗"},{k:"anaphylaxis",l:"Anaphylaxis",c:"#fb923c",lc:"#c2410c",e:"⚠"},{k:"pain",l:"Pain/Sedation",c:"#4ade80",lc:"#15803d",e:"💊"},{k:"toxicology",l:"Tox",c:"#94a3b8",lc:"#475569",e:"☠"},{k:"obgyn",l:"OB/GYN",c:"#f472b6",lc:"#be185d",e:"♀"},{k:"trauma",l:"Trauma",c:"#f97316",lc:"#b45309",e:"🩹"},{k:"burns",l:"Burns",c:"#fb7185",lc:"#be123c",e:"🔥"}];
-const P_SYS=[{k:"cardiac",l:"Cardiac",c:"#f87171",lc:"#dc2626",e:"♥"},{k:"airway",l:"Airway/RSI",c:"#60a5fa",lc:"#1d4ed8",e:"🌬"},{k:"seizure",l:"Seizures",c:"#c084fc",lc:"#7e22ce",e:"⚡"},{k:"anaphylaxis",l:"Anaphylaxis",c:"#fb923c",lc:"#c2410c",e:"⚠"},{k:"pain",l:"Pain/Sedation",c:"#4ade80",lc:"#15803d",e:"💊"},{k:"glucose",l:"Glucose",c:"#facc15",lc:"#a16207",e:"🩸"},{k:"trauma",l:"Trauma",c:"#f97316",lc:"#b45309",e:"🩹"},{k:"burns",l:"Burns",c:"#fb7185",lc:"#be123c",e:"🔥"}];
+const P_SYS=[{k:"cardiac",l:"Cardiac",c:"#f87171",lc:"#dc2626",e:"♥"},{k:"respiratory",l:"Respiratory",c:"#38bdf8",lc:"#0369a1",e:"💨"},{k:"airway",l:"Airway/RSI",c:"#60a5fa",lc:"#1d4ed8",e:"🌬"},{k:"seizure",l:"Seizures",c:"#c084fc",lc:"#7e22ce",e:"⚡"},{k:"anaphylaxis",l:"Anaphylaxis",c:"#fb923c",lc:"#c2410c",e:"⚠"},{k:"pain",l:"Pain/Sedation",c:"#4ade80",lc:"#15803d",e:"💊"},{k:"toxicology",l:"Toxicology",c:"#94a3b8",lc:"#475569",e:"☠"},{k:"glucose",l:"Glucose",c:"#facc15",lc:"#a16207",e:"🩸"},{k:"trauma",l:"Trauma",c:"#f97316",lc:"#b45309",e:"🩹"},{k:"burns",l:"Burns",c:"#fb7185",lc:"#be123c",e:"🔥"}];
 const SS={EMT:{bg:"#14532d",fg:"#86efac",lbl:"EMT+",lbg:"#b7e4c7",lfg:"#064e3b",bd:"#166534",lbd:"#15803d"},AEMT:{bg:"#1e3a8a",fg:"#93c5fd",lbl:"AEMT+",lbg:"#b8cff2",lfg:"#172554",bd:"#1e40af",lbd:"#1d4ed8"},Medic:{bg:"#7c2d12",fg:"#fdba74",lbl:"Paramedic",lbg:"#f3c097",lfg:"#7c2d12",bd:"#9a3412",lbd:"#c2410c"}};
-const LIGHT_TABS={cardiac:{bg:"#f4b9b9",fg:"#7f1d1d",bd:"#dc2626"},respiratory:{bg:"#adc8ee",fg:"#172554",bd:"#1d4ed8"},neurological:{bg:"#d8b4ed",fg:"#581c87",bd:"#7e22ce"},metabolic:{bg:"#e9c46a",fg:"#713f12",bd:"#a16207"},anaphylaxis:{bg:"#f0b27a",fg:"#7c2d12",bd:"#c2410c"},airway:{bg:"#adc8ee",fg:"#172554",bd:"#1d4ed8"},seizure:{bg:"#d8b4ed",fg:"#581c87",bd:"#7e22ce"},glucose:{bg:"#e9c46a",fg:"#713f12",bd:"#a16207"}};
+const LIGHT_TABS={cardiac:{bg:"#f4b9b9",fg:"#7f1d1d",bd:"#dc2626"},respiratory:{bg:"#adc8ee",fg:"#172554",bd:"#1d4ed8"},neurological:{bg:"#d8b4ed",fg:"#581c87",bd:"#7e22ce"},metabolic:{bg:"#e9c46a",fg:"#713f12",bd:"#a16207"},anaphylaxis:{bg:"#f0b27a",fg:"#7c2d12",bd:"#c2410c"},airway:{bg:"#adc8ee",fg:"#172554",bd:"#1d4ed8"},seizure:{bg:"#d8b4ed",fg:"#581c87",bd:"#7e22ce"},glucose:{bg:"#e9c46a",fg:"#713f12",bd:"#a16207"},toxicology:{bg:"#cbd5e1",fg:"#1e293b",bd:"#475569"}};
 
-// Flat O(1) lookup built once at module load
-const DRUG_LOCATION_MAP = new Map();
-[["adult",ADULT],["peds",PEDS]].forEach(([mode,bank])=>{
-  Object.entries(bank).forEach(([sys,drugs])=>{
-    drugs.forEach(d=>{ if(!DRUG_LOCATION_MAP.has(d.name)) DRUG_LOCATION_MAP.set(d.name,{mode,sys}); });
-  });
-});
+// Mode-specific lookup maps — keeps adult and peds separate so jumps land in the right bank
+const DRUG_LOC_ADULT = new Map();
+const DRUG_LOC_PEDS  = new Map();
+Object.entries(ADULT).forEach(([sys,drugs])=>drugs.forEach(d=>DRUG_LOC_ADULT.set(d.name,{mode:"adult",sys})));
+Object.entries(PEDS).forEach(([sys,drugs])=>drugs.forEach(d=>DRUG_LOC_PEDS.set(d.name,{mode:"peds",sys})));
+// Combined fallback for contexts that don't know the mode (e.g. med log)
+const DRUG_LOCATION_MAP = new Map([...DRUG_LOC_ADULT,...DRUG_LOC_PEDS]);
 
 function calcDose(d,wt){if(!d.wt||!d.mpk||!wt||wt<=0)return null;let mg=d.mpk*wt;if(d.maxd!=null&&mg>d.maxd)mg=d.maxd;if(d.mind!=null&&mg<d.mind)mg=d.mind;const display=parseFloat(((d.dmult||1)*mg).toFixed(2));const mL=d.cmpml?parseFloat((mg/d.cmpml).toFixed(2)):null;return{display,unit:d.unit||"mg",mL};}
 
@@ -577,7 +650,7 @@ function CheckForm({checks,vals,onUpdate,label,accentColor="#60a5fa",subtitle,is
   );
 }
 
-/* ═══ DRUG CARD ═══ */
+/* ��� DRUG CARD ��� */
 const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,onReset,initVals,onInitUpdate,reVals,onReUpdate,onClearRe,highlighted,isDarkMode=true,scopeFilter="all"}){
   const[open,setOpen]=useState(false);
   const[tab,setTab]=useState("info");
@@ -882,9 +955,9 @@ const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,
   );
 });
 
-/* ═══════════════════════════════════════════════════════
+/* �������������������������������������������������������
    VITALS LOG
-═══════════════════════════════════════════════════════ */
+������������������������������������������������������� */
 const EMPTY_VITALS = {
   sbp:'', dbp:'', hr:'', rr:'', spo2:'',
   gcs_e:'', gcs_v:'', gcs_m:'',
@@ -1279,10 +1352,10 @@ function VitalsLog({ initChecks, reChecks, onClearCall, entries, setEntries }) {
   );
 }
 
-/* ═══════════════════════════════════════════════════════
+/* �������������������������������������������������������
    ARREST TRACKER — AHA/ACLS 2020 Adult Cardiac Arrest Algorithm
    Tracks pulse checks, shocks, meds, airway, H's and T's
-═══════════════════════════════════════════════════════ */
+������������������������������������������������������� */
 
 const H_T_LIST = [
   { k:"hypoxia",      l:"Hypoxia",                     grp:"H" },
@@ -1333,6 +1406,7 @@ const ARREST_DRUG_MENU = {
       eventType: "amio", medLogName: "Amiodarone",
       notes: "Max 2 doses (450 mg total). VF/pVT only.",
       adaptiveDose: (count) => count === 0 ? "300 mg IVP" : "150 mg IVP",
+      maxDoses: 2,
     },
     {
       k: "lido", name: "Lidocaine", sub: "VF / pVT alternative to amio",
@@ -1450,11 +1524,11 @@ function calcArrestDose(drug, wt) {
   return { display, unit, mL, capped, mg };
 }
 
-/* ═══════════════════════════════════════════════════════
+/* �������������������������������������������������������
    PEDS ARREST DRUG MENU — PALS 2020
    All doses weight-based with explicit max caps.
    maxCumulative enforces hard stop across multiple doses.
-═══════════════════════════════════════════════════════ */
+������������������������������������������������������� */
 const PEDS_ARREST_DRUG_MENU = {
   arrest: [
     {
@@ -1719,359 +1793,6 @@ const fmtClock = ts => {
   const d = new Date(ts);
   return d.toTimeString().slice(0,8);
 };
-
-/* ═══════════════════════════════════════════════════════
-   PHONE REPORT SCREEN
-═══════════════════════════════════════════════════════ */
-function RadioReportScreen({ patient, vitalsEntries, adminLog, authUser, wkg, mode, arrestState, isDarkMode }) {
-  const [copied,   setCopied]   = React.useState(false);
-  const [hospital, setHospital] = React.useState("");
-  const [etaMin,   setEtaMin]   = React.useState("");
-
-  const panel  = isDarkMode ? "#0d1120" : "#fbf7f0";
-  const text   = isDarkMode ? "#e2e8f0" : "#0f172a";
-  const muted  = isDarkMode ? "#8aa0c2" : "#374151";
-  const bdr    = isDarkMode ? "#1a2338" : "#c9c2b8";
-  const head   = isDarkMode ? "#38bdf8" : "#0369a1";
-  const inp    = isDarkMode ? "#090e1c" : "#f2ece4";
-  const mono   = "'IBM Plex Mono', monospace";
-  const script = isDarkMode ? "#cbd5e1" : "#1e293b";
-
-  const profile = authUser?.profile || {};
-  const pt      = patient || {};
-  const lv      = vitalsEntries.length ? vitalsEntries[vitalsEntries.length - 1] : null;
-
-  const providerName = authUser?.name || pt.provider || "your name";
-  const certLevel    = authUser?.certLevel || "EMS";
-  const agency       = profile.agency || "EMS";
-  const unitId       = pt.unit || profile.unit || "";
-  const runNum       = pt.run  || "";
-
-  const vBP   = lv ? (lv.sbp && lv.dbp ? `${lv.sbp}/${lv.dbp}` : lv.sbp || "[BP]") : "[BP]";
-  const vHR   = lv?.hr   || "[HR]";
-  const vRR   = lv?.rr   || "[RR]";
-  const vSpO2 = lv?.spo2 ? `${lv.spo2}%` : "[SpO₂]";
-  const vBGL  = lv?.bgl  || "";
-  const vTemp = lv?.temp || "";
-  const gcsT  = lv?.gcsTotal || (lv?.gcs_e && lv?.gcs_v && lv?.gcs_m ? +lv.gcs_e + +lv.gcs_v + +lv.gcs_m : null);
-  const pupilStr = (lv?.pupils_l_sz || lv?.pupils_r_sz)
-    ? `left ${lv.pupils_l_sz||"?"}mm ${lv.pupils_l_rx||""}, right ${lv.pupils_r_sz||"?"}mm ${lv.pupils_r_rx||""}`.trim()
-    : "equal and reactive";
-
-  function fmtTs(ts) {
-    if (!ts) return "";
-    return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  }
-
-  const medsGiven = Object.entries(adminLog || {}).map(([drug, data]) => {
-    const times = data?.times || [];
-    if (times.length === 1) return `${drug} at ${fmtTs(times[0])}`;
-    if (times.length > 1)  return `${drug} times ${times.length}, last dose at ${fmtTs(times[times.length-1])}`;
-    return drug;
-  });
-
-  const isArrest = !!arrestState?.startTs;
-
-  // ── Build spoken sentences for each block ───────────────
-  const ageStr   = pt.age ? `${pt.age}-year-old` : "unknown age";
-  const sexStr   = pt.sex || "unknown sex";
-  const wkgStr   = wkg ? ` weighing ${wkg} kilograms` : "";
-  const ptLine   = `${ageStr} ${sexStr}${wkgStr}${pt.name ? `, ${pt.name}` : ""}`;
-  const ccLine   = pt.cc  || "[chief complaint not entered]";
-  const hpiLine  = pt.hpi || "[history not entered]";
-  const pmhLine  = pt.pmh || "no significant past medical history";
-  const medsLine = pt.meds      ? `Current medications include ${pt.meds}.`      : "No known medications.";
-  const allgLine = pt.allergies ? `Known allergies to ${pt.allergies}.`           : "No known drug allergies.";
-  const vitLine  = `Blood pressure ${vBP}, pulse ${vHR}, respirations ${vRR}, pulse ox ${vSpO2}${vBGL ? `, blood glucose ${vBGL}` : ""}${vTemp ? `, temperature ${vTemp}` : ""}.`;
-  const genLine  = `${gcsT ? `GCS ${gcsT}` : "GCS not assessed"}, moves all extremities, pupils ${pupilStr}${lv?.skin ? `, skin ${lv.skin}` : ""}${lv?.pain ? `, pain ${lv.pain} out of 10` : ""}.`;
-  const txLine   = (() => {
-    const parts = [pt.interventions, ...medsGiven].filter(Boolean);
-    return parts.length ? parts.join(". ") + "." : "No interventions performed.";
-  })();
-  const arrestLine = isArrest
-    ? `This patient had a cardiac arrest, arrest onset at ${fmtTs(arrestState.startTs)}${arrestState.endTs ? `, ROSC achieved at ${fmtTs(arrestState.endTs)}` : ", arrest ongoing"}.`
-    : "";
-
-  // Full clipboard text — spoken sentences
-  const scriptText = [
-    `Hello, this is ${providerName}, ${certLevel} with ${agency}${unitId ? `, Unit ${unitId}` : ""}${runNum ? `, Run Number ${runNum}` : ""}.`,
-    `I'm calling to give report on a patient I'm transporting to ${hospital || "[hospital name]"}.`,
-    `Our ETA is approximately ${etaMin || "___"} minutes.`,
-    ``,
-    `I have a ${ptLine}.`,
-    `The patient is presenting with ${ccLine}.`,
-    ``,
-    `History of present illness: ${hpiLine}.`,
-    `Past medical history: ${pmhLine}.`,
-    medsLine,
-    allgLine,
-    ``,
-    `Vital signs: ${vitLine}`,
-    `General: ${genLine}`,
-    arrestLine,
-    ``,
-    `Treatment performed: ${txLine}`,
-    ``,
-    `We will see you in approximately ${etaMin || "___"} minutes. Do you have any questions?`,
-  ].filter(Boolean).join("\n");
-
-  function handleCopy() {
-    navigator.clipboard.writeText(scriptText).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }
-
-  // ── style helpers ────────────────────────────────────────
-  const LBL = { fontSize: 9, fontWeight: 700, letterSpacing: "0.14em", color: head, textTransform: "uppercase", marginBottom: 5 };
-  const DIV = { borderTop: `1px solid ${bdr}`, margin: "16px 0 14px" };
-  const inpStyle = { height: 40, borderRadius: 7, border: `1px solid ${bdr}`, background: inp, color: text, padding: "0 11px", fontSize: 14, fontFamily: mono, outline: "none" };
-
-  function Pill({ label, active, onClick }) {
-    return (
-      <button onClick={onClick} style={{
-        padding: "5px 11px", borderRadius: 6,
-        border: `1px solid ${active ? head : bdr}`,
-        background: active ? (isDarkMode ? "#0c2a3d" : "#dbeafe") : "transparent",
-        color: active ? head : muted,
-        fontSize: 12, fontFamily: mono, cursor: "pointer",
-        fontWeight: active ? 700 : 400, transition: "all 0.12s",
-      }}>{label}</button>
-    );
-  }
-
-  // Sentence block: small label + big readable sentence
-  function Block({ label, sentence, dim = false, warn = false }) {
-    return (
-      <div style={{ marginBottom: 14 }}>
-        <div style={LBL}>{label}</div>
-        <div style={{ fontSize: 17, lineHeight: 1.8, color: warn ? "#fca5a5" : dim ? muted : script, fontStyle: dim ? "italic" : "normal" }}>
-          {sentence}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ fontFamily: mono, color: text }}>
-
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: "0.05em", color: text }}>📞 Hospital Phone Report</div>
-          <div style={{ fontSize: 10, color: muted, marginTop: 2 }}>Tap exam findings below, then read aloud</div>
-        </div>
-        <button onClick={handleCopy} style={{ padding: "8px 16px", background: copied ? "#16a34a" : head, color: "#fff", border: "none", borderRadius: 7, cursor: "pointer", fontSize: 11, fontWeight: 700, fontFamily: mono, letterSpacing: "0.06em", transition: "background 0.2s" }}>
-          {copied ? "✓ COPIED" : "COPY SCRIPT"}
-        </button>
-      </div>
-
-      {/* Fill-in row: hospital + ETA */}
-      <div style={{ background: panel, border: `1px solid ${bdr}`, borderRadius: 10, padding: "12px 14px", marginBottom: 12, display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center" }}>
-        <div>
-          <div style={LBL}>CALLING TO</div>
-          <input value={hospital} onChange={e => setHospital(e.target.value)} placeholder="Hospital name" style={{ ...inpStyle, width: "100%" }}/>
-        </div>
-        <div style={{ textAlign: "center" }}>
-          <div style={LBL}>ETA (MIN)</div>
-          <input value={etaMin} onChange={e => setEtaMin(e.target.value.replace(/\D/g, ""))} placeholder="__" maxLength={3}
-            style={{ ...inpStyle, width: 64, textAlign: "center", fontSize: 22, padding: 0 }}/>
-        </div>
-      </div>
-
-      {/* Script */}
-      <div style={{ background: panel, border: `1px solid ${bdr}`, borderRadius: 10, padding: "16px 16px" }}>
-
-        {/* OPENING */}
-        <Block label="OPENING"
-          sentence={`Hello, this is ${providerName}, ${certLevel} with ${agency}${unitId ? `, Unit ${unitId}` : ""}${runNum ? `, Run Number ${runNum}` : ""}. I'm calling to give report on a patient I'm transporting to ${hospital || "[hospital name]"}. Our ETA is approximately ${etaMin || "___"} minutes.`}
-        />
-
-        <div style={DIV}/>
-
-        {/* PATIENT */}
-        <Block label="PATIENT" sentence={`I have a ${ptLine}.`} dim={!pt.age && !pt.sex}/>
-
-        {/* CHIEF COMPLAINT */}
-        <Block label="CHIEF COMPLAINT / MECHANISM" sentence={`The patient is presenting with ${ccLine}.`} dim={!pt.cc}/>
-
-        {/* HISTORY */}
-        <Block label="HISTORY OF PRESENT ILLNESS" sentence={`${hpiLine}.`} dim={!pt.hpi}/>
-
-        {/* PMH / Meds / Allergies */}
-        <Block label="PAST MEDICAL HISTORY" sentence={`Past medical history: ${pmhLine}. ${medsLine} ${allgLine}`}/>
-
-        <div style={DIV}/>
-
-        {/* VITALS */}
-        <Block label="VITAL SIGNS" sentence={vitLine} dim={!lv}/>
-
-        {/* GENERAL */}
-        <Block label="GENERAL" sentence={genLine} dim={!lv}/>
-
-        {/* CARDIAC ARREST — conditional */}
-        {isArrest && (
-          <>
-            <div style={DIV}/>
-            <Block label="CARDIAC ARREST" sentence={arrestLine} warn/>
-          </>
-        )}
-
-        <div style={DIV}/>
-
-        {/* TREATMENT */}
-        <Block label="TREATMENT PERFORMED" sentence={`Treatment performed: ${txLine}`} dim={!pt.interventions && !medsGiven.length}/>
-
-        <div style={DIV}/>
-
-        {/* CLOSING */}
-        <Block label="CLOSING"
-          sentence={`We will see you in approximately ${etaMin || "___"} minutes. Do you have any questions?`}
-        />
-
-      </div>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════
-   SAVED CALLS SCREEN
-═══════════════════════════════════════════════════════ */
-function SavedCallsScreen({ isDarkMode=true }) {
-  const [reports, setReports] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [expanded, setExpanded] = useState(null);
-
-  useEffect(() => {
-    if (!isFirebaseConfigured()) { setLoading(false); return; }
-    loadArrestReports()
-      .then(r => { setReports(r); setLoading(false); })
-      .catch(() => { setError("Could not load saved calls. Check connection."); setLoading(false); });
-  }, []);
-
-  const fmtDate = (ts) => {
-    if (!ts) return "—";
-    const d = ts.toDate ? ts.toDate() : new Date(ts);
-    return d.toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" }) + " " + d.toLocaleTimeString("en-US", { hour:"2-digit", minute:"2-digit" });
-  };
-
-  const fmtDur = (secs) => {
-    if (!secs) return "—";
-    const m = Math.floor(secs / 60), s = secs % 60;
-    return `${m}m ${s}s`;
-  };
-
-  if (!isFirebaseConfigured()) {
-    return (
-      <div style={{ paddingBottom:20 }}>
-        <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11, color:"#38bdf8", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:12 }}>☁ Saved Calls</div>
-        <div style={{ background:"#0a1628", border:"1px solid #1e3a5f", borderRadius:8, padding:"18px 16px", textAlign:"center" }}>
-          <div style={{ fontSize:28, marginBottom:10 }}>☁️</div>
-          <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:12, fontWeight:700, color:"#38bdf8", marginBottom:6 }}>Firebase Not Configured</div>
-          <div style={{ fontSize:11, color:"#4a6a8a", lineHeight:1.6, marginBottom:12 }}>
-            To enable cloud save, open <span style={{ color:"#93c5fd" }}>src/firebase.js</span> and paste in your Firebase project config.<br/><br/>
-            Steps:<br/>
-            1. Go to <span style={{ color:"#93c5fd" }}>console.firebase.google.com</span><br/>
-            2. Create a project → Add a web app<br/>
-            3. Build → Firestore Database → Create database<br/>
-            4. Copy the <span style={{ color:"#93c5fd" }}>firebaseConfig</span> object into <span style={{ color:"#93c5fd" }}>src/firebase.js</span>
-          </div>
-          <div style={{ fontSize:9, color:"#2a4a6a", fontFamily:"'IBM Plex Mono',monospace" }}>Calls save automatically when arrest ends — data survives reset</div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ paddingBottom:20 }}>
-      <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11, color:"#38bdf8", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:12 }}>☁ Saved Calls</div>
-
-      {loading && (
-        <div style={{ textAlign:"center", padding:"30px 0", color:"#4a6a8a", fontFamily:"'IBM Plex Mono',monospace", fontSize:11 }}>Loading…</div>
-      )}
-
-      {error && (
-        <div style={{ background:"#1a0808", border:"1px solid #7f1d1d", borderRadius:7, padding:"12px 14px", color:"#fca5a5", fontSize:11 }}>{error}</div>
-      )}
-
-      {!loading && !error && reports.length === 0 && (
-        <div style={{ background:"#0a1628", border:"1px solid #1e3a5f", borderRadius:8, padding:"24px 16px", textAlign:"center" }}>
-          <div style={{ fontSize:28, marginBottom:8 }}>📋</div>
-          <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11, color:"#4a6a8a" }}>No saved calls yet.<br/>Complete an arrest call to auto-save it here.</div>
-        </div>
-      )}
-
-      {reports.map(r => {
-        const isOpen = expanded === r.id;
-        const patLabel = r.patientType === "infant" ? "👶 Infant" : r.patientType === "child" ? "🧒 Child" : "🧑 Adult";
-        const outcomeColor = r.outcome === "ROSC" ? "#4ade80" : "#94a3b8";
-        return (
-          <div key={r.id} style={{ background:"var(--c-surface)", border:"1px solid var(--c-border-sub)", borderLeft:`3px solid ${outcomeColor}`, borderRadius:8, marginBottom:8, overflow:"hidden" }}>
-            <button
-              onClick={() => setExpanded(isOpen ? null : r.id)}
-              style={{ width:"100%", padding:"11px 13px", background:"transparent", border:"none", cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}
-            >
-              <div style={{ flex:1, textAlign:"left" }}>
-                <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:3 }}>
-                  <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, fontWeight:700, color: outcomeColor }}>{r.outcome === "ROSC" ? "♥ ROSC" : "✕ Terminated"}</span>
-                  <span style={{ fontSize:9, color:"var(--c-text4)", fontFamily:"'IBM Plex Mono',monospace" }}>{patLabel}</span>
-                  {r.unit && <span style={{ fontSize:9, color:"var(--c-text4)", fontFamily:"'IBM Plex Mono',monospace" }}>· Unit {r.unit}</span>}
-                </div>
-                <div style={{ fontSize:9, color:"var(--c-text4)", fontFamily:"'IBM Plex Mono',monospace" }}>
-                  {fmtDate(r.savedAt)} · {fmtDur(r.totalSeconds)} · {r.shockCount} shock{r.shockCount!==1?"s":""} · {r.epiCount} epi
-                  {r.airway ? ` · ${r.airway}` : ""}
-                </div>
-              </div>
-              <span style={{ color:"#3a4f70", fontSize:11, transform: isOpen ? "rotate(180deg)" : "none", transition:"transform 0.2s" }}>▼</span>
-            </button>
-
-            {isOpen && (
-              <div style={{ borderTop:"1px solid var(--c-border-sub)", padding:"10px 13px" }}>
-                {/* Run info */}
-                {(r.run || r.provider || r.patientAge) && (
-                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6, marginBottom:10 }}>
-                    {[["Run #", r.run], ["Provider", r.provider], ["Age/Sex", [r.patientAge, r.patientSex].filter(Boolean).join(" ")]].map(([l,v]) => v ? (
-                      <div key={l} style={{ background:"var(--c-deep)", borderRadius:5, padding:"5px 8px" }}>
-                        <div style={{ fontSize:8, color:"var(--c-text4)", fontFamily:"'IBM Plex Mono',monospace", marginBottom:1 }}>{l}</div>
-                        <div style={{ fontSize:10, color:"var(--c-text)", fontFamily:"'IBM Plex Mono',monospace", fontWeight:700 }}>{v}</div>
-                      </div>
-                    ) : null)}
-                  </div>
-                )}
-
-                {/* Timeline */}
-                <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:"var(--c-text4)", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6 }}>Timeline</div>
-                <div style={{ maxHeight:260, overflowY:"auto" }}>
-                  {(r.events || []).slice().reverse().map((ev, i) => {
-                    const ET = { epi:"#fdba74", shock:"#fca5a5", amio:"#c084fc", lido:"#93c5fd", rosc:"#4ade80", terminate:"#94a3b8", airway:"#86efac", start:"#6b82a8" };
-                    const col = ET[ev.type] || "#6b82a8";
-                    const t = new Date(ev.ts);
-                    const timeStr = t.toTimeString().slice(0,8);
-                    return (
-                      <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start", padding:"4px 0", borderBottom:"1px solid var(--c-border-sub)" }}>
-                        <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:"var(--c-text4)", flexShrink:0, minWidth:52 }}>{timeStr}</span>
-                        <span style={{ fontSize:9, color:col, flex:1, lineHeight:1.4 }}>{ev.detail}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* ESO hint */}
-                <div style={{ marginTop:10, background:"#0a1628", border:"1px solid #1e3a5f", borderRadius:6, padding:"8px 10px" }}>
-                  <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:"#38bdf8", fontWeight:700, marginBottom:3 }}>ESO Suite Reference</div>
-                  <div style={{ fontSize:9, color:"#4a6a8a", lineHeight:1.55 }}>
-                    Use this timeline to fill the cardiac arrest section in ESO. Key fields: arrest time, first rhythm, # shocks, epi doses, airway type, ROSC time.
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWkg, setWlb, mode, isDarkMode=true, patient={} }) {
   const alarmRef = useRef({ epiWarn: false, epiDue: false, cycleEnd: false, lastCycleStart: null });
@@ -2354,6 +2075,9 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
     setArrestState(s => ({ ...s, events: s.events.filter(e => e.id !== id) }));
   };
 
+  const ac = (d, l) => isDarkMode ? d : l;
+  const subTxt = ac("#8aa0c2", "#64748b");
+
   /* ── RENDER: Pre-start state ── */
   if (!startTs) {
     return (
@@ -2565,8 +2289,6 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
   }
 
   /* ── RENDER: Active arrest ── */
-  const ac = (d, l) => isDarkMode ? d : l;
-  const subTxt = ac("#8aa0c2", "#64748b");
   const branchColor = rhythm === "VF/pVT" ? "#fca5a5" : rhythm ? "#93c5fd" : "var(--c-text4)";
 
   return (
@@ -3192,7 +2914,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
           {["OPA/NPA", "BVM", "iGel", "King LT", "ET Tube"].map(a => (
             <ModalBtn
               key={a}
-              icon="🫁" label={a}
+              icon="━" label={a}
               sub=""
               color="#86efac" bg="#0a2318" bd="#14532d"
               onClick={() => recordAirway(a)}
@@ -3700,9 +3422,9 @@ function AccessAttemptModal({ onClose, onSubmit, existingAttempts }) {
   );
 }
 
-/* ═══════════════════════════════════════════════════════
+/* �������������������������������������������������������
    MED LOG — chronological timestamp view of all given drugs
-═══════════════════════════════════════════════════════ */
+������������������������������������������������������� */
 function MedLog({ adminLog, findDrugLocation, onJump, onClearAll, onResetDrug, wkg }) {
   const [confirmClear, setConfirmClear] = useState(false);
   // Flatten { drugName: { times: [t1,t2] } } into individual dose events
@@ -3844,445 +3566,507 @@ function MedLog({ adminLog, findDrugLocation, onJump, onClearAll, onResetDrug, w
   );
 }
 
-/* ═══════════════════════════════════════════════════════
+/* �������������������������������������������������������
    ePCR GENERATOR — patient demographics + auto-filled
    medication log + vitals trends → copyable narrative
-═══════════════════════════════════════════════════════ */
-function Epcr({ patient, setPatient, adminLog, vitalsEntries, wkg, wlb, mode, findDrugLocation, isDarkMode=true }) {
-  const [copied, setCopied] = useState(false);
-  const upd = (k, v) => setPatient({ ...patient, [k]: v });
+������������������������������������������������������� */
+const CC_DRUG_MAP = {
+  "Chest Pain / ACS":               { sys:"cardiac",      color:"#3b82f6", drugs:["Aspirin","Nitroglycerin","Morphine Sulfate"],                            hint:"12-lead ASAP. Screen SBP, RVI, and PDE-5 before nitro. Give aspirin early." },
+  "Cardiac Arrest":                  { sys:"cardiac",      color:"#3b82f6", drugs:["Epinephrine 1:10,000","Amiodarone","Sodium Bicarbonate"],                 hint:"CPR + defibrillation first. Identify 4 H's and 4 T's. Epi q3–5 min." },
+  "Symptomatic Bradycardia":         { sys:"cardiac",      color:"#3b82f6", drugs:["Atropine","Dopamine","Epinephrine 1:10,000"],                             hint:"Confirm symptoms. TCP if Atropine fails. Min 0.5 mg Atropine dose." },
+  "Palpitations / SVT":              { sys:"cardiac",      color:"#3b82f6", drugs:["Adenosine","Atropine"],                                                   hint:"Confirm narrow-complex SVT on monitor. Adenosine via proximal IV with rapid flush." },
+  "Syncope":                         { sys:"cardiac",      color:"#3b82f6", drugs:["Normal Saline (0.9% NaCl)"],                                              hint:"12-lead. BGL check. Consider cardiac, neuro, and orthostatic etiologies." },
+  "Shortness of Breath":             { sys:"respiratory",  color:"#22c55e", drugs:["Albuterol","Ipratropium (Atrovent)","Nitroglycerin"],                     hint:"Auscultate — wheeze vs crackles. CPAP for pulmonary edema. SpO₂ target 94–99%." },
+  "Asthma / Bronchospasm":           { sys:"respiratory",  color:"#22c55e", drugs:["Albuterol","Ipratropium (Atrovent)","Epinephrine 1:1,000"],               hint:"Continuous nebs in severe asthma. Epi 1:1,000 IM if life-threatening." },
+  "COPD Exacerbation":               { sys:"respiratory",  color:"#22c55e", drugs:["Albuterol","Ipratropium (Atrovent)","Methylprednisolone"],                hint:"Titrate O₂ — avoid hyperoxia in COPD. CPAP if tolerated and SpO₂ <90%." },
+  "Altered Mental Status":           { sys:"neuro",        color:"#a855f7", drugs:["Naloxone (Narcan)","Dextrose 50% (D50)","Thiamine (B1)"],                hint:"BGL first. Thiamine BEFORE dextrose in alcoholics. Narcan if opioid suspected." },
+  "Seizure":                         { sys:"neuro",        color:"#a855f7", drugs:["Midazolam (Versed)","Lorazepam (Ativan)","Diazepam (Valium)"],           hint:"Time the seizure. Protect airway. Benzos for active / status seizure." },
+  "Stroke / CVA":                    { sys:"neuro",        color:"#a855f7", drugs:["Dextrose 50% (D50)"],                                                    hint:"Last known well time is critical. FAST scale. BGL to rule out hypoglycemia stroke mimic." },
+  "Diabetic Emergency / Hypoglycemia":{ sys:"metabolic",   color:"#f97316", drugs:["Oral Glucose (Glutose)","Dextrose 50% (D50)","Glucagon"],                hint:"Confirm BGL <60. Oral glucose if conscious and intact gag reflex. D50 IV or Glucagon IM if AMS." },
+  "Allergic Reaction / Anaphylaxis": { sys:"anaphylaxis",  color:"#ef4444", drugs:["Epinephrine 1:1,000","Diphenhydramine (Benadryl)","Methylprednisolone"], hint:"Epi 1:1,000 IM lateral thigh is FIRST LINE — do not delay. Benadryl is adjunct only." },
+  "Opioid Overdose":                 { sys:"neuro",        color:"#e11d48", drugs:["Naloxone (Narcan)"],                                                     hint:"Titrate Narcan to adequate respirations only — avoid precipitating acute withdrawal." },
+  "Overdose / Poisoning":            { sys:"metabolic",    color:"#e11d48", drugs:["Naloxone (Narcan)","Activated Charcoal","Sodium Bicarbonate"],            hint:"Identify substance. Charcoal within 1 hr if airway intact. Bicarb for TCA OD." },
+  "Trauma / Injury":                 { sys:"trauma",       color:"#f59e0b", drugs:["Tranexamic Acid (TXA)","Ketamine","Fentanyl"],                           hint:"MARCH — Massive hemorrhage, Airway, Respiration, Circulation, Hypothermia." },
+  "Burns":                           { sys:"burns",        color:"#f59e0b", drugs:["Normal Saline / LR","Fentanyl","Morphine"],                              hint:"TBSA estimation. Parkland formula for fluids. Aggressive pain management." },
+  "Hemorrhage / Bleeding":           { sys:"trauma",       color:"#f59e0b", drugs:["Tranexamic Acid (TXA)","Normal Saline / LR","Calcium Chloride 10%"],     hint:"Tourniquet / wound packing first. Permissive hypotension SBP 80–90 unless TBI." },
+  "Pain (General)":                  { sys:"assess",       color:"#fbbf24", drugs:["Fentanyl","Morphine Sulfate","Ketorolac (Toradol)","Ketamine"],          hint:"Assess 0–10 scale, location, radiation, quality. Screen vitals before opioids." },
+  "Abdominal Pain":                  { sys:"assess",       color:"#fbbf24", drugs:["Fentanyl","Ketorolac (Toradol)","Morphine Sulfate"],                     hint:"Pain management does not mask surgical abdomen — treat it. Monitor for rigidity." },
+  "OB Emergency":                    { sys:"assess",       color:"#ec4899", drugs:["Magnesium Sulfate","Oxytocin (Pitocin)","Epinephrine 1:1,000"],          hint:"Check for crowning. Mag for eclampsia. Pitocin only AFTER placental delivery." },
+  "Behavioral / Psychiatric Emergency":{ sys:"neuro",      color:"#8b5cf6", drugs:["Midazolam (Versed)","Haloperidol (Haldol)","Ketamine"],                  hint:"Excited delirium: ketamine preferred. Monitor temp and rhabdo. Avoid prone restraint." },
+  "Fever / Sepsis":                  { sys:"metabolic",    color:"#f97316", drugs:["Normal Saline (0.9% NaCl)","Acetaminophen IV (Ofirmev)"],                hint:"30 mL/kg IV fluid if hypotensive. Temp >38.5°C + hypotension → sepsis protocol." },
+};
+const CC_OPTIONS = Object.keys(CC_DRUG_MAP);
 
-  const narrative = useMemo(
-    () => buildNarrative(patient, adminLog, vitalsEntries, wkg, wlb, mode),
-    [patient, adminLog, vitalsEntries, wkg, wlb, mode]
+function AiDisclaimerModal({ isDarkMode, onAccept, onCancel }) {
+  const [ack, setAck] = useState(false);
+  const t  = isDarkMode ? "#e2e8f0" : "#0f172a";
+  const mu = isDarkMode ? "#8aa0c2" : "#4b5563";
+  const su = isDarkMode ? "#0a0d1a" : "#ffffff";
+  const bd = isDarkMode ? "#1a2338" : "#d1d5db";
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:10000}}>
+      <div style={{width:"100%",maxWidth:480,background:su,borderRadius:"18px 18px 0 0",padding:"24px 20px 36px",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 -20px 60px rgba(0,0,0,.6)"}}>
+
+        {/* Header */}
+        <div style={{display:"flex",alignItems:"flex-start",gap:12,marginBottom:18}}>
+          <span style={{fontSize:28,lineHeight:1}}>⚠️</span>
+          <div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#a855f7",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}}>Before You Continue</div>
+            <div style={{fontSize:18,fontWeight:800,color:t,lineHeight:1.2}}>AI Documentation Disclaimer</div>
+            <div style={{fontSize:12,color:mu,marginTop:4,lineHeight:1.5}}>Read carefully — this applies every time you use AI narrative generation.</div>
+          </div>
+        </div>
+
+        {/* Disclaimer body */}
+        <div style={{background:isDarkMode?"#060a14":"#f8fafc",border:`1px solid ${isDarkMode?"#1a2338":"#e2e8f0"}`,borderRadius:10,padding:"14px 16px",marginBottom:16,display:"flex",flexDirection:"column",gap:14}}>
+
+          <div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#a855f7",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>1. For Documentation Assistance Only</div>
+            <p style={{fontSize:12,color:isDarkMode?"#94a3b8":"#374151",lineHeight:1.65,margin:0}}>
+              The AI Narrative Generator is a <strong style={{color:t}}>documentation drafting tool only</strong>. It is not a clinical decision-making system and must never be used to guide patient care, drug selection, dosing, or treatment. All clinical decisions remain your professional responsibility.
+            </p>
+          </div>
+
+          <div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#f59e0b",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>2. You Are Responsible for Every Word</div>
+            <p style={{fontSize:12,color:isDarkMode?"#94a3b8":"#374151",lineHeight:1.65,margin:0}}>
+              All AI-generated text <strong style={{color:t}}>must be reviewed, verified, and corrected</strong> before submission. You are solely responsible for the accuracy, completeness, and clinical correctness of any PCR submitted under your name or certification number. Do not submit an AI narrative you have not read.
+            </p>
+          </div>
+
+          <div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#ef4444",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>3. AI Can and Does Make Mistakes</div>
+            <p style={{fontSize:12,color:isDarkMode?"#94a3b8":"#374151",lineHeight:1.65,margin:0}}>
+              Artificial intelligence can generate <strong style={{color:t}}>inaccurate, incomplete, or clinically inappropriate content</strong> — including details that were never documented. Treat the output as a rough draft, not a finished report.
+            </p>
+          </div>
+
+          <div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#38bdf8",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>4. Your Call Data Leaves This Device</div>
+            <p style={{fontSize:12,color:isDarkMode?"#94a3b8":"#374151",lineHeight:1.65,margin:0}}>
+              To generate the narrative, de-identified call data — including age, sex, chief complaint, vitals, medications administered, and clinical notes — is transmitted to <strong style={{color:t}}>Anthropic's Claude API</strong> over an encrypted connection. Patient names are never recorded or transmitted by R.O.M.A.N. You are responsible for confirming this use complies with <strong style={{color:t}}>your agency's policies and HIPAA requirements</strong>.
+            </p>
+          </div>
+
+          <div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#4ade80",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>5. Your Agency Protocols Govern</div>
+            <p style={{fontSize:12,color:isDarkMode?"#94a3b8":"#374151",lineHeight:1.65,margin:0}}>
+              This tool does not replace your agency's PCR requirements, standing orders, or medical director standards. Ensure all submitted documentation meets those requirements regardless of how it was drafted.
+            </p>
+          </div>
+
+          <div style={{background:isDarkMode?"#1a0a00":"#fff7ed",border:"1px solid #f59e0b44",borderRadius:7,padding:"10px 12px"}}>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#f59e0b",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>6. Limitation of Liability</div>
+            <p style={{fontSize:12,color:isDarkMode?"#94a3b8":"#78350f",lineHeight:1.65,margin:0}}>
+              The developers of R.O.M.A.N. accept <strong style={{color:isDarkMode?"#fbbf24":"#92400e"}}>no liability</strong> for errors in AI-generated narratives, inaccuracies in submitted documentation, or any clinical or legal consequences arising from use of this feature. Full professional and legal responsibility for all patient care reports rests with the submitting provider.
+            </p>
+          </div>
+        </div>
+
+        {/* Acknowledgment checkbox */}
+        <label style={{display:"flex",alignItems:"flex-start",gap:11,cursor:"pointer",userSelect:"none",marginBottom:16}}>
+          <div onClick={()=>setAck(v=>!v)}
+            style={{width:22,height:22,borderRadius:6,flexShrink:0,marginTop:1,border:`2px solid ${ack?"#a855f7":isDarkMode?"#2a3a54":"#9a9286"}`,background:ack?(isDarkMode?"#4c1d95":"#7c3aed"):"transparent",display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s",cursor:"pointer"}}>
+            {ack&&<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+          </div>
+          <span style={{fontSize:12,color:t,lineHeight:1.6}}>
+            I have read and understood this disclaimer. I acknowledge that AI-generated narratives require my review before submission, that call data is transmitted to a third-party AI service, and that I am solely responsible for the accuracy of any PCR I submit.
+          </span>
+        </label>
+
+        {/* Action buttons */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          <button onClick={onCancel}
+            style={{height:48,borderRadius:10,border:`1px solid ${bd}`,background:"transparent",color:mu,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,cursor:"pointer"}}>
+            Cancel
+          </button>
+          <button onClick={ack?onAccept:undefined} disabled={!ack}
+            style={{height:48,borderRadius:10,border:"none",background:ack?"linear-gradient(135deg,#581c87,#7c3aed)":"#1a2338",color:ack?"#e9d5ff":(isDarkMode?"#374151":"#9ca3af"),fontFamily:"'DM Sans',sans-serif",fontWeight:800,fontSize:14,cursor:ack?"pointer":"not-allowed",transition:"all 0.18s"}}>
+            ✓ I Acknowledge
+          </button>
+        </div>
+      </div>
+    </div>
   );
+}
 
-  const [showQR, setShowQR] = useState(false);
-  const [shareStatus, setShareStatus] = useState("");
+// Speech-to-text hook using Web Speech API
+function useSpeechInput(onResult) {
+  const [listening, setListening] = useState(false);
+  const recRef = React.useRef(null);
+  const supported = typeof window !== "undefined" && ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
 
-  const copyReport = async () => {
-    try {
-      await navigator.clipboard.writeText(narrative);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch (e) {}
+  const start = () => {
+    if(!supported || listening) return;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const rec = new SR();
+    recRef.current = rec;
+    rec.lang = "en-US";
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+    rec.onresult = e => {
+      const text = e.results[0][0].transcript;
+      onResult(text);
+    };
+    rec.onend = () => setListening(false);
+    rec.onerror = () => setListening(false);
+    rec.start();
+    setListening(true);
   };
 
-  // ── Share sheet (iOS AirDrop / Android share / desktop fallback) ──
-  const shareReport = async () => {
-    const title = `ePCR — Run ${patient.run || "Unknown"}`;
-    if (navigator.share) {
-      try {
-        await navigator.share({ title, text: narrative });
-        setShareStatus("✓ Shared");
-        setTimeout(() => setShareStatus(""), 1800);
-      } catch (e) {
-        if (e.name !== "AbortError") {
-          setShareStatus("Share unavailable");
-          setTimeout(() => setShareStatus(""), 1800);
-        }
+  const stop = () => {
+    recRef.current?.stop();
+    setListening(false);
+  };
+
+  return { listening, start, stop, supported };
+}
+
+function MicBtn({ onResult, isDarkMode }) {
+  const { listening, start, stop, supported } = useSpeechInput(onResult);
+  if(!supported) return null;
+  return (
+    <button
+      onMouseDown={start} onTouchStart={start}
+      onMouseUp={stop} onTouchEnd={stop}
+      onClick={e=>e.preventDefault()}
+      title={listening ? "Listening… release to stop" : "Hold to speak"}
+      style={{flexShrink:0,width:34,height:34,borderRadius:8,border:`1px solid ${listening?"#ef4444":"#334155"}`,background:listening?(isDarkMode?"#2a0808":"#fee2e2"):(isDarkMode?"#0d1f3a":"#f1f5f9"),color:listening?"#ef4444":"#64748b",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,transition:"all 0.1s"}}>
+      {listening ? "🔴" : "🎙"}
+    </button>
+  );
+}
+
+// These are module-scope so React never remounts them on parent re-render
+function NarrQ({ label, required, hint, mu, isDarkMode, children }) {
+  return (
+    <div style={{marginBottom:18}}>
+      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:mu,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>
+        {label}{required&&<span style={{color:"#ef4444",marginLeft:3}}>*</span>}
+      </div>
+      {hint&&<div style={{fontSize:11,color:isDarkMode?"#475569":"#9ca3af",marginBottom:6,lineHeight:1.4}}>{hint}</div>}
+      {children}
+    </div>
+  );
+}
+
+function NarrToggle({ options, value, onChange, color="#38bdf8", mu, bd }) {
+  return (
+    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+      {options.map(([v,l])=>(
+        <button key={v} onClick={()=>onChange(v===value?"":v)}
+          style={{padding:"8px 14px",borderRadius:8,border:`1px solid ${value===v?color:bd}`,background:value===v?`${color}20`:"transparent",color:value===v?color:mu,fontWeight:value===v?700:500,fontSize:12,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",transition:"all 0.1s"}}>
+          {l}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function NarrTextIn({ value, onChange, placeholder, area, rows=2, bd, inp, t, isDarkMode }) {
+  const s = {flex:1,padding:"10px 12px",borderRadius:8,border:`1px solid ${bd}`,background:inp,color:t,fontSize:13,fontFamily:"'DM Sans',sans-serif",boxSizing:"border-box",outline:"none",lineHeight:1.5,minWidth:0,width:"100%"};
+  const append = txt => onChange((value ? value + " " : "") + txt);
+  return (
+    <div style={{display:"flex",gap:6,alignItems:"flex-start"}}>
+      {area
+        ? <textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows} style={{...s,resize:"none"}}/>
+        : <input type="text" value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={s}/>
       }
-    } else {
-      // Desktop fallback: download as .txt
-      const blob = new Blob([narrative], { type: "text/plain" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `ePCR_${(patient.run || "run").replace(/[^a-z0-9-]/gi,"_")}_${new Date().toISOString().slice(0,10)}.txt`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      setShareStatus("✓ Downloaded");
-      setTimeout(() => setShareStatus(""), 1800);
+      <MicBtn onResult={append} isDarkMode={isDarkMode}/>
+    </div>
+  );
+}
+
+function NarrativeSectionLabel({ label, bd, isDarkMode }) {
+  return (
+    <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,fontWeight:800,color:isDarkMode?"#3a4f70":"#9ca3af",textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:12,borderBottom:`1px solid ${bd}`,paddingBottom:6,marginTop:4}}>
+      {label}
+    </div>
+  );
+}
+
+function NarrativeInterviewModal({ isDarkMode, patient, onGenerate, onCancel }) {
+  const BLANK = { callType:"", scene:"", impression:"", findings:"", clinicalImpression:"", facility:"", receivingProvider:"", transportMode:"", conditionAtTransfer:"" };
+  const [ans, setAns] = useState(BLANK);
+  const set = (k,v) => setAns(p=>({...p,[k]:v}));
+  const canGenerate = ans.callType && ans.scene.trim() && ans.impression.trim() && ans.clinicalImpression.trim();
+  const t  = isDarkMode ? "#e2e8f0" : "#0f172a";
+  const mu = isDarkMode ? "#8aa0c2" : "#4b5563";
+  const su = isDarkMode ? "#0a0d1a" : "#ffffff";
+  const bd = isDarkMode ? "#1a2338" : "#d1d5db";
+  const inp= isDarkMode ? "#060a14" : "#f9fafb";
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:10001}}>
+      <div style={{width:"100%",maxWidth:480,background:su,borderRadius:"18px 18px 0 0",padding:"22px 18px 36px",maxHeight:"94vh",overflowY:"auto",boxShadow:"0 -20px 60px rgba(0,0,0,.6)"}}>
+
+        {/* Header */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+          <div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#a855f7",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:3}}>AI Narrative</div>
+            <div style={{fontSize:19,fontWeight:800,color:t}}>Narrative Interview</div>
+          </div>
+          <button onClick={onCancel} style={{background:"transparent",border:"none",color:mu,fontSize:22,cursor:"pointer",padding:"2px 6px"}}>✕</button>
+        </div>
+        <div style={{fontSize:12,color:mu,marginBottom:20,lineHeight:1.5}}>
+          Answer these questions. R.O.M.A.N. combines your answers with chart data — no need to re-enter vitals, meds, or interventions. Hold 🎙 to speak any answer.
+        </div>
+
+        <NarrativeSectionLabel label="Scene" bd={bd} isDarkMode={isDarkMode}/>
+
+        <NarrQ label="Call Type" required mu={mu} isDarkMode={isDarkMode}>
+          <NarrToggle options={[["medical","🩺 Medical"],["trauma","🚨 Trauma"]]} value={ans.callType} onChange={v=>set("callType",v)} color="#38bdf8" mu={mu} bd={bd}/>
+        </NarrQ>
+
+        <NarrQ label="Scene / Mechanism" required mu={mu} isDarkMode={isDarkMode} hint="Where was the patient? What happened?">
+          <NarrTextIn value={ans.scene} onChange={v=>set("scene",v)} placeholder="e.g. found seated in living room / restrained driver, front-end MVC ~35 mph" area rows={2} bd={bd} inp={inp} t={t} isDarkMode={isDarkMode}/>
+        </NarrQ>
+
+        <NarrativeSectionLabel label="Patient Presentation" bd={bd} isDarkMode={isDarkMode}/>
+
+        <NarrQ label="General Impression on Arrival" required mu={mu} isDarkMode={isDarkMode} hint="What did you see walking up?">
+          <NarrTextIn value={ans.impression} onChange={v=>set("impression",v)} placeholder="e.g. alert, anxious male sitting upright in tripod, visibly labored breathing" area rows={2} bd={bd} inp={inp} t={t} isDarkMode={isDarkMode}/>
+        </NarrQ>
+
+        <NarrQ label="Pertinent Exam Findings" mu={mu} isDarkMode={isDarkMode} hint="Key positives AND negatives — don't re-list vitals, those are in the chart.">
+          <NarrTextIn value={ans.findings} onChange={v=>set("findings",v)} placeholder="e.g. diminished breath sounds bilaterally, JVD present, trachea midline, skin pale and diaphoretic, no peripheral edema" area rows={3} bd={bd} inp={inp} t={t} isDarkMode={isDarkMode}/>
+        </NarrQ>
+
+        <NarrativeSectionLabel label="Clinical Impression" bd={bd} isDarkMode={isDarkMode}/>
+
+        <NarrQ label="Working Impression / Clinical Impression" required mu={mu} isDarkMode={isDarkMode} hint="Your assessment of what's going on.">
+          <NarrTextIn value={ans.clinicalImpression} onChange={v=>set("clinicalImpression",v)} placeholder="e.g. suspected inferior STEMI / acute severe asthma exacerbation / hypovolemic shock" bd={bd} inp={inp} t={t} isDarkMode={isDarkMode}/>
+        </NarrQ>
+
+        <NarrativeSectionLabel label="Disposition" bd={bd} isDarkMode={isDarkMode}/>
+
+        <NarrQ label="Receiving Facility" mu={mu} isDarkMode={isDarkMode}>
+          <NarrTextIn value={ans.facility} onChange={v=>set("facility",v)} placeholder="e.g. Grady Memorial Hospital" bd={bd} inp={inp} t={t} isDarkMode={isDarkMode}/>
+        </NarrQ>
+
+        <NarrQ label="Receiving Provider" mu={mu} isDarkMode={isDarkMode}>
+          <NarrTextIn value={ans.receivingProvider} onChange={v=>set("receivingProvider",v)} placeholder="e.g. RN Smith, Dr. Jones" bd={bd} inp={inp} t={t} isDarkMode={isDarkMode}/>
+        </NarrQ>
+
+        <NarrQ label="Transport Mode" mu={mu} isDarkMode={isDarkMode}>
+          <NarrToggle options={[["Ground ALS","🚑 Ground ALS"],["Ground BLS","Ground BLS"],["Air Medical","🚁 Air Medical"],["Refused","Refused Transport"],["Treat & Release","Treat & Release"]]} value={ans.transportMode} onChange={v=>set("transportMode",v)} color="#4ade80" mu={mu} bd={bd}/>
+        </NarrQ>
+
+        <NarrQ label="Condition at Transfer" mu={mu} isDarkMode={isDarkMode}>
+          <NarrToggle options={[["Improved","✅ Improved"],["Stable","Stable"],["Unchanged","Unchanged"],["Deteriorated","⚠ Deteriorated"],["N/A","N/A"]]} value={ans.conditionAtTransfer} onChange={v=>set("conditionAtTransfer",v)} color="#fb923c" mu={mu} bd={bd}/>
+        </NarrQ>
+
+        {!canGenerate&&(
+          <div style={{fontSize:11,color:isDarkMode?"#475569":"#9ca3af",marginBottom:12,fontFamily:"'IBM Plex Mono',monospace"}}>
+            * Complete required fields to generate
+          </div>
+        )}
+
+        <button onClick={canGenerate?()=>onGenerate(ans):undefined} disabled={!canGenerate}
+          style={{width:"100%",height:52,borderRadius:12,border:"none",background:canGenerate?"linear-gradient(135deg,#581c87,#7c3aed)":"#1a2338",color:canGenerate?"#e9d5ff":(isDarkMode?"#374151":"#9ca3af"),fontWeight:800,fontSize:16,cursor:canGenerate?"pointer":"not-allowed",fontFamily:"'DM Sans',sans-serif",letterSpacing:"0.02em",transition:"all 0.18s",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+          <span style={{fontSize:18}}>✨</span> Generate Narrative
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function NarrativeScreen({ patient, setPatient, adminLog, vitalsEntries, wkg, wlb, mode, isDarkMode=true, onClearCall }) {
+  const [aiNarrative, setAiNarrative] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const [aiCopied, setAiCopied] = useState(false);
+  const [showAiDisclaimer, setShowAiDisclaimer] = useState(false);
+  const [showNarrativeInterview, setShowNarrativeInterview] = useState(false);
+  const upd = (k, v) => setPatient(p => ({...p, [k]: v}));
+  const t  = isDarkMode ? "#e2e8f0" : "#0f172a";
+  const mu = isDarkMode ? "#8aa0c2" : "#4b5563";
+  const su = isDarkMode ? "#0d1120" : "#ffffff";
+  const bd = isDarkMode ? "#1a2338" : "#d1d5db";
+
+  const runAiGeneration = async (interview) => {
+    setShowNarrativeInterview(false);
+    setAiLoading(true);
+    setAiError("");
+    setAiNarrative("");
+    try {
+      const res = await fetch("/api/narrative", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({ patient, adminLog, vitalsEntries, wkg, wlb, mode, interview }),
+      });
+      const data = await res.json();
+      if(data.error) throw new Error(data.error);
+      setAiNarrative(data.narrative);
+    } catch(err) {
+      setAiError("Could not generate narrative. Check your connection and try again.");
+    } finally {
+      setAiLoading(false);
     }
   };
 
-  // ── Email via mailto: ──
-  const emailReport = () => {
-    const subj = `ePCR — Run ${patient.run || "Unknown"} · ${patient.unit || ""}`.trim();
-    // mailto: URLs have a ~2000 char limit in many clients; truncate safely
-    const MAX = 1800;
-    const body = narrative.length > MAX
-      ? narrative.slice(0, MAX) + "\n\n[...truncated — see R.O.M.A.N. app for full report]"
-      : narrative;
-    const mailto = `mailto:?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}`;
-    window.location.href = mailto;
+  const startNarrativeFlow = () => {
+    const alreadyAcked = localStorage.getItem("roman_ai_ack") === "1";
+    if(alreadyAcked) { setShowNarrativeInterview(true); }
+    else { setShowAiDisclaimer(true); }
+  };
+
+  const handleAiDisclaimerAccept = () => {
+    localStorage.setItem("roman_ai_ack","1");
+    setShowAiDisclaimer(false);
+    setShowNarrativeInterview(true);
+  };
+
+  const copyAiNarrative = async () => {
+    try {
+      await navigator.clipboard.writeText(aiNarrative);
+      setAiCopied(true);
+      setTimeout(() => setAiCopied(false), 1800);
+    } catch(e) {}
   };
 
   const doseCount = Object.values(adminLog).reduce((s, l) => s + l.times.length, 0);
 
   return (
-    <div style={{ paddingBottom:20 }}>
+    <div style={{paddingBottom:40}}>
+      {showAiDisclaimer&&<AiDisclaimerModal isDarkMode={isDarkMode} onAccept={handleAiDisclaimerAccept} onCancel={()=>setShowAiDisclaimer(false)}/>}
+      {showNarrativeInterview&&<NarrativeInterviewModal isDarkMode={isDarkMode} patient={patient} onGenerate={answers=>runAiGeneration(answers)} onCancel={()=>setShowNarrativeInterview(false)}/>}
+
       {/* Header */}
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
+      <div style={{marginBottom:16}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:13,fontWeight:700,color:t}}>✨ AI Narrative</div>
+        <div style={{fontSize:10,color:mu,marginTop:2}}>
+          {doseCount} med{doseCount!==1?"s":""} · {vitalsEntries.length} vital set{vitalsEntries.length!==1?"s":""} · generate → copy → paste into agency ePCR
+        </div>
+      </div>
+
+      {/* Patient Context */}
+      <div style={{background:su,border:`1px solid ${bd}`,borderRadius:10,padding:14,marginBottom:12}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:mu,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>Patient Context</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+          <div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:mu,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Age</div>
+            <input type="text" value={patient.age||""} onChange={e=>upd("age",e.target.value)} placeholder="e.g. 45"
+              style={{width:"100%",background:"var(--c-input)",border:`1px solid ${bd}`,borderRadius:6,color:t,fontSize:13,padding:"8px 10px",outline:"none",fontFamily:"'DM Sans',sans-serif",boxSizing:"border-box"}}/>
+          </div>
+          <div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:mu,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Sex</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
+              {["Male","Female"].map(s=>(
+                <button key={s} onClick={()=>upd("sex",s)}
+                  style={{padding:"9px 0",borderRadius:6,border:`1.5px solid ${patient.sex===s?"#60a5fa":bd}`,
+                    background:patient.sex===s?(isDarkMode?"#0c2340":"#dbeafe"):"transparent",
+                    color:patient.sex===s?"#60a5fa":mu,
+                    fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:700,cursor:"pointer"}}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
         <div>
-          <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:13, fontWeight:700, color:"var(--c-text)" }}>ePCR Narrative</div>
-          <div style={{ color:"var(--c-text4)", fontSize:10, marginTop:1 }}>
-            {doseCount} med{doseCount!==1?"s":""} · {vitalsEntries.length} vital set{vitalsEntries.length!==1?"s":""} · auto-filled
-          </div>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:mu,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Chief Complaint</div>
+          <select value={patient.cc||""} onChange={e=>upd("cc",e.target.value)}
+            style={{width:"100%",background:"var(--c-input)",border:`1px solid ${bd}`,borderRadius:6,
+              color:patient.cc?t:mu,fontSize:13,padding:"8px 10px",outline:"none",
+              fontFamily:"'DM Sans',sans-serif",appearance:"none",cursor:"pointer"}}>
+            <option value="">— Select chief complaint —</option>
+            {CC_OPTIONS.map(cc=>(<option key={cc} value={cc}>{cc}</option>))}
+          </select>
         </div>
       </div>
 
-      {/* Form sections */}
-      <EpcrSect title="INCIDENT" color="#c084fc">
-        <EpcrRow>
-          <EpcrFld label="Run #" v={patient.run} onC={v => upd("run", v)} ph="2026-0042" />
-          <EpcrFld label="Unit" v={patient.unit} onC={v => upd("unit", v)} ph="Medic 12" />
-        </EpcrRow>
-        <EpcrFld label="Provider / Cert #" v={patient.provider} onC={v => upd("provider", v)} />
-      </EpcrSect>
-
-      <EpcrSect title="PATIENT" color="#60a5fa">
-        <EpcrFld label="Name / Identifier" v={patient.name} onC={v => upd("name", v)} />
-        <EpcrRow cols={3}>
-          <EpcrFld label="Age" v={patient.age} onC={v => upd("age", v)} />
-          <EpcrFld label="Sex" v={patient.sex} onC={v => upd("sex", v)} ph="M/F" />
-          <EpcrFld label="Weight" v={wkg > 0 ? `${wkg} kg` : ""} onC={()=>{}} ro />
-        </EpcrRow>
-        <EpcrRow>
-          <EpcrFld label="Allergies" v={patient.allergies} onC={v => upd("allergies", v)} ph="NKDA" />
-          <EpcrFld label="Home Meds" v={patient.meds} onC={v => upd("meds", v)} ph="None" />
-        </EpcrRow>
-      </EpcrSect>
-
-      <EpcrSect title="PRESENTATION" color="#fb923c">
-        <EpcrFld label="Chief Complaint" v={patient.cc} onC={v => upd("cc", v)} ph="e.g. chest pain, difficulty breathing" />
-        <EpcrFld label="HPI / Onset" v={patient.hpi} onC={v => upd("hpi", v)} area rows={3}
-          ph="When / how / progression / associated symptoms" />
-        <EpcrFld label="PMH / SAMPLE" v={patient.pmh} onC={v => upd("pmh", v)} area rows={2} />
-      </EpcrSect>
-
-      <EpcrSect title="TREATMENT & OUTCOME" color="#4ade80">
-        <EpcrFld label="Interventions (beyond meds/vitals)" v={patient.interventions} onC={v => upd("interventions", v)} area rows={2}
-          ph="O₂, IV, monitor, CPR, airway mgmt…" />
-        <EpcrFld label="Response to Treatment" v={patient.response} onC={v => upd("response", v)} area rows={2} />
-        <EpcrFld label="Disposition" v={patient.dispo} onC={v => upd("dispo", v)}
-          ph="Transported to X · pt stable · c/o improved" />
-      </EpcrSect>
-
-      {/* Auto-filled preview of what's included */}
-      <div style={{ background:"var(--c-deep)", border:"1px solid var(--c-border-sub)", borderRadius:7, padding:"8px 10px", marginBottom:10 }}>
-        <div style={{ color:"var(--c-text4)", fontSize:9, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:5, fontFamily:"'IBM Plex Mono',monospace" }}>Auto-included from other screens</div>
-        <div style={{ display:"flex", flexWrap:"wrap", gap:5, fontSize:10, fontFamily:"'IBM Plex Mono',monospace" }}>
-          <span style={{ background: doseCount>0 ? "#1a1208" : "var(--c-surface)", color: doseCount>0 ? "#fb923c" : "#3a4f70", border:`1px solid ${doseCount>0?"#f9731640":"var(--c-border)"}`, borderRadius:4, padding:"2px 7px" }}>
-            💊 {doseCount} medication{doseCount!==1?"s":""}
-          </span>
-          <span style={{ background: vitalsEntries.length>0 ? "#071a0e" : "var(--c-surface)", color: vitalsEntries.length>0 ? "#4ade80" : "#3a4f70", border:`1px solid ${vitalsEntries.length>0?"#14532d":"var(--c-border)"}`, borderRadius:4, padding:"2px 7px" }}>
-            📋 {vitalsEntries.length} vital set{vitalsEntries.length!==1?"s":""}
-          </span>
-          <span style={{ background: wkg>0 ? "#0d1f3a" : "var(--c-surface)", color: wkg>0 ? "#93c5fd" : "#3a4f70", border:`1px solid ${wkg>0?"#1e3a8a":"var(--c-border)"}`, borderRadius:4, padding:"2px 7px" }}>
-            ⚖ {wkg>0 ? `${wkg} kg` : "no weight"}
-          </span>
+      {/* AI Narrative generator */}
+      <div style={{background:su,border:`1px solid ${isDarkMode?"#3b1d6e":"#c4b5fd"}`,borderRadius:10,padding:14,marginBottom:12}}>
+        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}>
+          <span style={{fontSize:14}}>✨</span>
+          <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:"#a855f7",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em"}}>AI Narrative</span>
+          <span style={{marginLeft:"auto",fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:isDarkMode?"#3a2a5a":"#9ca3af"}}>Powered by Claude</span>
         </div>
-      </div>
-
-      {/* Transfer & Export panel */}
-      <div style={{ background:"var(--c-surface)", border:"1px solid #1e3a8a55", borderRadius:8, padding:"10px 11px", marginBottom:10 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:8 }}>
-          <span style={{ fontSize:12 }}>📡</span>
-          <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:"#93c5fd", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em" }}>
-            Transfer to ePCR Software
-          </span>
-        </div>
-
-        {/* 2×2 action grid */}
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginBottom:6 }}>
-          <TransferBtn
-            icon="📤"
-            label="Share"
-            sub="AirDrop · Files · Messages"
-            onClick={shareReport}
-            bg={isDarkMode?"#0d1f3a":"#dbeafe"} bd={isDarkMode?"#1e3a8a":"#93c5fd"} fg={isDarkMode?"#93c5fd":"#1e40af"}
-            isDarkMode={isDarkMode}
-          />
-          <TransferBtn
-            icon="📧"
-            label="Email"
-            sub="Open in mail app"
-            onClick={emailReport}
-            bg={isDarkMode?"#1a0e28":"#ede9fe"} bd={isDarkMode?"#4c1d7c":"#c4b5fd"} fg={isDarkMode?"#c084fc":"#6b21a8"}
-            isDarkMode={isDarkMode}
-          />
-          <TransferBtn
-            icon="▦"
-            label={showQR ? "Hide QR" : "Show QR"}
-            sub="Scan from 2nd device"
-            onClick={() => setShowQR(v => !v)}
-            bg={isDarkMode?"#0a2318":"#dcfce7"} bd={isDarkMode?"#14532d":"#86efac"} fg={isDarkMode?"#86efac":"#15803d"}
-            isDarkMode={isDarkMode}
-          />
-          <TransferBtn
-            icon={copied ? "✓" : "📋"}
-            label={copied ? "Copied" : "Copy"}
-            sub="To clipboard"
-            onClick={copyReport}
-            bg={isDarkMode?(copied?"#071a0e":"#1a1208"):(copied?"#dcfce7":"#fff7ed")}
-            bd={isDarkMode?(copied?"#14532d":"#7c2d12"):(copied?"#86efac":"#fed7aa")}
-            fg={isDarkMode?(copied?"#4ade80":"#fb923c"):(copied?"#15803d":"#c2410c")}
-            isDarkMode={isDarkMode}
-          />
-        </div>
-
-        {shareStatus && (
-          <div style={{ marginTop:6, textAlign:"center", color:"#4ade80", fontSize:11, fontFamily:"'IBM Plex Mono',monospace", fontWeight:700 }}>
-            {shareStatus}
+        {!aiNarrative&&!aiLoading&&(
+          <button onClick={startNarrativeFlow}
+            style={{width:"100%",height:48,borderRadius:8,border:"1px solid #7c3aed",background:"linear-gradient(135deg,#581c87,#4c1d95)",color:"#e9d5ff",fontFamily:"'DM Sans',sans-serif",fontWeight:800,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+            <span style={{fontSize:16}}>✨</span> Generate AI Narrative
+          </button>
+        )}
+        {aiLoading&&(
+          <div style={{textAlign:"center",padding:"20px 0",color:"#a855f7",fontFamily:"'IBM Plex Mono',monospace",fontSize:11}}>
+            Generating narrative…
           </div>
         )}
-
-        {/* QR code panel */}
-        {showQR && (
-          <div style={{ marginTop:10, background:"var(--c-deep)", border:"1px solid #14532d", borderRadius:7, padding:"12px 10px" }}>
-            <div style={{ textAlign:"center", marginBottom:8 }}>
-              <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:"#86efac", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:3 }}>
-                Scan to Transfer
-              </div>
-              <div style={{ color:"#4a5a7a", fontSize:10, lineHeight:1.4 }}>
-                Open camera on 2nd device — scan to open pre-filled email<br/>ready to send to ePCR-linked address
-              </div>
+        {aiError&&(
+          <div style={{background:isDarkMode?"#2a0808":"#fff1f2",border:"1px solid #fecaca",borderRadius:6,padding:"8px 10px",color:isDarkMode?"#fca5a5":"#991b1b",fontSize:11,marginBottom:8,lineHeight:1.5}}>
+            {aiError}
+          </div>
+        )}
+        {aiNarrative&&!aiLoading&&(
+          <>
+            <textarea value={aiNarrative} onChange={e=>setAiNarrative(e.target.value)}
+              style={{width:"100%",minHeight:220,background:isDarkMode?"#060310":"#f9fafb",border:"1px solid #7c3aed44",borderRadius:6,color:isDarkMode?"#d4b8f8":"#1e1b4b",fontSize:11.5,fontFamily:"'DM Sans',sans-serif",lineHeight:1.65,padding:"10px 12px",resize:"vertical",outline:"none",boxSizing:"border-box",marginBottom:8}}/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+              <button onClick={copyAiNarrative}
+                style={{height:48,borderRadius:8,border:"1px solid #7c3aed",background:aiCopied?"#4ade80":"linear-gradient(135deg,#7c3aed,#a855f7)",color:aiCopied?"#052e16":"#fff",fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",transition:"all 0.2s"}}>
+                {aiCopied?"✓ Copied!":"Copy Narrative"}
+              </button>
+              <button onClick={startNarrativeFlow}
+                style={{height:48,borderRadius:8,border:`1px solid ${bd}`,background:"transparent",color:mu,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+                Regenerate
+              </button>
             </div>
-            <QRPanel narrative={narrative} patient={patient} />
-          </div>
+            {onClearCall&&(
+              <button onClick={onClearCall}
+                style={{width:"100%",height:44,borderRadius:8,border:"1px solid #14532d",background:isDarkMode?"#071a0e":"#dcfce7",color:"#4ade80",fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,cursor:"pointer",letterSpacing:"0.04em"}}>
+                ✓ Done — Clear & Ready for Next Call
+              </button>
+            )}
+          </>
         )}
+      </div>
 
-        {/* Honest capability note */}
-        <div style={{ marginTop:8, padding:"6px 9px", background:"var(--c-deep)", border:"1px solid var(--c-border-sub)", borderRadius:5 }}>
-          <div style={{ color:"var(--c-text4)", fontSize:9.5, lineHeight:1.5, fontFamily:"'DM Sans',sans-serif" }}>
-            <span style={{ color:"#facc15", fontWeight:700 }}>ℹ</span>{" "}
-            ESO doesn't accept direct Bluetooth/USB push from 3rd-party web apps.
-            Use <span style={{ color:"#93c5fd" }}>Share</span> → AirDrop to your ESO-logged device,
-            then paste into the narrative field. Or <span style={{ color:"#c084fc" }}>Email</span> to your agency inbox.
+      {/* Medications given */}
+      {doseCount>0&&(
+        <div style={{background:su,border:`1px solid ${bd}`,borderRadius:10,padding:14,marginBottom:12}}>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:mu,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>Medications Given</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {Object.entries(adminLog).map(([name,data])=>(
+              <div key={name} style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"var(--c-input)",borderRadius:7,padding:"8px 10px"}}>
+                <span style={{fontSize:12,fontWeight:600,color:t}}>{name}</span>
+                <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:mu}}>
+                  ×{data.times.length} · {new Date(data.times[0]).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Generated narrative preview */}
-      <div style={{ background:"var(--c-input)", border:"1px solid var(--c-border-sub)", borderRadius:8, overflow:"hidden" }}>
-        <div style={{
-          display:"flex", alignItems:"center", justifyContent:"space-between",
-          padding:"8px 10px", borderBottom:"1px solid var(--c-border-sub)"
-        }}>
-          <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:"#c084fc", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em" }}>
-            Generated Narrative · Preview
-          </span>
-          <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:"#4a5a7a" }}>
-            {narrative.length} chars
-          </span>
-        </div>
-        <pre style={{
-          margin:0, padding:"10px 11px",
-          fontFamily:"'IBM Plex Mono',monospace", fontSize:10.5,
-          color:"var(--c-text3)", lineHeight:1.55,
-          whiteSpace:"pre-wrap", wordBreak:"break-word",
-          maxHeight:400, overflowY:"auto"
-        }}>{narrative}</pre>
-      </div>
-    </div>
-  );
-}
-
-/* ── Transfer button (reusable) ── */
-function TransferBtn({ icon, label, sub, onClick, bg, bd, fg, isDarkMode=true }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        background: bg, border: `1px solid ${bd}`, borderRadius: 7,
-        padding: "10px 10px", cursor: "pointer", textAlign: "left",
-        display: "flex", alignItems: "center", gap: 10,
-        transition: "all 0.12s"
-      }}
-    >
-      <span style={{ fontSize: 18, flexShrink: 0 }}>{icon}</span>
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 11.5, fontWeight: 700, color: fg, letterSpacing: "0.02em" }}>
-          {label}
-        </div>
-        <div style={{ color: isDarkMode ? "var(--c-text4)" : "#374151", fontSize: 9.5, marginTop: 1, lineHeight: 1.2 }}>
-          {sub}
-        </div>
-      </div>
-    </button>
-  );
-}
-
-/* ── QR panel: encodes mailto: link so scanning opens email app pre-filled ── */
-function QRPanel({ narrative, patient }) {
-  const [imgFailed, setImgFailed] = useState(false);
-  const subj = `ePCR — Run ${patient.run || "Unknown"}`;
-  const MAX_QR = 900;
-  const body = narrative.length > MAX_QR
-    ? narrative.slice(0, MAX_QR) + "\n\n[truncated — see R.O.M.A.N. for full report]"
-    : narrative;
-  const mailtoUrl = `mailto:?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}`;
-  const qrSize = 240;
-  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${qrSize}x${qrSize}&data=${encodeURIComponent(mailtoUrl)}&margin=10&ecc=M&bgcolor=ffffff&color=000000`;
-  const truncated = narrative.length > MAX_QR;
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-      <div style={{
-        background: "#fff", padding: 8, borderRadius: 8,
-        boxShadow: "0 0 0 1px #1e3a8a inset"
-      }}>
-        {imgFailed
-          ? <div style={{ color: "#000", fontSize: 11, textAlign: "center", padding: "40px 20px", fontFamily: "'IBM Plex Mono',monospace", width: qrSize }}>
-              QR unavailable offline.<br/>Use Share or Email instead.
-            </div>
-          : <img
-              src={qrUrl}
-              alt="QR code to transfer ePCR via email"
-              width={qrSize}
-              height={qrSize}
-              style={{ display: "block", width: qrSize, height: qrSize }}
-              onError={() => setImgFailed(true)}
-            />
-        }
-      </div>
-      <div style={{ textAlign: "center" }}>
-        <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 10, color: "#86efac", fontWeight: 700 }}>
-          Opens email · pre-filled with report
-        </div>
-        {truncated && (
-          <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 9, color: "#facc15", marginTop: 3 }}>
-            ⚠ narrative truncated to fit QR — full version via Share/Email
+      {/* Vitals summary */}
+      {vitalsEntries.length>0&&(
+        <div style={{background:su,border:`1px solid ${bd}`,borderRadius:10,padding:14}}>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:mu,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>
+            Vitals ({vitalsEntries.length} set{vitalsEntries.length!==1?"s":""})
           </div>
-        )}
-        <div style={{ fontSize: 9, color: "#4a5a7a", marginTop: 3 }}>
-          Requires internet to generate QR image
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {vitalsEntries.slice().reverse().map((v,i)=>(
+              <div key={i} style={{background:"var(--c-input)",borderRadius:7,padding:"8px 10px"}}>
+                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:mu,marginBottom:4}}>
+                  {new Date(v.ts).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}{v.drugName?` · after ${v.drugName}`:""}
+                </div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:"4px 12px"}}>
+                  {[["BP",v.sbp&&v.dbp?`${v.sbp}/${v.dbp}`:v.sbp||""],["HR",v.hr||""],["RR",v.rr||""],["SpO2",v.spo2?`${v.spo2}%`:""],["GCS",v.gcsTotal||""],["BGL",v.bgl?`${v.bgl} mg/dL`:""]].filter(([,val])=>val).map(([lbl,val])=>(
+                    <span key={lbl} style={{fontSize:11,color:t}}><span style={{fontSize:9,color:mu,fontFamily:"'IBM Plex Mono',monospace"}}>{lbl} </span>{val}</span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
-function EpcrSect({ title, color, children }) {
-  return (
-    <div style={{ background:"var(--c-surface)", border:"1px solid var(--c-border-sub)", borderLeft:`3px solid ${color}`, borderRadius:8, padding:"10px 11px", marginBottom:8 }}>
-      <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, fontWeight:700, letterSpacing:"0.1em", color, marginBottom:7 }}>{title}</div>
-      <div style={{ display:"flex", flexDirection:"column", gap:7 }}>{children}</div>
-    </div>
-  );
-}
-function EpcrRow({ cols=2, children }) { return <div style={{ display:"grid", gridTemplateColumns:`repeat(${cols},1fr)`, gap:7 }}>{children}</div>; }
-function EpcrFld({ label, v, onC, ph, ro, area, rows }) {
-  const shared = {
-    background:"var(--c-input)", border:"1px solid var(--c-border-sub)", borderRadius:5,
-    color: ro ? "var(--c-text4)" : "var(--c-text2)", fontSize:12, fontFamily:"'DM Sans',sans-serif",
-    outline:"none", padding:"6px 9px", width:"100%", boxSizing:"border-box"
-  };
-  return (
-    <div>
-      <div style={{ color:"var(--c-text4)", fontSize:9, textTransform:"uppercase", letterSpacing:"0.08em",
-        marginBottom:3, fontFamily:"'IBM Plex Mono',monospace" }}>{label}</div>
-      {area
-        ? <textarea value={v || ""} onChange={e => onC(e.target.value)} placeholder={ph}
-            rows={rows || 2} style={{ ...shared, resize:"vertical", lineHeight:1.4 }} />
-        : <input type="text" value={v || ""} onChange={e => onC(e.target.value)} placeholder={ph} readOnly={ro} style={shared} />
-      }
-    </div>
-  );
-}
-
-function buildNarrative(p, adminLog, vitalsEntries, wkg, wlb, mode) {
-  const line = "─".repeat(46);
-  const now = new Date().toLocaleString('en-US', {
-    year:'numeric', month:'2-digit', day:'2-digit',
-    hour:'2-digit', minute:'2-digit', hour12:false
-  });
-  const wt = wkg > 0 ? `${wkg} kg (${wlb} lbs)` : "—";
-
-  // Flatten med log chronologically (oldest first for narrative)
-  const medEvents = [];
-  Object.entries(adminLog).forEach(([drugName, data]) => {
-    data.times.forEach((ts, i) => {
-      medEvents.push({ drug: drugName, ts, doseNum: i + 1, total: data.times.length });
-    });
-  });
-  medEvents.sort((a, b) => a.ts - b.ts);
-
-  const fmtT = ts => {
-    const d = new Date(ts);
-    return d.toTimeString().slice(0, 5);
-  };
-
-  const medsBlock = medEvents.length === 0
-    ? "  No medications administered."
-    : medEvents.map(e =>
-        `  ${fmtT(e.ts)}  ${e.drug.padEnd(28).slice(0,28)}  (dose ${e.doseNum}/${e.total})`
-      ).join("\n");
-
-  // Vitals trend block
-  const vitalsBlock = vitalsEntries.length === 0
-    ? "  No vitals recorded."
-    : vitalsEntries.map(v => {
-        const t = fmtT(v.ts);
-        const parts = [];
-        if (v.sbp && v.dbp) parts.push(`BP ${v.sbp}/${v.dbp}`);
-        else if (v.sbp) parts.push(`SBP ${v.sbp}`);
-        if (v.hr) parts.push(`HR ${v.hr}`);
-        if (v.rr) parts.push(`RR ${v.rr}`);
-        if (v.spo2) parts.push(`SpO₂ ${v.spo2}%`);
-        if (v.etco2) parts.push(`EtCO₂ ${v.etco2}`);
-        if (v.bgl) parts.push(`BGL ${v.bgl}`);
-        if (v.temp) parts.push(`T ${v.temp}°F`);
-        if (v.pain) parts.push(`Pain ${v.pain}/10`);
-        if (v.gcsTotal) parts.push(`GCS ${v.gcsTotal}`);
-        if (v.skin) parts.push(v.skin);
-        const label = v.autoCapture && v.drugName ? `[Pre-check: ${v.drugName}]` : "";
-        let line = `  ${t}  ${parts.join(" · ")}${label ? `  ${label}` : ""}`;
-        if (v.notes) line += `\n           └─ ${v.notes}`;
-        return line;
-      }).join("\n");
-
-  return `PATIENT CARE REPORT — NARRATIVE
-${line}
-Generated: ${now}
-Run #: ${p.run || "—"}       Unit: ${p.unit || "—"}
-Provider: ${p.provider || "—"}
-Mode: ${mode === "adult" ? "ADULT" : "PEDIATRIC"}
-
-PATIENT
-  Name/ID:    ${p.name || "—"}
-  Age/Sex:    ${p.age || "—"} / ${p.sex || "—"}
-  Weight:     ${wt}
-  Allergies:  ${p.allergies || "NKDA"}
-  Home Meds:  ${p.meds || "None reported"}
-
-CHIEF COMPLAINT
-  ${p.cc || "—"}
-
-HPI
-  ${p.hpi || "—"}
-
-PMH / SAMPLE
-  ${p.pmh || "—"}
-
-VITALS (chronological)
-${vitalsBlock}
-
-MEDICATIONS ADMINISTERED
-${medsBlock}
-
-INTERVENTIONS
-  ${p.interventions || "—"}
-
-RESPONSE TO TREATMENT
-  ${p.response || "—"}
-
-DISPOSITION
-  ${p.dispo || "—"}
-
-${line}
-Reference: GA SOP-2024 · NASEMSO v3 · AHA/AAP 2025 PALS
-Pre-checks and re-dose reassessments verified at time of
-administration via R.O.M.A.N. clinical decision support.
-
-Provider signature: ${p.provider || "_________________"}
-${line}`;
-}
-
-/* ═══ MAIN APP ═══ */
+/* ��� MAIN APP ��� */
 const BURN_DEPTHS = [
   { label:"Clear", color:"rgba(148,163,184,0.10)", border:"rgba(148,163,184,0.38)" },
   { label:"1st", color:"rgba(248,113,113,0.48)", border:"#f87171" },
@@ -4372,13 +4156,14 @@ const BURN_PROTOCOL_QUESTIONS = [
 ];
 
 const PROTOCOL_SYSTEMS = [
-  { id:"burns", label:"Burns", color:"#ef4444" },
-  { id:"cardiac", label:"Cardiac", color:"#f87171" },
-  { id:"respiratory", label:"Respiratory", color:"#60a5fa" },
-  { id:"neuro", label:"Neuro", color:"#c084fc" },
-  { id:"trauma", label:"Trauma", color:"#f97316" },
-  { id:"metabolic", label:"Metabolic", color:"#facc15", lightColor:"#854d0e" },
-  { id:"anaphylaxis", label:"Anaphylaxis", color:"#fb923c" },
+  { id:"assess",     label:"Assessments", color:"#22d3ee", lightColor:"#0e7490" },
+  { id:"burns",      label:"Burns",       color:"#ef4444", lightColor:"#b91c1c" },
+  { id:"cardiac",    label:"Cardiac",     color:"#f87171", lightColor:"#dc2626" },
+  { id:"respiratory",label:"Respiratory", color:"#60a5fa", lightColor:"#1d4ed8" },
+  { id:"neuro",      label:"Neuro",       color:"#c084fc", lightColor:"#6d28d9" },
+  { id:"trauma",     label:"Trauma",      color:"#f97316", lightColor:"#c2410c" },
+  { id:"metabolic",  label:"Metabolic",   color:"#facc15", lightColor:"#854d0e" },
+  { id:"anaphylaxis",label:"Anaphylaxis", color:"#fb923c", lightColor:"#c2410c" },
 ];
 
 const PROTOCOL_DEFINITIONS = [
@@ -4389,6 +4174,7 @@ const PROTOCOL_DEFINITIONS = [
     sub:"TBSA, depth, airway, transfer triggers",
     special:"burns",
     scope:"EMT",
+    patientType:"both",
   },
   {
     id:"acs",
@@ -4464,6 +4250,7 @@ const PROTOCOL_DEFINITIONS = [
     title:"Seizure",
     sub:"Active seizure, glucose, airway, benzodiazepine",
     scope:"Medic",
+    patientType:"both",
     questions:[
       ["active","Active seizure or recurrent seizures without recovery?"],
       ["airway","Airway compromise or hypoxia?"],
@@ -4487,6 +4274,7 @@ const PROTOCOL_DEFINITIONS = [
     title:"Trauma / Shock",
     sub:"MARCH, bleeding control, TXA screen, destination",
     scope:"EMT",
+    patientType:"both",
     questions:[
       ["majorBleed","Life-threatening external bleeding?"],
       ["shock","Signs of shock or poor perfusion?"],
@@ -4532,6 +4320,7 @@ const PROTOCOL_DEFINITIONS = [
     title:"Anaphylaxis",
     sub:"IM epi, airway, bronchodilator, shock support",
     scope:"EMT",
+    patientType:"both",
     questions:[
       ["airway","Airway swelling, voice change, stridor, or respiratory compromise?"],
       ["shock","Hypotension, syncope, or poor perfusion?"],
@@ -4548,6 +4337,256 @@ const PROTOCOL_DEFINITIONS = [
     ],
     meds:["Epinephrine 1:1,000","Albuterol","Diphenhydramine (Benadryl)","Normal Saline (0.9% NaCl)"],
     triggers:["airway","shock","repeat"],
+  },
+  {
+    id:"peds-resp",
+    system:"respiratory",
+    title:"Pediatric Respiratory Distress",
+    sub:"Asthma, croup, bronchiolitis — weight-based treatment",
+    scope:"EMT",
+    patientType:"peds",
+    questions:[
+      ["croup","Barky cough, inspiratory stridor, or signs of croup?"],
+      ["wheezing","Wheezing, prolonged expiration, or bronchospasm?"],
+      ["severe","Severe distress, cyanosis, fatigue, or altered mental status?"],
+      ["weight","Weight known? (required for weight-based dosing)"],
+    ],
+    steps:[
+      "Position of comfort; assess WOB, stridor vs wheeze, SpO2, RR, accessory muscle use.",
+      "Apply oxygen; titrate to SpO2 goal per protocol.",
+      "Croup (barky cough, inspiratory stridor): Neb Epi 1:1,000 (5 mL undiluted) + Dexamethasone 0.6 mg/kg IM/IV max 16 mg.",
+      "Asthma/bronchospasm (expiratory wheeze): Albuterol (≥20 kg: 2.5 mg · <20 kg: 1.25 mg) q20 min ± Ipratropium once.",
+      "Severe/near-fatal bronchospasm: Epi 1:1,000 IM 0.01 mg/kg (max 0.5 mg) + Methylprednisolone 1–2 mg/kg IV/IM.",
+      "Observe croup patients ≥2 hrs post-Neb Epi for rebound. Prepare airway for any rapid deterioration.",
+    ],
+    meds:["Albuterol","Ipratropium (Atrovent)","Epinephrine 1:1,000 (Nebulized)","Epinephrine 1:1,000","Methylprednisolone","Dexamethasone"],
+    triggers:["severe","croup"],
+  },
+  {
+    id:"peds-febrile-seizure",
+    system:"neuro",
+    title:"Febrile Seizure",
+    sub:"Pediatric — fever, airway, benzo if >5 min",
+    scope:"Medic",
+    patientType:"peds",
+    questions:[
+      ["active","Active or prolonged seizure (>5 minutes)?"],
+      ["recurrent","Recurrent seizures without full recovery between episodes?"],
+      ["airway","Airway compromise, hypoxia, or apnea?"],
+      ["complex","Focal deficit, age <6 months, or complex/atypical features?"],
+    ],
+    steps:[
+      "Protect from injury; position lateral; suction if needed; oxygen and monitor SpO2.",
+      "Assess airway; assist ventilations if inadequate or apneic.",
+      "Check blood glucose — treat hypoglycemia with D25 (child) or D10 (neonate/infant).",
+      "Seizure >5 min or recurrent: Midazolam IM/IN 0.2 mg/kg (max 10 mg) per protocol.",
+      "Febrile seizures are usually brief and self-limited — reassess; monitor closely after medication.",
+      "For complex features (focal, age <6 mo, prolonged): treat as status and transport with priority.",
+    ],
+    meds:["Midazolam (Versed)","Dextrose 25% (D25)","Dextrose 10% (D10)"],
+    triggers:["active","recurrent","airway"],
+  },
+  {
+    id:"peds-hypoglycemia",
+    system:"metabolic",
+    title:"Pediatric Hypoglycemia",
+    sub:"D10 neonates · D25 children · glucagon if no access",
+    scope:"AEMT",
+    patientType:"peds",
+    questions:[
+      ["lowBgl","BGL below local treatment threshold?"],
+      ["neonate","Neonate or infant (<3 months old)?"],
+      ["canSwallow","Awake, age ≥2, and able to swallow safely?"],
+      ["noAccess","No IV/IO access available?"],
+    ],
+    steps:[
+      "Assess mental status and airway; obtain blood glucose.",
+      "If awake, age ≥2, safe to swallow: Oral Glucose 15 g PO; recheck BGL in 15 min.",
+      "Neonate/infant: D10 at 2 mL/kg IV/IO — do NOT use D50 in neonates (hyperosmolar injury risk).",
+      "Child with IV/IO access: D25 at 2–4 mL/kg IV/IO; recheck BGL in 5 min.",
+      "No IV/IO access: Glucagon IM — <20 kg: 0.5 mg · ≥20 kg: 1 mg; onset 5–15 min. Protect airway (vomiting risk).",
+      "If mental status does not improve after glucose correction: consider sepsis, toxic ingestion, or metabolic disorder.",
+    ],
+    meds:["Oral Glucose","Dextrose 25% (D25)","Dextrose 10% (D10)","Glucagon"],
+    triggers:["lowBgl"],
+  },
+
+  // ─── ASSESSMENT TOOLS ──────────────────────────────────────────────────────
+  {
+    id:"cpss",
+    system:"assess",
+    title:"Cincinnati Prehospital Stroke Scale",
+    sub:"1 of 3 abnormal = STROKE ALERT — sensitivity 66%, specificity 87%",
+    scope:"EMT",
+    patientType:"both",
+    questions:[
+      ["facialDroop","FACIAL DROOP — Asymmetry when patient shows teeth or smiles?"],
+      ["armDrift","ARM DRIFT — One arm drifts down or pronates in 10 sec with eyes closed and arms extended?"],
+      ["speech","SPEECH ABNORMAL — Slurred, wrong words, or unable to speak at all?"],
+    ],
+    steps:[
+      "FACE: Ask patient to show teeth or smile. NORMAL = both sides of face move equally and symmetrically. ABNORMAL = one side droops or does not move.",
+      "ARMS: Ask patient to close eyes, extend both arms with palms up, hold for 10 seconds. NORMAL = both arms hold position equally. ABNORMAL = one arm drifts downward or pronates (palm turns down).",
+      "SPEECH: Ask patient to repeat 'You can't teach an old dog new tricks.' NORMAL = says phrase correctly, clearly. ABNORMAL = slurred words, wrong words, or unable to speak.",
+      "SCORE: 0 positive = stroke less likely (but do not rule out if clinical suspicion is high). 1–3 positive = STROKE SUSPECTED — activate stroke alert immediately.",
+      "Record EXACT last known well (LKW) time — ask patient, family, bystanders. 'When was the very last time you saw them completely normal?' This determines tPA eligibility (window 3–4.5 h) and thrombectomy eligibility (up to 24 h with imaging).",
+      "Early hospital pre-notification: STROKE ALERT + CPSS findings + LKW time + blood glucose + current vitals + ETA.",
+    ],
+    meds:["Dextrose 50% (D50)","Dextrose 25% (D25)","Oral Glucose"],
+    triggers:["facialDroop","armDrift","speech"],
+  },
+  {
+    id:"befast-lvo",
+    system:"assess",
+    title:"BE-FAST + LVO Screen",
+    sub:"Stroke screen with large vessel occlusion detection — sensitivity ~96%",
+    scope:"EMT",
+    patientType:"both",
+    questions:[
+      ["balance","B — BALANCE: Sudden, unexplained loss of balance or coordination?"],
+      ["eyes","E — EYES: Sudden vision loss, blurred vision, or forced gaze deviation to one side?"],
+      ["face","F — FACE: Facial droop or asymmetry?"],
+      ["arm","A — ARM/LEG: Sudden weakness, numbness, or paralysis (especially one side)?"],
+      ["speech","S — SPEECH: Sudden slurred, wrong words, or absent speech?"],
+      ["gazeDeviation","LVO — Gaze deviation: Eyes forced or deviated toward one direction?"],
+      ["densePlegia","LVO — Dense hemiplegia: No movement at all in affected arm?"],
+      ["neglect","LVO — Neglect: Patient ignores or is unaware of one side of their body?"],
+    ],
+    steps:[
+      "BE-FAST outperforms FAST (F-A-S-T) by adding Balance and Eyes — catches posterior circulation strokes (PICA/AICA/basilar artery) that FAST misses. Sensitivity ~96% vs ~79%.",
+      "B — Balance: Sudden unexplained ataxia, stumbling, or loss of coordination. Ask if they fell or feel unsteady. Posterior circulation stroke sign.",
+      "E — Eyes: Double vision (diplopia), sudden vision loss in one or both eyes, or gaze deviation. Gaze deviation = eyes pulled toward the side of the lesion — key LVO sign.",
+      "LVO Identification (≥2 of 3 = HIGH suspicion): Forced gaze deviation + dense hemiplegia (arm does not move at all) + hemispatial neglect (ignores one side). NIHSS typically ≥6 in LVO.",
+      "LVO Destination: Your system may have a bypass protocol to transport suspected LVO directly to a Comprehensive Stroke Center (thrombectomy-capable) rather than a Primary Stroke Center. Know your local destination matrix.",
+      "Always check blood glucose first — hypoglycemia mimics stroke perfectly. Correct if low and reassess before declaring stroke alert.",
+    ],
+    meds:["Dextrose 50% (D50)","Dextrose 25% (D25)","Oral Glucose"],
+    triggers:["face","arm","speech","gazeDeviation","densePlegia"],
+  },
+  {
+    id:"sepsis-screen",
+    system:"assess",
+    title:"Sepsis Screening (qSOFA + SIRS)",
+    sub:"qSOFA ≥2 of 3 = organ dysfunction suspected. Septic shock = qSOFA + SBP ≤100",
+    scope:"EMT",
+    patientType:"both",
+    questions:[
+      ["ams","qSOFA 1 — Altered mental status: New confusion or any change from patient baseline?"],
+      ["rr22","qSOFA 2 — Respiratory rate ≥22 breaths/min?"],
+      ["sbp100","qSOFA 3 — Systolic BP ≤100 mmHg?"],
+      ["temp","SIRS — Temperature >38.3°C (101°F) or <36°C (96.8°F)?"],
+      ["hr90","SIRS — Heart rate >90 bpm without an obvious benign cause?"],
+      ["infectionSource","INFECTION — Suspected or confirmed source of infection present?"],
+    ],
+    steps:[
+      "qSOFA Score (SEPSIS-3, 2016): Count YES answers from first 3 questions. Score ≥2 + suspected infection = HIGH suspicion for sepsis with organ dysfunction. Mortality risk increases sharply.",
+      "SIRS Criteria (≥2 of 4): Temp >38.3°C or <36°C, HR >90, RR >20, WBC >12k or <4k. SIRS alone is less specific — a patient can have SIRS without sepsis. Combine with clinical picture.",
+      "Septic Shock: Sepsis + vasopressor requirement to maintain MAP ≥65 AND serum lactate >2 mmol/L despite adequate resuscitation. In-hospital mortality >25%.",
+      "Identify infection source: lungs (fever, cough, crackles), urinary tract (dysuria, foley catheter), abdomen (pain, rigidity, surgical history), skin/soft tissue (wound, cellulitis), CNS (neck stiffness, AMS).",
+      "Establish IV/IO access. Administer crystalloid fluid bolus per local protocol (typically 250–500 mL NS bolus, reassess lung response — stop if crackles develop). Repeat as needed to MAP ≥65.",
+      "Maintain SpO₂ ≥94%. Prepare for airway if AMS + respiratory compromise. Transport with early notification — sepsis requires rapid antibiotics and source control in-hospital.",
+    ],
+    meds:["Normal Saline (0.9% NaCl)","Dopamine"],
+    triggers:["ams","sbp100","infectionSource"],
+  },
+  {
+    id:"pat",
+    system:"assess",
+    title:"Pediatric Assessment Triangle (PAT)",
+    sub:"30-second from-the-doorway impression: Appearance · Work of Breathing · Circulation",
+    scope:"EMT",
+    patientType:"peds",
+    questions:[
+      ["appearanceAbnormal","APPEARANCE (TICLS) — Abnormal tone, not interactive, inconsolable, abnormal gaze, or weak cry?"],
+      ["wobAbnormal","WORK OF BREATHING — Audible sounds, retractions, nasal flaring, tripod position, or head bobbing?"],
+      ["circulationAbnormal","CIRCULATION TO SKIN — Pallor, mottling, cyanosis, or obviously decreased perfusion to skin?"],
+    ],
+    steps:[
+      "The PAT is completed in under 30 seconds from the doorway before touching the patient. No equipment needed. It tells you URGENCY and type of problem.",
+      "APPEARANCE — TICLS mnemonic: Tone (moving/resisting vs limp), Interactiveness (curious/engaged vs glazed/unresponsive), Consolability (settles with parent vs inconsolable), Look/Gaze (tracks/recognizes vs vacant stare), Speech/Cry (strong vs weak/absent/hoarse).",
+      "WORK OF BREATHING — Audible sounds without stethoscope: Stridor = upper airway obstruction. Wheeze = lower airway (asthma/bronchiolitis). Grunting = alveolar collapse (respiratory failure/NTE). Retractions (suprasternal, intercostal, subcostal). Head bobbing in infant = severe distress.",
+      "CIRCULATION TO SKIN — Pallor = anemia or poor cardiac output. Mottling = inadequate peripheral perfusion. Central cyanosis (lips, tongue) = significant hypoxemia. Acrocyanosis (blue hands/feet only) in newborns is normal.",
+      "PAT Pattern → Physiologic Category: Appearance ↓ only = primary CNS or metabolic problem. WOB ↓ only = primary respiratory problem. Circulation ↓ only = shock. Appearance + WOB ↓ = severe respiratory failure. All 3 ↓ = cardiopulmonary failure — immediate intervention.",
+      "Any 2–3 PAT abnormalities = critically ill child until proven otherwise. Move quickly to primary ABCDE survey and early intervention.",
+    ],
+    meds:[],
+    triggers:["appearanceAbnormal","wobAbnormal","circulationAbnormal"],
+  },
+  {
+    id:"apgar",
+    system:"assess",
+    special:"apgar",
+    title:"APGAR Score — Newborn",
+    sub:"Assess at 1 min and 5 min. Score ≥7 = reassuring · 4–6 = stimulate · 0–3 = resuscitate",
+    scope:"EMT",
+    patientType:"peds",
+    questions:[
+      ["toneLow","ACTIVITY/TONE — Limp (0) or only some flexion (1) rather than active motion (2)?"],
+      ["pulseLow","PULSE — Absent (0) or below 100 bpm (1) rather than ≥100 bpm (2)?"],
+      ["grimaceLow","GRIMACE — No response (0) or grimace only (1) rather than strong cry/cough/sneeze (2)?"],
+      ["colorPoor","APPEARANCE — Blue or pale all over (0) or blue extremities only (1) rather than pink all over (2)?"],
+      ["respLow","RESPIRATION — Absent (0) or weak/irregular/gasping (1) rather than strong cry (2)?"],
+    ],
+    steps:[
+      "Assess APGAR at 1 minute and 5 minutes after birth. If 5-min score <7, reassess every 5 minutes up to 20 minutes.",
+      "A — Activity (Muscle Tone): Completely limp = 0 · Some flexion of arms/legs = 1 · Active flexion/movement = 2",
+      "P — Pulse (Heart Rate): Absent = 0 · Less than 100 bpm = 1 · 100 bpm or above = 2. Use stethoscope or feel umbilical cord pulsation.",
+      "G — Grimace (Reflex Irritability): No response to flicking sole of foot = 0 · Grimace = 1 · Cry, cough, or sneeze = 2",
+      "A — Appearance (Color): Blue or pale all over = 0 · Pink body with blue extremities (acrocyanosis) = 1 · Completely pink = 2",
+      "R — Respiration: Absent = 0 · Weak, irregular, or gasping = 1 · Strong cry = 2",
+      "TOTAL: 7–10 = Reassuring. 4–6 = Moderate concern — stimulate, blow-by O₂, monitor. 0–3 = Severe — begin NRP: warm/dry/stimulate, position airway, suction if needed, PPV if HR <100, chest compressions if HR <60 after 30 sec PPV.",
+    ],
+    meds:[],
+    triggers:["pulseLow","respLow","toneLow"],
+  },
+  {
+    id:"revised-trauma-score",
+    system:"assess",
+    title:"Revised Trauma Score (RTS)",
+    sub:"GCS + SBP + RR scored 0–4 each — guides trauma center destination",
+    scope:"EMT",
+    patientType:"both",
+    questions:[
+      ["gcsDown","GCS ABNORMAL — Glasgow Coma Scale ≤13?"],
+      ["sbpDown","SBP LOW — Systolic BP <90 mmHg?"],
+      ["rrAbnormal","RR ABNORMAL — Respiratory rate <10 or >29 breaths/min?"],
+      ["majorMech","MECHANISM — Major traumatic mechanism (ejection, rollover, fall >20 ft, penetrating trunk/head)?"],
+    ],
+    steps:[
+      "RTS uses three coded physiologic parameters: GCS, Systolic BP, and Respiratory Rate. Each scored 0–4.",
+      "GCS coded: 13–15 = 4 · 9–12 = 3 · 6–8 = 2 · 4–5 = 1 · 3 = 0",
+      "Systolic BP coded: ≥90 = 4 · 76–89 = 3 · 50–75 = 2 · 1–49 = 1 · 0 = 0",
+      "Respiratory Rate coded: 10–29 = 4 · >29 = 3 · 6–9 = 2 · 1–5 = 1 · 0 = 0",
+      "Field triage trigger (Step 1 of CDC Field Triage Guidelines): Any single abnormal parameter (GCS <14, SBP <90, RR <10 or >29) = transport to highest-level trauma center available.",
+      "Load and go: Time to definitive hemorrhage control in the OR is the priority. Do not delay transport for scene interventions beyond lifesaving airway and bleeding control.",
+    ],
+    meds:["Tranexamic Acid (TXA)","Fentanyl","Ketamine","Normal Saline (0.9% NaCl)"],
+    triggers:["gcsDown","sbpDown","rrAbnormal"],
+  },
+  {
+    id:"start-triage",
+    system:"assess",
+    title:"START Triage (MCI)",
+    sub:"Simple Triage And Rapid Treatment — walking · breathing · perfusion · mental status",
+    scope:"EMT",
+    patientType:"both",
+    questions:[
+      ["canWalk","WALKING — Can patient walk to a designated safe area on command?"],
+      ["notBreathing","BREATHING — Breathing absent even after one airway repositioning attempt?"],
+      ["rrOver30","RATE — Respiratory rate >30 breaths/min?"],
+      ["noPulse","PERFUSION — Radial pulse absent OR capillary refill >2 seconds?"],
+      ["noCommands","MENTAL STATUS — Unable to follow simple commands (e.g., squeeze my hand)?"],
+    ],
+    steps:[
+      "Step 1 — WALK: Announce 'If you can walk, move to [designated area].' All ambulatory patients → tag GREEN (Minor/Delayed). Now focus only on non-ambulatory patients.",
+      "Step 2 — BREATHE: For each non-ambulatory patient: open airway with head-tilt/chin-lift or jaw-thrust. If STILL not breathing → tag BLACK (Expectant/Deceased — no resuscitation in START). If breathing STARTS after repositioning → tag RED (Immediate).",
+      "Step 3 — RESPIRATION RATE: Count breaths for 15 sec × 4. RR >30/min → tag RED (Immediate). RR ≤30 → continue.",
+      "Step 4 — PERFUSION: Check radial pulse OR capillary refill. Absent pulse OR CR >2 sec → tag RED (Immediate). Control life-threatening external bleeding before leaving. If perfusion adequate → continue.",
+      "Step 5 — MENTAL STATUS: Ask patient to follow a simple command ('squeeze my fingers'). Cannot follow → tag RED (Immediate). Can follow command → tag YELLOW (Delayed — serious but stable).",
+      "Tag Colors: RED = Immediate (life-threatening, salvageable — highest priority). YELLOW = Delayed (serious but stable). GREEN = Minor (walking wounded). BLACK = Expectant (deceased or unsurvivable injuries). Move rapidly — do not treat during START. Treatment comes after all patients are triaged.",
+    ],
+    meds:[],
+    triggers:["notBreathing","noPulse","noCommands"],
   },
 ];
 
@@ -4595,6 +4634,47 @@ const PROTOCOL_MED_RULES = {
     { med:"Diphenhydramine (Benadryl)", note:"Consider adjunct after epinephrine when allowed by protocol." },
     { med:"Normal Saline (0.9% NaCl)", when:{ shock:"yes" }, note:"Consider for hypotension/shock support." },
   ],
+  "peds-resp": [
+    { med:"Albuterol", when:{ wheezing:"yes" }, note:"Weight-tiered dose: ≥20 kg → 2.5 mg · <20 kg → 1.25 mg. Repeat q20 min." },
+    { med:"Ipratropium (Atrovent)", when:{ wheezing:"yes" }, note:"Give ONCE with albuterol. Weight-tiered dose per protocol." },
+    { med:"Epinephrine 1:1,000 (Nebulized)", when:{ croup:"yes" }, note:"5 mL undiluted via neb for croup. Observe ≥2 hrs for rebound." },
+    { med:"Dexamethasone", when:{ croup:"yes" }, note:"0.6 mg/kg IM/IV/PO max 16 mg for croup — single dose." },
+    { med:"Epinephrine 1:1,000", when:{ severe:"yes" }, note:"0.01 mg/kg IM (max 0.5 mg) for near-fatal bronchospasm refractory to nebs." },
+    { med:"Methylprednisolone", when:{ severe:"yes", wheezing:"yes" }, note:"1–2 mg/kg IV/IM (max 125 mg) for severe asthma." },
+  ],
+  "peds-febrile-seizure": [
+    { med:"Midazolam (Versed)", when:{ active:"yes" }, note:"0.2 mg/kg IM/IN (max 10 mg) for seizure >5 min or recurrent." },
+    { med:"Midazolam (Versed)", when:{ recurrent:"yes" }, note:"Re-dose per protocol interval if seizures recur without recovery." },
+    { med:"Dextrose 25% (D25)", note:"If BGL low: 2–4 mL/kg IV/IO for children. Recheck BGL in 5 min." },
+    { med:"Dextrose 10% (D10)", note:"Neonates/infants only: 2 mL/kg IV/IO. Do not use D50." },
+  ],
+  "peds-hypoglycemia": [
+    { med:"Oral Glucose", when:{ lowBgl:"yes", canSwallow:"yes" }, note:"15 g PO if age ≥2, awake, and safe to swallow." },
+    { med:"Dextrose 10% (D10)", when:{ lowBgl:"yes", neonate:"yes" }, note:"Neonate/infant: 2 mL/kg IV/IO only. Do not use D50." },
+    { med:"Dextrose 25% (D25)", when:{ lowBgl:"yes", canSwallow:"no", neonate:"no" }, note:"Child: 2–4 mL/kg IV/IO. Recheck BGL in 5 min." },
+    { med:"Glucagon", when:{ lowBgl:"yes", noAccess:"yes" }, note:"<20 kg: 0.5 mg IM · ≥20 kg: 1 mg IM when IV/IO unavailable." },
+  ],
+  // Assessment tool med rules
+  cpss: [
+    { med:"Dextrose 50% (D50)", note:"Rule out hypoglycemia first — check BGL and correct if low before stroke alert." },
+    { med:"Dextrose 25% (D25)", note:"Peds: 2–4 mL/kg IV/IO if hypoglycemia is the cause of deficit." },
+    { med:"Oral Glucose", when:{ speech:"no" }, note:"If awake and safe to swallow, correct hypoglycemia before declaring stroke." },
+  ],
+  "befast-lvo": [
+    { med:"Dextrose 50% (D50)", note:"Always rule out hypoglycemia — check BGL before activating stroke alert." },
+    { med:"Dextrose 25% (D25)", note:"Peds: correct hypoglycemia first if BGL is low." },
+    { med:"Oral Glucose", note:"If awake and safe to swallow, correct hypoglycemia and reassess deficits." },
+  ],
+  "sepsis-screen": [
+    { med:"Normal Saline (0.9% NaCl)", when:{ sbp100:"yes" }, note:"Fluid bolus 250–500 mL IV per protocol. Reassess lung sounds and BP after each bolus." },
+    { med:"Dopamine", when:{ sbp100:"yes" }, note:"Vasopressor if hypotension persists despite adequate fluids — per Medic scope and protocol." },
+  ],
+  "revised-trauma-score": [
+    { med:"Tranexamic Acid (TXA)", when:{ majorMech:"yes" }, note:"If significant hemorrhage + within local TXA time window per protocol." },
+    { med:"Fentanyl", note:"Pain management for conscious, hemodynamically stable trauma patients." },
+    { med:"Ketamine", when:{ sbpDown:"yes" }, note:"Preferred analgesic/sedative in hemodynamically unstable trauma." },
+    { med:"Normal Saline (0.9% NaCl)", when:{ sbpDown:"yes" }, note:"Permissive hypotension per protocol for penetrating trauma. Titrate to palpable radial pulse." },
+  ],
 };
 
 const PROTOCOL_MED_SAFETY = {
@@ -4617,6 +4697,11 @@ const PROTOCOL_MED_SAFETY = {
   "Normal Saline (0.9% NaCl)": { interval:10, max:null, safety:"Reassess lung sounds, BP, perfusion, and protocol fluid goal." },
   "Glucagon": { interval:15, max:null, safety:"Use when unable to obtain IV/IO or oral route; protect airway." },
   "Diphenhydramine (Benadryl)": { interval:null, max:1, safety:"Adjunct only; do not delay epinephrine for anaphylaxis." },
+  "Epinephrine 1:1,000 (Nebulized)": { interval:20, max:2, safety:"Observe for rebound croup ≥2 hrs. Monitor HR." },
+  "Dexamethasone": { interval:null, max:1, safety:"Single dose for croup. Onset hours — reassess for clinical improvement." },
+  "Methylprednisolone": { interval:null, max:1, safety:"Single EMS dose. Onset ~1–2 hr. Monitor BP and blood glucose." },
+  "Dextrose 10% (D10)": { interval:5, max:null, safety:"Confirm BGL; neonates/infants only — do not use D50." },
+  "Dopamine": { interval:null, max:null, safety:"Titrate via IV pump. Reassess BP, HR, and perfusion q3–5 min. Discontinue or reduce rate if HR >120 or signs of tissue ischemia." },
 };
 
 const PROTOCOL_STOP_RULES = {
@@ -4800,6 +4885,9 @@ function GenericProtocolAlgorithm({ protocol, values, setValues, onBack, isDarkM
     return "consider";
   };
   const pedsWeightBlocked = patientType === "peds" && (!wkg || wkg <= 0);
+  const [stepsDone, setStepsDone] = React.useState({});
+  React.useEffect(() => { setStepsDone({}); }, [protocol.id]);
+  const toggleStep = i => setStepsDone(p => ({...p,[i]:!p[i]}));
   return (
     <section style={{display:"flex",flexDirection:"column",gap:10}}>
       <div style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:12}}>
@@ -4857,13 +4945,41 @@ function GenericProtocolAlgorithm({ protocol, values, setValues, onBack, isDarkM
       </div>
 
       <div style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:10}}>
-        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"var(--c-text4)",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}}>Treatment algorithm</div>
-        {(protocol.steps || []).map((item, index) => (
-          <div key={`${protocol.id}-${index}`} style={{display:"grid",gridTemplateColumns:"22px 1fr",gap:8,alignItems:"start",padding:"7px 0",borderTop:index===0?"none":"1px solid var(--c-border-sub)",opacity:stopRule && index>1 ? 0.5 : 1}}>
-            <div style={{width:22,height:22,borderRadius:"50%",background:system.color+"22",color:system.color,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800}}>{index+1}</div>
-            <div style={{fontSize:12,color:"var(--c-text2)",lineHeight:1.45}}>{item}</div>
-          </div>
-        ))}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"var(--c-text4)",letterSpacing:"0.1em",textTransform:"uppercase"}}>Treatment algorithm</div>
+          {Object.values(stepsDone).some(Boolean) && (
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:"#4ade80",fontWeight:700}}>
+              {Object.values(stepsDone).filter(Boolean).length}/{(protocol.steps||[]).length} done
+            </div>
+          )}
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {(protocol.steps || []).map((item, index) => {
+            const done = !!stepsDone[index];
+            const dimmed = !done && !!stopRule && index > 1;
+            return (
+              <div key={`${protocol.id}-${index}`} onClick={()=>toggleStep(index)}
+                style={{display:"flex",gap:10,alignItems:"flex-start",padding:"10px 12px",borderRadius:8,cursor:"pointer",
+                  border:`1.5px solid ${done?"#4ade80":"var(--c-border-sub)"}`,
+                  background:done?(isDarkMode?"#052e16":"#f0fdf4"):"var(--c-input)",
+                  opacity:dimmed?0.4:1,transition:"all 0.15s"}}>
+                <div style={{flexShrink:0,width:24,height:24,borderRadius:7,
+                  border:`2px solid ${done?"#4ade80":system.color}`,
+                  background:done?"#4ade80":system.color+"22",
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  marginTop:1,transition:"all 0.15s",
+                  fontFamily:"'IBM Plex Mono',monospace",fontSize:done?14:10,fontWeight:800,
+                  color:done?"#052e16":system.color}}>
+                  {done?"✓":index+1}
+                </div>
+                <div style={{fontSize:12,color:done?"#4ade80":"var(--c-text2)",lineHeight:1.5,
+                  textDecoration:done?"line-through":"none",opacity:done?0.75:1}}>
+                  {item}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       <div style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:10}}>
@@ -4873,34 +4989,383 @@ function GenericProtocolAlgorithm({ protocol, values, setValues, onBack, isDarkM
             const state = medState(rule);
             const isConsider = state === "consider";
             const isBlocked = state === "blocked";
+            const isPending = state === "pending";
+            const canTap = !isBlocked && !pedsWeightBlocked;
+            const borderColor = isBlocked ? "#ef4444" : isConsider ? system.color : "var(--c-border-sub)";
+            const bgColor = isBlocked ? (isDarkMode?"#2a0808":"#fee2e2") : isConsider ? system.color+"18" : "var(--c-input)";
+            const textColor = isBlocked ? "#ef4444" : isConsider ? system.color : "var(--c-text-ghost)";
             return (
               <button
                 key={`${rule.med}-${index}`}
-                onClick={()=>{if(isConsider){activeCall?.onSelectMed?.(rule.med, protocol.title);}}}
-                disabled={!isConsider || pedsWeightBlocked}
-                title={isConsider ? `Select ${rule.med} within this protocol` : rule.note}
+                onClick={()=>{ if(canTap) onJumpDrug?.(rule.med); }}
+                disabled={isBlocked || pedsWeightBlocked}
                 style={{
-                  border:isBlocked?"1px solid #ef4444":isConsider?`1px solid ${system.color}`:"1px solid var(--c-border-sub)",
-                  background:isBlocked?(isDarkMode?"#2a0808":"#fee2e2"):isConsider?system.color+"18":"var(--c-input)",
+                  border:`1px solid ${borderColor}`,
+                  background:bgColor,
                   borderRadius:6,
                   padding:"7px 8px",
                   fontSize:11,
-                  color:isBlocked?"#ef4444":isConsider?system.color:"var(--c-text-ghost)",
+                  color:textColor,
                   fontWeight:800,
-                  cursor:isConsider?"pointer":"default",
-                  opacity:1,
+                  cursor:canTap?"pointer":"not-allowed",
+                  opacity:isPending?0.65:1,
                   fontFamily:"'DM Sans',sans-serif",
                   textAlign:"left",
                 }}
               >
                 <span style={{display:"block",fontFamily:"'IBM Plex Mono',monospace",fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>
-                  {isBlocked ? "Hold" : isConsider ? "Consider" : "Pending"} - {rule.med}
+                  {isBlocked ? "⛔ Hold" : isConsider ? "→ Consider" : "◷ Pending"} — {rule.med}
                 </span>
                 <span style={{display:"block",marginTop:2,color:isDarkMode?"var(--c-text4)":"#374151",fontSize:10.5,lineHeight:1.35,fontWeight:600}}>{rule.note}</span>
               </button>
             );
           })}
         </div>
+      </div>
+
+      <ActiveCallWorkspace
+        protocolTitle={protocol.title}
+        events={activeCall.events}
+        vitalsDraft={activeCall.vitalsDraft}
+        setVitalsDraft={activeCall.setVitalsDraft}
+        onLogEvent={activeCall.onLogEvent}
+        onClear={activeCall.onClear}
+        onLogMed={activeCall.onLogMed}
+        now={activeCall.now}
+        isDarkMode={isDarkMode}
+        medLog={activeCall.medLog}
+        activeMeds={activeCall.activeMeds}
+      />
+    </section>
+  );
+}
+
+function ApgarAlgorithm({ onBack, isDarkMode }) {
+  const t   = isDarkMode ? "#e2e8f0" : "#0f172a";
+  const mu  = isDarkMode ? "#8aa0c2" : "#4b5563";
+  const su  = isDarkMode ? "#0d1120" : "#ffffff";
+  const bd  = isDarkMode ? "#1a2338" : "#d1d5db";
+  const inp = isDarkMode ? "#090e1c" : "#f9fafb";
+
+  const APGAR_CATS = [
+    { key:"a",  letter:"A", label:"Activity",  sublabel:"Muscle Tone", opts:[
+      { v:0, l:"0 – Limp / no tone" },
+      { v:1, l:"1 – Some flexion" },
+      { v:2, l:"2 – Active motion" },
+    ]},
+    { key:"p",  letter:"P", label:"Pulse",     sublabel:"Heart Rate", opts:[
+      { v:0, l:"0 – Absent" },
+      { v:1, l:"1 – Below 100 bpm" },
+      { v:2, l:"2 – ≥100 bpm" },
+    ]},
+    { key:"g",  letter:"G", label:"Grimace",   sublabel:"Reflex Irritability", opts:[
+      { v:0, l:"0 – No response" },
+      { v:1, l:"1 – Grimace" },
+      { v:2, l:"2 – Cry / Cough / Sneeze" },
+    ]},
+    { key:"a2", letter:"A", label:"Appearance", sublabel:"Color", opts:[
+      { v:0, l:"0 – Blue or pale all over" },
+      { v:1, l:"1 – Blue extremities only" },
+      { v:2, l:"2 – Pink all over" },
+    ]},
+    { key:"r",  letter:"R", label:"Respiration", sublabel:"Breathing", opts:[
+      { v:0, l:"0 – Absent" },
+      { v:1, l:"1 – Weak / Irregular" },
+      { v:2, l:"2 – Strong cry" },
+    ]},
+  ];
+
+  const empty = () => ({ a:"", p:"", g:"", a2:"", r:"" });
+  const [scores1, setScores1] = React.useState(empty());
+  const [scores5, setScores5] = React.useState(empty());
+  const [activeSet, setActiveSet] = React.useState("1min");
+  const [birthTs, setBirthTs] = React.useState(null);
+  const [now, setNow] = React.useState(Date.now());
+  const [cprStartTs, setCprStartTs] = React.useState(null);
+  const [nrpDone, setNrpDone] = React.useState({});
+  const toggleNrp = k => setNrpDone(p => ({...p,[k]:!p[k]}));
+
+  React.useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const calcTotal = s => {
+    const vals = Object.values(s);
+    if(vals.some(v => v === "")) return null;
+    return vals.reduce((acc, v) => acc + +v, 0);
+  };
+  const total1 = calcTotal(scores1);
+  const total5 = calcTotal(scores5);
+  const activeScores = activeSet === "1min" ? scores1 : scores5;
+  const setActiveScores = activeSet === "1min" ? setScores1 : setScores5;
+  const activeTotal = activeSet === "1min" ? total1 : total5;
+
+  const scoreColor = n => n === null ? mu : n >= 7 ? "#4ade80" : n >= 4 ? "#facc15" : "#f87171";
+  const scoreLabel = n => n === null ? "Score incomplete" : n >= 7 ? "Reassuring — routine care" : n >= 4 ? "Moderate concern — stimulate, O₂, reassess" : "Severe — begin NRP immediately";
+
+  const elapsed = birthTs ? Math.floor((now - birthTs) / 1000) : null;
+  const fmtElapsed = elapsed !== null ? `${Math.floor(elapsed/60)}m ${elapsed%60}s` : null;
+
+  return (
+    <section style={{display:"flex",flexDirection:"column",gap:10,paddingBottom:40}}>
+      {/* Header */}
+      <div style={{background:su,border:`1px solid ${bd}`,borderRadius:8,padding:12,display:"flex",alignItems:"center",gap:10}}>
+        <button onClick={onBack} style={{width:34,height:34,borderRadius:8,border:`1px solid ${bd}`,background:inp,color:t,cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontWeight:800,flexShrink:0}}>←</button>
+        <div style={{flex:1}}>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:12,fontWeight:800,color:t,letterSpacing:"0.08em",textTransform:"uppercase"}}>APGAR Score</div>
+          <div style={{fontSize:11,color:mu,marginTop:2}}>Newborn assessment — 1 min and 5 min</div>
+        </div>
+        {activeTotal !== null && (
+          <div style={{textAlign:"right",flexShrink:0}}>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:26,fontWeight:800,color:scoreColor(activeTotal),lineHeight:1}}>{activeTotal}<span style={{fontSize:13,fontWeight:600}}>/10</span></div>
+            <div style={{fontSize:9,color:mu,fontFamily:"'IBM Plex Mono',monospace",marginTop:2}}>{activeSet==="1min"?"1 MIN":"5 MIN"}</div>
+          </div>
+        )}
+      </div>
+
+      {/* Birth Timer */}
+      <div style={{background:su,border:`1px solid ${bd}`,borderRadius:8,padding:12}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:mu,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Birth Timer</div>
+        {birthTs ? (
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{flex:1}}>
+              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:22,fontWeight:800,color:t}}>{fmtElapsed}</div>
+              <div style={{fontSize:10,color:mu,marginTop:2}}>since birth</div>
+            </div>
+            <button onClick={()=>setBirthTs(null)} style={{padding:"6px 14px",borderRadius:6,border:`1px solid ${bd}`,background:"transparent",color:mu,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:700,cursor:"pointer"}}>Reset</button>
+          </div>
+        ) : (
+          <button onClick={()=>setBirthTs(Date.now())} style={{width:"100%",padding:"11px 0",borderRadius:8,border:"none",background:"linear-gradient(135deg,#0369a1,#0ea5e9)",color:"#fff",fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,cursor:"pointer",letterSpacing:"0.05em",boxShadow:"0 4px 12px rgba(14,165,233,.3)"}}>
+            ▶  Start Birth Timer
+          </button>
+        )}
+        {birthTs && elapsed !== null && elapsed >= 60 && elapsed < 300 && (
+          <div style={{marginTop:8,fontSize:10,color:"#4ade80",fontFamily:"'IBM Plex Mono',monospace",fontWeight:700}}>✓ 1-minute mark passed — complete 1-min APGAR if not done</div>
+        )}
+        {birthTs && elapsed !== null && elapsed >= 300 && (
+          <div style={{marginTop:8,fontSize:10,color:"#facc15",fontFamily:"'IBM Plex Mono',monospace",fontWeight:700}}>⚠ 5-minute mark reached — score 5-min APGAR now</div>
+        )}
+      </div>
+
+      {/* 1-min / 5-min tab */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",background:"var(--c-nav)",border:`1px solid ${bd}`,borderRadius:10,padding:3,gap:3}}>
+        {[["1min","1 Minute"],["5min","5 Minutes"]].map(([k,l])=>{
+          const tot = k==="1min"?total1:total5;
+          return(
+            <button key={k} onClick={()=>setActiveSet(k)} style={{padding:"9px 0",borderRadius:8,border:"none",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:700,letterSpacing:"0.04em",
+              background:activeSet===k?(isDarkMode?"#1a2338":"#d1d5db"):"transparent",
+              color:activeSet===k?t:mu,transition:"all 0.15s"}}>
+              {l}{tot!==null?<span style={{color:scoreColor(tot)}}> · {tot}/10</span>:""}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Interpretation banner */}
+      {activeTotal !== null && (
+        <div style={{background:isDarkMode?"#0d1120":"#f0f9f4",border:`1.5px solid ${scoreColor(activeTotal)}`,borderRadius:8,padding:"11px 14px",display:"flex",alignItems:"center",gap:12}}>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:22,fontWeight:800,color:scoreColor(activeTotal),flexShrink:0}}>{activeTotal}</div>
+          <div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,color:scoreColor(activeTotal),textTransform:"uppercase",letterSpacing:"0.08em"}}>
+              {activeTotal>=7?"REASSURING":activeTotal>=4?"MODERATE CONCERN":"SEVERE — RESUSCITATE NOW"}
+            </div>
+            <div style={{fontSize:11,color:mu,marginTop:3,lineHeight:1.4}}>{scoreLabel(activeTotal)}</div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ NEWBORN CPR ALERT — triggers when active score ≤ 3 ═══ */}
+      {activeTotal !== null && activeTotal <= 3 && (()=>{
+        const cprElapsed = cprStartTs ? Math.floor((now - cprStartTs)/1000) : null;
+        const cprMin = cprElapsed !== null ? Math.floor(cprElapsed/60) : 0;
+        const cprSec = cprElapsed !== null ? cprElapsed%60 : 0;
+        const epiDue = cprElapsed !== null && cprElapsed >= 180;
+        const NRP_STEPS = [
+          { k:"s1", urgent:true,  label:"CALL FOR HELP",            body:"Activate additional resources NOW. Announce 'Newborn resuscitation needed.' Assign roles: airway, compressions, timer, documentation." },
+          { k:"s2", urgent:true,  label:"WARM · DRY · STIMULATE",   body:"Place under warmer. Dry vigorously with warm towel. Remove wet linen. Tactile stimulation: rub back firmly, flick soles of feet. 30 seconds max." },
+          { k:"s3", urgent:false, label:"POSITION AIRWAY",          body:"Sniffing position — slight neck extension, head midline. Place a small roll under shoulders. Avoid hyperextension (floppy newborn airway collapses)." },
+          { k:"s4", urgent:false, label:"SUCTION (if needed)",       body:"Bulb syringe: mouth first, then nose — ONLY if secretions are visible obstructing the airway. Do NOT suction routinely (vagal response can cause bradycardia)." },
+          { k:"s5", urgent:true,  label:"PPV — HR <100 or Apneic",  body:"BVM at 40–60 breaths/min. Initial PIP: 20–25 cmH₂O (up to 30–40 if poor compliance). O₂: 21% (room air) for term; titrate SpO₂ to target. Apply SpO₂ probe to RIGHT hand (preductal). Watch for chest rise.\n\nMR SOPA if no chest rise:\n  M – Mask seal adjustment\n  R – Reposition airway\n  S – Suction mouth & nose\n  O – Open mouth / jaw thrust\n  P – Pressure increase\n  A – Alternative airway (LMA or ETT)" },
+          { k:"s6", urgent:true,  label:"COMPRESSIONS — HR <60 after 30s PPV", body:"2-THUMB technique (preferred): encircle chest with both hands, thumbs side by side on lower ⅓ of sternum (just below nipple line).\n\nRate: 3:1 ratio — 90 compressions + 30 breaths = 120 events/min.\nDepth: ⅓ anterior-posterior diameter of chest.\nAllow full chest recoil between compressions.\nSwitch to 100% O₂ when compressions begin.\nPause compressions for each PPV breath — coordinate." },
+          { k:"s7", urgent:true,  label:"EPINEPHRINE — HR <60 after CCM",       body:"IV/IO (preferred): 0.01–0.03 mg/kg of 1:10,000 solution. Repeat q3–5 min.\nETT (until access): 0.05–0.1 mg/kg of 1:10,000 (larger dose, less predictable).\n\nEstimated term newborn weight ≈ 3 kg:\n  · IV/IO: 0.3–0.9 mL of 1:10,000\n  · ETT: 1.5–3 mL of 1:10,000\n\nFollow each ETT dose with 1 mL NS flush. Continue CCM during drug administration." },
+          { k:"s8", urgent:false, label:"VOLUME EXPANSION",         body:"If suspected hypovolemia (pale, weak pulses, no response to resuscitation): Normal Saline (or pRBCs if fetal hemorrhage) 10 mL/kg IV/IO over 5–10 minutes. Repeat if needed." },
+        ];
+        return(
+          <div style={{border:"2px solid #f87171",borderRadius:10,overflow:"hidden",boxShadow:"0 0 24px rgba(248,113,113,0.35)"}}>
+            {/* Red header */}
+            <div style={{background:"linear-gradient(135deg,#7f1d1d,#991b1b)",padding:"13px 14px",display:"flex",alignItems:"center",gap:10}}>
+              <div style={{flex:1}}>
+                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:12,fontWeight:800,color:"#fca5a5",letterSpacing:"0.1em",textTransform:"uppercase"}}>
+                  APGAR {activeTotal}/10 — INITIATE NRP
+                </div>
+                <div style={{fontSize:10,color:"#fecaca",marginTop:3}}>Newborn CPR — AHA NRP 8th Edition Protocol</div>
+              </div>
+              <div style={{textAlign:"right",flexShrink:0}}>
+                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:28,fontWeight:800,color:"#f87171",lineHeight:1}}>{activeTotal}<span style={{fontSize:13}}>/10</span></div>
+              </div>
+            </div>
+
+            {/* CPR Timer */}
+            <div style={{background:"#1c0505",borderBottom:"1px solid #7f1d1d",padding:"10px 14px",display:"flex",alignItems:"center",gap:12}}>
+              {cprStartTs ? (
+                <>
+                  <div style={{flex:1}}>
+                    <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:700,color:"#fca5a5",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:3}}>CPR Elapsed</div>
+                    <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:24,fontWeight:800,color:epiDue?"#fbbf24":"#fca5a5",lineHeight:1}}>
+                      {`${String(cprMin).padStart(2,"0")}:${String(cprSec).padStart(2,"0")}`}
+                    </div>
+                    {epiDue && <div style={{fontSize:10,color:"#fbbf24",fontFamily:"'IBM Plex Mono',monospace",fontWeight:700,marginTop:3}}>⚠ EPI INTERVAL — reassess dose</div>}
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:"#fca5a5",marginBottom:4}}>90/min compressions</div>
+                    <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:"#fca5a5"}}>30/min ventilations</div>
+                    <button onClick={()=>{setCprStartTs(null);setNrpDone({});}} style={{marginTop:8,padding:"4px 12px",borderRadius:6,border:"1px solid #7f1d1d",background:"transparent",color:"#fca5a5",fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:700,cursor:"pointer"}}>Reset</button>
+                  </div>
+                </>
+              ) : (
+                <button onClick={()=>setCprStartTs(Date.now())} style={{width:"100%",padding:"12px 0",borderRadius:8,border:"none",background:"linear-gradient(135deg,#b91c1c,#dc2626)",color:"#fff",fontFamily:"'IBM Plex Mono',monospace",fontSize:12,fontWeight:800,cursor:"pointer",letterSpacing:"0.06em",boxShadow:"0 4px 14px rgba(220,38,38,.5)"}}>
+                  ▶  START CPR TIMER
+                </button>
+              )}
+            </div>
+
+            {/* NRP Steps */}
+            <div style={{background:isDarkMode?"#1a0404":"#fff5f5",padding:14,display:"flex",flexDirection:"column",gap:8}}>
+              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#f87171",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>NRP Algorithm — Check off each step as completed</div>
+              {NRP_STEPS.map((step,i)=>{
+                const done = !!nrpDone[step.k];
+                return(
+                  <div key={step.k} onClick={()=>toggleNrp(step.k)}
+                    style={{borderRadius:8,border:`1.5px solid ${done?"#4ade80":step.urgent?"#f87171":"#7f1d1d"}`,
+                      background:done?(isDarkMode?"#052e16":"#f0fdf4"):step.urgent?(isDarkMode?"#2a0808":"#fff1f2"):(isDarkMode?"#1c0505":"#fef2f2"),
+                      padding:"10px 12px",cursor:"pointer",transition:"all 0.15s"}}>
+                    <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                      <div style={{flexShrink:0,width:22,height:22,borderRadius:6,border:`2px solid ${done?"#4ade80":step.urgent?"#f87171":"#7f1d1d"}`,
+                        background:done?"#4ade80":"transparent",display:"flex",alignItems:"center",justifyContent:"center",marginTop:1,transition:"all 0.15s"}}>
+                        {done&&<span style={{color:"#052e16",fontWeight:900,fontSize:13}}>✓</span>}
+                      </div>
+                      <div style={{flex:1}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:done?"#4ade80":step.urgent?"#fca5a5":"#f87171",
+                            textTransform:"uppercase",letterSpacing:"0.06em",textDecoration:done?"line-through":"none"}}>
+                            {i+1}. {step.label}
+                          </span>
+                          {step.urgent&&!done&&<span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,fontWeight:800,color:"#f87171",background:"#7f1d1d",borderRadius:4,padding:"1px 5px"}}>URGENT</span>}
+                        </div>
+                        {!done&&<div style={{fontSize:10,color:isDarkMode?"#fca5a5":"#7f1d1d",marginTop:5,lineHeight:1.65,whiteSpace:"pre-line"}}>{step.body}</div>}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Compression Rate Reference */}
+              <div style={{borderRadius:8,background:isDarkMode?"#0d0505":"#fff0f0",border:"1px solid #7f1d1d",padding:12,marginTop:4}}>
+                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#fca5a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Rate Reference</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,textAlign:"center"}}>
+                  {[["COMPRESSIONS","90/min","3:1 ratio"],["VENTILATIONS","30/min","every 3rd"],["EVENTS/MIN","120","combined"]].map(([l,v,s])=>(
+                    <div key={l} style={{background:isDarkMode?"#1c0505":"#fff5f5",borderRadius:6,padding:"8px 4px",border:"1px solid #7f1d1d"}}>
+                      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:16,fontWeight:800,color:"#f87171"}}>{v}</div>
+                      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,fontWeight:700,color:"#fca5a5",textTransform:"uppercase",marginTop:2}}>{l}</div>
+                      <div style={{fontSize:9,color:"#7f1d1d",marginTop:1}}>{s}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* SpO2 targets */}
+              <div style={{borderRadius:8,background:isDarkMode?"#0d0505":"#fff0f0",border:"1px solid #7f1d1d",padding:12}}>
+                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#fca5a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Target Pre-Ductal SpO₂ (Right Hand)</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                  {[["1 min","60–65%"],["2 min","65–70%"],["3 min","70–75%"],["4 min","75–80%"],["5 min","80–85%"],["10 min","85–95%"]].map(([t,s])=>(
+                    <div key={t} style={{display:"flex",justifyContent:"space-between",fontFamily:"'IBM Plex Mono',monospace",fontSize:10}}>
+                      <span style={{color:"#fca5a5",fontWeight:600}}>{t}</span>
+                      <span style={{color:isDarkMode?"#e2e8f0":"#7f1d1d",fontWeight:800}}>{s}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Scoring Component Buttons */}
+      <div style={{background:su,border:`1px solid ${bd}`,borderRadius:8,padding:12}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:mu,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>
+          {activeSet==="1min"?"1-Minute":"5-Minute"} APGAR — Select Score for Each Component
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          {APGAR_CATS.map(cat=>(
+            <div key={cat.key}>
+              <div style={{display:"flex",alignItems:"baseline",gap:6,marginBottom:6}}>
+                <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:13,fontWeight:800,color:t}}>{cat.letter}</span>
+                <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:700,color:t}}> — {cat.label}</span>
+                <span style={{fontSize:9,color:mu}}>({cat.sublabel})</span>
+                {activeScores[cat.key]!==""&&<span style={{marginLeft:"auto",fontFamily:"'IBM Plex Mono',monospace",fontSize:14,fontWeight:800,color:scoreColor(+activeScores[cat.key])}}>{activeScores[cat.key]}</span>}
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5}}>
+                {cat.opts.map(opt=>{
+                  const sel = activeScores[cat.key]===opt.v || activeScores[cat.key]===String(opt.v);
+                  const oc  = opt.v===2?"#4ade80":opt.v===1?"#facc15":"#f87171";
+                  return(
+                    <button key={opt.v} onClick={()=>setActiveScores(p=>({...p,[cat.key]:opt.v}))}
+                      style={{padding:"9px 4px",borderRadius:8,border:`1.5px solid ${sel?oc:bd}`,
+                        background:sel?(isDarkMode?`${oc}18`:"#f0f9f4"):"transparent",
+                        color:sel?oc:mu,
+                        fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:sel?800:500,
+                        cursor:"pointer",textAlign:"center",lineHeight:1.5,transition:"all 0.12s"}}>
+                      {opt.l}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Score Summary Table */}
+      {(total1!==null||total5!==null||Object.values(scores1).some(v=>v!=="")||Object.values(scores5).some(v=>v!==""))&&(
+        <div style={{background:su,border:`1px solid ${bd}`,borderRadius:8,padding:12}}>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:mu,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>Score Summary</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:"8px 16px",alignItems:"center"}}>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:mu}}/>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:mu,textAlign:"center"}}>1 MIN</div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:mu,textAlign:"center"}}>5 MIN</div>
+            {APGAR_CATS.map(cat=>(
+              <React.Fragment key={cat.key}>
+                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:t,fontWeight:600}}>{cat.letter} – {cat.label}</div>
+                <div style={{textAlign:"center",fontFamily:"'IBM Plex Mono',monospace",fontSize:15,fontWeight:800,color:scores1[cat.key]===""?mu:scoreColor(+scores1[cat.key])}}>{scores1[cat.key]===""?"·":scores1[cat.key]}</div>
+                <div style={{textAlign:"center",fontFamily:"'IBM Plex Mono',monospace",fontSize:15,fontWeight:800,color:scores5[cat.key]===""?mu:scoreColor(+scores5[cat.key])}}>{scores5[cat.key]===""?"·":scores5[cat.key]}</div>
+              </React.Fragment>
+            ))}
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,color:t,borderTop:`1px solid ${bd}`,paddingTop:8,marginTop:4}}>TOTAL</div>
+            <div style={{textAlign:"center",fontFamily:"'IBM Plex Mono',monospace",fontSize:18,fontWeight:800,color:total1!==null?scoreColor(total1):mu,borderTop:`1px solid ${bd}`,paddingTop:8,marginTop:4}}>{total1!==null?`${total1}/10`:"—"}</div>
+            <div style={{textAlign:"center",fontFamily:"'IBM Plex Mono',monospace",fontSize:18,fontWeight:800,color:total5!==null?scoreColor(total5):mu,borderTop:`1px solid ${bd}`,paddingTop:8,marginTop:4}}>{total5!==null?`${total5}/10`:"—"}</div>
+          </div>
+        </div>
+      )}
+
+      {/* NRP Response Guide */}
+      <div style={{background:isDarkMode?"#0d1120":"#f8fafc",border:`1px solid ${bd}`,borderRadius:8,padding:12}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#60a5fa",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>NRP Response Guide</div>
+        {[
+          ["7–10","Reassuring","#4ade80","Continue warmth, drying, and stimulation. Standard newborn care. Reassess at 5 min."],
+          ["4–6","Moderate","#facc15","Stimulate (rub back, flick soles of feet), position airway, apply supplemental O₂. Reassess response closely. Prepare PPV if no improvement."],
+          ["0–3","Severe — NRP","#f87171","WARMTH → DRY → STIMULATE → POSITION AIRWAY → SUCTION (if needed). If apneic or HR <100 after stimulation: initiate PPV immediately. If HR <60 after 30 sec of effective PPV: begin chest compressions."],
+        ].map(([range,label,color,action])=>(
+          <div key={range} style={{display:"flex",gap:10,marginBottom:10,alignItems:"flex-start"}}>
+            <div style={{flexShrink:0,background:isDarkMode?"#00000030":"#f0f4ff",borderRadius:6,padding:"4px 8px",textAlign:"center"}}>
+              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,color}}>{range}</div>
+            </div>
+            <div>
+              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:3}}>{label}</div>
+              <div style={{fontSize:11,color:mu,lineHeight:1.55}}>{action}</div>
+            </div>
+          </div>
+        ))}
       </div>
     </section>
   );
@@ -5033,6 +5498,20 @@ function BurnProtocolAlgorithm({ patientType, totals, active, values, setValues,
         </div>
       </div>
 
+      <ActiveCallWorkspace
+        protocolTitle="Burn Protocol"
+        events={activeCall.events}
+        vitalsDraft={activeCall.vitalsDraft}
+        setVitalsDraft={activeCall.setVitalsDraft}
+        onLogEvent={activeCall.onLogEvent}
+        onClear={activeCall.onClear}
+        onLogMed={activeCall.onLogMed}
+        now={activeCall.now}
+        isDarkMode={isDarkMode}
+        medLog={activeCall.medLog}
+        activeMeds={activeCall.activeMeds}
+      />
+
       <div style={{background:"var(--c-input)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:10,color:"var(--c-text4)",fontSize:10.5,lineHeight:1.45}}>
         Reference guidance: superficial burns are not counted in TBSA; partial/full-thickness burns are counted. Follow local protocols, medical direction, and receiving-facility guidance.
       </div>
@@ -5040,8 +5519,8 @@ function BurnProtocolAlgorithm({ patientType, totals, active, values, setValues,
   );
 }
 
-function ProtocolsScreen({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, onJumpDrug, findDrugLocation, wkg, wlb, setWkg, setWlb, authUser }) {
-  const [selectedSystem, setSelectedSystem] = useState("burns");
+function ProtocolsScreen({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, onJumpDrug, findDrugLocation, wkg, wlb, setWkg, setWlb, authUser, initialSystem="assess" }) {
+  const [selectedSystem, setSelectedSystem] = useState(initialSystem);
   const [sysDropOpen, setSysDropOpen] = useState(false);
   const [activeProtocol, setActiveProtocol] = useState(null);
   const [protocolValues, setProtocolValues] = useState({});
@@ -5054,7 +5533,10 @@ function ProtocolsScreen({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, onJ
   const regions = BURN_REGIONS[patientType];
   const selectedSystemInfo = PROTOCOL_SYSTEMS.find(system => system.id === selectedSystem) || PROTOCOL_SYSTEMS[0];
   const sysColor = (sys) => (!isDarkMode && sys.lightColor) ? sys.lightColor : sys.color;
-  const availableProtocols = PROTOCOL_DEFINITIONS.filter(protocol => protocol.system === selectedSystem);
+  const modeFilter = p => patientType === "adult"
+    ? (!p.patientType || p.patientType === "adult" || p.patientType === "both")
+    : (p.patientType === "peds" || p.patientType === "both");
+  const availableProtocols = PROTOCOL_DEFINITIONS.filter(p => p.system === selectedSystem && modeFilter(p));
   const currentProtocol = PROTOCOL_DEFINITIONS.find(protocol => protocol.id === activeProtocol);
   const totals = useMemo(() => {
     const byDegree = { 1:0, 2:0, 3:0 };
@@ -5123,6 +5605,10 @@ function ProtocolsScreen({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, onJ
     now: protocolNow,
   };
 
+  if(currentProtocol?.special === "apgar") {
+    return <ApgarAlgorithm onBack={()=>setActiveProtocol(null)} isDarkMode={isDarkMode}/>;
+  }
+
   if(currentProtocol?.special === "burns") {
     return (
       <BurnProtocolAlgorithm
@@ -5188,13 +5674,13 @@ function ProtocolsScreen({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, onJ
           onClick={()=>setSysDropOpen(v=>!v)}
           style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderRadius:10,border:`1px solid ${sysColor(selectedSystemInfo)}`,background:sysColor(selectedSystemInfo)+"22",color:sysColor(selectedSystemInfo),fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,cursor:"pointer",letterSpacing:"0.06em",boxSizing:"border-box"}}
         >
-          <span>{selectedSystemInfo.label} · {PROTOCOL_DEFINITIONS.filter(p=>p.system===selectedSystem).length} protocols</span>
+          <span>{selectedSystemInfo.label} · {PROTOCOL_DEFINITIONS.filter(p=>p.system===selectedSystem&&modeFilter(p)).length} protocols</span>
           <span style={{fontSize:9,opacity:0.7}}>{sysDropOpen?"▲":"▼"}</span>
         </button>
         {sysDropOpen&&(
           <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,right:0,zIndex:99,background:"var(--c-nav)",border:"1px solid var(--c-border-sub)",borderRadius:10,padding:4,display:"grid",gap:3,boxShadow:"0 8px 24px rgba(0,0,0,0.25)"}}>
             {PROTOCOL_SYSTEMS.map(system=>{
-              const count=PROTOCOL_DEFINITIONS.filter(p=>p.system===system.id).length;
+              const count=PROTOCOL_DEFINITIONS.filter(p=>p.system===system.id&&modeFilter(p)).length;
               const active=selectedSystem===system.id;
               return(
                 <button key={system.id} onClick={()=>{setSelectedSystem(system.id);setSysDropOpen(false);}} style={{padding:"11px 14px",borderRadius:8,border:active?`1px solid ${sysColor(system)}`:"none",background:active?sysColor(system)+"22":"transparent",color:active?sysColor(system):"var(--c-text4)",fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -5401,6 +5887,30 @@ function getStoredUsers(){
 
 function saveStoredUsers(users){
   if(typeof window!=="undefined") localStorage.setItem(AUTH_USERS_KEY, JSON.stringify(users));
+}
+
+function generateCallId() {
+  const now = new Date();
+  const d = now.toISOString().slice(0,10).replace(/-/g,"");
+  const t = now.toTimeString().slice(0,5).replace(":","");
+  const rand = Math.random().toString(36).slice(2,6).toUpperCase();
+  return `ROMAN-${d}-${t}-${rand}`;
+}
+
+const TC_LOG_KEY = "medic-ai-tc-log";
+function logTCAcceptance(user) {
+  if(typeof window === "undefined") return;
+  try {
+    const existing = JSON.parse(localStorage.getItem(TC_LOG_KEY) || "[]");
+    existing.push({
+      name:       user?.name      || "Unknown",
+      email:      user?.email     || "unknown",
+      role:       user?.role      || "unknown",
+      certLevel:  user?.certLevel || null,
+      acceptedAt: new Date().toISOString(),
+    });
+    localStorage.setItem(TC_LOG_KEY, JSON.stringify(existing));
+  } catch {}
 }
 
 function providerNameFromEmail(email){
@@ -5655,6 +6165,70 @@ function Purchase24hrScreen({ isDarkMode, onBack, onSuccess, onToggleTheme }){
   );
 }
 
+function PermissionScreen({ isDarkMode, onDone }) {
+  const [notifStatus, setNotifStatus] = useState(
+    typeof Notification !== "undefined" ? Notification.permission : "unsupported"
+  );
+  const [requesting, setRequesting] = useState(false);
+
+  async function handleAllow() {
+    setRequesting(true);
+    _unlockAudio();
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      const result = await Notification.requestPermission().catch(() => "denied");
+      setNotifStatus(result);
+    }
+    setRequesting(false);
+    setTimeout(onDone, 600);
+  }
+
+  return (
+    <>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&family=DM+Sans:wght@400;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}body{background:#020617}button{font:inherit}`}</style>
+      <main style={{ minHeight:"100vh", background:"#020617", color:"#e2e8f0", fontFamily:"'DM Sans',sans-serif", display:"flex", justifyContent:"center", alignItems:"center", padding:"24px 16px" }}>
+        <div style={{ width:"100%", maxWidth:430, display:"flex", flexDirection:"column", gap:24 }}>
+
+          <div style={{ textAlign:"center" }}>
+            <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11, fontWeight:700, letterSpacing:"0.12em", textTransform:"uppercase", color:"#14b8a6", marginBottom:10 }}>R.O.M.A.N.</div>
+            <div style={{ fontSize:28, fontWeight:800, color:"#f1f5f9", lineHeight:1.15, marginBottom:10 }}>Before we get started</div>
+            <div style={{ fontSize:14, color:"#7a90b0", lineHeight:1.6 }}>
+              R.O.M.A.N. needs one permission to alert you during a cardiac arrest even when you switch screens.
+            </div>
+          </div>
+
+          <div style={{ display:"flex", alignItems:"flex-start", gap:14, background:"#0d1829", border:"1px solid #1a2e4a", borderRadius:12, padding:"16px" }}>
+            <div style={{ fontSize:30, lineHeight:1, flexShrink:0, marginTop:2 }}>🔔</div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontWeight:700, fontSize:15, color:"#e2e8f0", marginBottom:4 }}>Push Notifications</div>
+              <div style={{ fontSize:13, color:"#7a90b0", lineHeight:1.5 }}>CPR cycle alerts and epinephrine reminders. Nothing else — no marketing, no tracking.</div>
+            </div>
+            <div style={{
+              alignSelf:"center", flexShrink:0, fontSize:11, fontWeight:700, padding:"3px 9px",
+              borderRadius:20, background: notifStatus === "granted" ? "#052e16" : "#0d1525",
+              color: notifStatus === "granted" ? "#4ade80" : "#64748b",
+              border: `1px solid ${notifStatus === "granted" ? "#166534" : "#1e2d42"}`
+            }}>
+              {notifStatus === "granted" ? "✓ Allowed" : "Pending"}
+            </div>
+          </div>
+
+          <button
+            onClick={handleAllow}
+            disabled={requesting}
+            style={{ height:54, borderRadius:999, border:"1px solid rgba(125,249,255,.6)", background: requesting ? "#0f3a30" : "linear-gradient(135deg,#0f766e,#0284c7)", color:"#fff", fontWeight:800, fontSize:17, cursor: requesting ? "default" : "pointer", transition:"opacity 0.2s", opacity: requesting ? 0.7 : 1 }}>
+            {requesting ? "Enabling…" : "Allow Notifications & Continue"}
+          </button>
+
+          <button onClick={onDone} style={{ background:"none", border:"none", color:"#334155", fontSize:13, fontWeight:600, cursor:"pointer", textAlign:"center", paddingBottom:8 }}>
+            Skip for now
+          </button>
+
+        </div>
+      </main>
+    </>
+  );
+}
+
 function HomeScreen({ isDarkMode, onLogin, onSignup, onGuest, onStudentCode, on24hr, onToggleTheme }) {
   const bg = "#020617";
   const text = "#f8fafc";
@@ -5690,11 +6264,11 @@ function HomeScreen({ isDarkMode, onLogin, onSignup, onGuest, onStudentCode, on2
 
 function LoginScreen({ isDarkMode, values, onChange, onSubmit, onBack, onSignup, onGuest, onStudentCode, on24hr, error, onToggleTheme }) {
   const bg = isDarkMode ? "#060a15" : "#f4efe7";
-  const panel = isDarkMode ? "var(--c-surface)" : "#fbf7f0";
-  const inputBg = isDarkMode ? "var(--c-input)" : "#f2ece4";
-  const text = isDarkMode ? "var(--c-text)" : "#0f172a";
+  const panel = isDarkMode ? "#0d1120" : "#fbf7f0";
+  const inputBg = isDarkMode ? "#090e1c" : "#f2ece4";
+  const text = isDarkMode ? "#e2e8f0" : "#0f172a";
   const muted = isDarkMode ? "#8aa0c2" : "#374151";
-  const border = isDarkMode ? "var(--c-border)" : "#9a9286";
+  const border = isDarkMode ? "#1a2338" : "#9a9286";
 
   const [forgotModal, setForgotModal] = useState(null); // "password" | "login" | null
   const [forgotEmail, setForgotEmail] = useState("");
@@ -5843,9 +6417,9 @@ function LoginScreen({ isDarkMode, values, onChange, onSubmit, onBack, onSignup,
   );
 }
 
-/* ═══════════════════════════════════════════════════════
+/* �������������������������������������������������������
    PROVIDER PROFILE SETUP SCREEN
-═══════════════════════════════════════════════════════ */
+������������������������������������������������������� */
 function daysUntil(dateStr){
   if(!dateStr) return null;
   let d;
@@ -6253,11 +6827,11 @@ function CertSetupScreen({ isDarkMode, providerName, onSelect, onToggleTheme }) 
 
 function SignupScreen({ isDarkMode, values, onChange, onSubmit, onBack, onLogin, error, onToggleTheme }) {
   const bg = isDarkMode ? "#060a15" : "#f4efe7";
-  const panel = isDarkMode ? "var(--c-surface)" : "#fbf7f0";
-  const inputBg = isDarkMode ? "var(--c-input)" : "#f2ece4";
-  const text = isDarkMode ? "var(--c-text)" : "#0f172a";
+  const panel = isDarkMode ? "#0d1120" : "#fbf7f0";
+  const inputBg = isDarkMode ? "#090e1c" : "#f2ece4";
+  const text = isDarkMode ? "#e2e8f0" : "#0f172a";
   const muted = isDarkMode ? "#8aa0c2" : "#374151";
-  const border = isDarkMode ? "var(--c-border)" : "#9a9286";
+  const border = isDarkMode ? "#1a2338" : "#9a9286";
 
   const inputStyle = {
     width:"100%",
@@ -6317,6 +6891,1644 @@ function SignupScreen({ isDarkMode, values, onChange, onSubmit, onBack, onLogin,
   );
 }
 
+/* ─── PLAN DATA (module-level — shared by PricingScreen + CheckoutScreen) ─── */
+const PLAN_DATA = [
+  {
+    key: "emt",
+    label: "EMT",
+    badge: "Free",
+    accentColor: "#14b8a6",
+    monthly: "$0", yearly: "$0",
+    monthlyRaw: 0, yearlyRaw: 0,
+    cta: "Current Plan", ctaDisabled: true,
+    description: "Essential BLS reference for certified EMTs.",
+    benefits: [
+      "EMT-scope drug reference (Aspirin, Naloxone, Nitro, Albuterol, Epi, Glucose & more)",
+      "Basic contraindication flags & dosing reminders",
+      "Limited protocol companion (cardiac & respiratory)",
+      "Arrest tracker with CPR cycle timer",
+      "2 guest sessions for evaluation",
+      "Dark & light mode",
+    ],
+    stripeMonthlyPriceId: null, stripeYearlyPriceId: null,
+  },
+  {
+    key: "aemt",
+    label: "AEMT",
+    badge: "Most Popular",
+    accentColor: "#3b82f6",
+    monthly: "$4.99", yearly: "$39.99",
+    monthlyRaw: 4.99, yearlyRaw: 39.99,
+    yearlySave: "Save $19.89 vs monthly",
+    cta: "Upgrade to AEMT", ctaDisabled: false,
+    description: "Advanced pre-hospital tools for AEMT providers.",
+    benefits: [
+      "Everything in EMT Free",
+      "AEMT-scope drugs (D50, Glucagon, Ipratropium, Calcium Chloride, IV NS & more)",
+      "Weight-based dosing calculator (mg/kg, mcg/kg auto-draw)",
+      "Full protocol library — all 6 systems",
+      "Adult & pediatric burn body maps (TBSA estimation)",
+      "Sequential vitals log tied to drug events",
+      "Unlimited patient sessions",
+      "Student access code support",
+    ],
+    stripeMonthlyPriceId: "price_REPLACE_AEMT_MONTHLY",
+    stripeYearlyPriceId: "price_REPLACE_AEMT_YEARLY",
+  },
+  {
+    key: "paramedic",
+    label: "Paramedic",
+    badge: "Full ALS",
+    accentColor: "#a855f7",
+    monthly: "$9.99", yearly: "$79.99",
+    monthlyRaw: 9.99, yearlyRaw: 79.99,
+    yearlySave: "Save $39.89 vs monthly",
+    cta: "Upgrade to Medic", ctaDisabled: false,
+    description: "Complete ALS toolkit for paramedics operating at full scope.",
+    benefits: [
+      "Everything in AEMT",
+      "Full Medic-scope drugs (Fentanyl, Ketamine, Amiodarone, TXA, RSI agents, Mag Sulfate, all ALS meds)",
+      "ePCR builder — auto-populated narrative from call data",
+      "Radio report generator (SBAR-formatted)",
+      "Saved calls with Firebase cloud sync",
+      "Med log export — timestamped administration history",
+      "Cert expiration tracker (EMT, CPR/BLS, ACLS, PALS)",
+      "Live pre-check vital screening with block/warn logic",
+      "Re-dose interval enforcement & max dose alerts",
+      "Pediatric PALS drug reference with age/weight dosing",
+    ],
+    stripeMonthlyPriceId: "price_REPLACE_PARAMEDIC_MONTHLY",
+    stripeYearlyPriceId: "price_REPLACE_PARAMEDIC_YEARLY",
+  },
+  {
+    key: "agency",
+    label: "Agency",
+    badge: "Team",
+    accentColor: "#f59e0b",
+    monthly: "Request a Quote", yearly: "Request a Quote",
+    monthlyRaw: null, yearlyRaw: null,
+    cta: "Request a Quote + Demo", ctaDisabled: false,
+    description: "Full fleet coverage for EMS agencies, fire departments, and training programs.",
+    benefits: [
+      "Everything in Paramedic",
+      "Multi-seat management — add, remove, and monitor provider accounts",
+      "Agency admin dashboard — usage analytics & T&C compliance log",
+      "Bulk cert-level assignment across your roster",
+      "Dedicated onboarding & setup support",
+      "Priority bug fixes and protocol update notifications",
+      "Volume pricing at 10+ seats",
+      "Custom SOP integration available (on request)",
+    ],
+    stripeMonthlyPriceId: null, stripeYearlyPriceId: null,
+  },
+];
+
+/* ─── CHECKOUT SCREEN ────────────────────────────────────────────────────── */
+function CheckoutScreen({ isDarkMode, authUser, planKey, billing, onBack, onChangeBilling }) {
+  const plan = PLAN_DATA.find(p => p.key === planKey);
+  const [name,  setName]  = React.useState(authUser?.name  || "");
+  const [email, setEmail] = React.useState(authUser?.email || "");
+  const [loading,   setLoading]   = React.useState(false);
+  const [error,     setError]     = React.useState(null);
+  const [submitted, setSubmitted] = React.useState(false);
+
+  if (!plan) return null;
+
+  const bg         = isDarkMode ? "#060a15"  : "#f4efe7";
+  const text       = isDarkMode ? "#e2e8f0"  : "#0f172a";
+  const muted      = isDarkMode ? "#8aa0c2"  : "#374151";
+  const card       = isDarkMode ? "#0d1120"  : "#f5ede0";
+  const cardBorder = isDarkMode ? "#1a2338"  : "#c5b9a8";
+  const inputBg    = isDarkMode ? "#090e1c"  : "#ffffff";
+  const inputBd    = isDarkMode ? "#1e2d4a"  : "#d1d5db";
+  const { accentColor } = plan;
+
+  const price      = billing === "yearly" ? plan.yearly : plan.monthly;
+  const priceId    = billing === "yearly" ? plan.stripeYearlyPriceId : plan.stripeMonthlyPriceId;
+  const stripeReady = priceId && !priceId.startsWith("price_REPLACE");
+  const emailValid  = email.trim().includes("@");
+
+  const handleCheckout = async () => {
+    if (!stripeReady) return;
+    if (!emailValid) { setError("A valid email is required."); return; }
+    setLoading(true); setError(null);
+    try {
+      const res  = await fetch("/api/create-checkout-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          planKey: plan.key, billing,
+          email: email.trim(), name: name.trim(),
+          successUrl: `${window.location.origin}?checkout=success&plan=${plan.key}`,
+          cancelUrl:  `${window.location.origin}?checkout=cancel`,
+        }),
+      });
+      const data = await res.json();
+      if (data.url) { window.location.href = data.url; }
+      else { setError(data.error || "Could not start checkout. Try again."); setLoading(false); }
+    } catch { setError("Network error — check your connection and try again."); setLoading(false); }
+  };
+
+  const handleEarlyAccess = () => {
+    if (!emailValid) { setError("A valid email is required."); return; }
+    setSubmitted(true);
+    const sub  = encodeURIComponent(`R.O.M.A.N. Early Access — ${plan.label} (${billing})`);
+    const body = encodeURIComponent(`Name: ${name}\nEmail: ${email}\nPlan: ${plan.label} · ${billing}\n`);
+    window.open(`mailto:dayvon.byers@gmail.com?subject=${sub}&body=${body}`, "_blank");
+  };
+
+  if (submitted) {
+    return (
+      <div style={{paddingBottom:32}}>
+        <div style={{background:card,border:`1.5px solid ${accentColor}88`,borderRadius:12,padding:28,textAlign:"center",marginTop:20}}>
+          <div style={{fontSize:40,marginBottom:16}}>✅</div>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:13,fontWeight:800,color:accentColor,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Request Received</div>
+          <div style={{fontSize:14,color:text,fontWeight:600,marginBottom:8}}>{plan.label} Plan · {billing==="yearly"?"Yearly":"Monthly"}</div>
+          <div style={{fontSize:13,color:muted,lineHeight:1.6,marginBottom:24}}>
+            We'll reach out to <strong style={{color:text}}>{email}</strong> once billing goes live. Your rate is locked in.
+          </div>
+          <button onClick={onBack} style={{padding:"11px 28px",borderRadius:8,border:`1px solid ${accentColor}88`,background:`${accentColor}22`,color:accentColor,fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,cursor:"pointer"}}>← Back to Plans</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{paddingBottom:32}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20,paddingTop:4}}>
+        <button onClick={onBack} style={{width:34,height:34,borderRadius:8,border:`1px solid ${cardBorder}`,background:card,color:text,cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontWeight:800,flexShrink:0}}>←</button>
+        <div>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:1.3,color:accentColor}}>Secure Checkout</div>
+          <div style={{fontSize:13,fontWeight:700,color:text,marginTop:1}}>Complete your upgrade</div>
+        </div>
+      </div>
+
+      {/* Plan summary */}
+      <div style={{background:card,border:`1.5px solid ${accentColor}88`,borderRadius:10,padding:16,marginBottom:12}}>
+        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:plan.monthlyRaw?12:0}}>
+          <div>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+              <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:16,fontWeight:800,color:accentColor}}>{plan.label}</span>
+              <span style={{fontSize:9,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em",background:accentColor+"22",color:accentColor,border:`1px solid ${accentColor}55`,borderRadius:4,padding:"2px 6px"}}>{plan.badge}</span>
+            </div>
+            <div style={{fontSize:12,color:muted}}>{plan.description}</div>
+          </div>
+          <div style={{textAlign:"right",flexShrink:0,marginLeft:12}}>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:20,fontWeight:800,color:text,lineHeight:1}}>{price}</div>
+            {plan.monthlyRaw && <div style={{fontSize:10,color:muted,marginTop:2}}>{billing==="yearly"?"/year":"/month"}</div>}
+            {billing==="yearly" && plan.yearlySave && <div style={{fontSize:9,color:"#14b8a6",fontWeight:700,marginTop:3}}>{plan.yearlySave}</div>}
+          </div>
+        </div>
+        {plan.monthlyRaw > 0 && (
+          <div style={{display:"flex",gap:0,background:isDarkMode?"#080c18":"#e8e0d4",borderRadius:7,padding:3,border:`1px solid ${cardBorder}`}}>
+            {["monthly","yearly"].map(b=>(
+              <button key={b} onClick={()=>onChangeBilling(b)} style={{flex:1,padding:"7px 0",borderRadius:5,border:"none",fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,cursor:"pointer",transition:"all 0.15s",
+                background:billing===b?accentColor:"transparent",color:billing===b?"#fff":muted}}>
+                {b==="monthly"?"Monthly":"Yearly"}{b==="yearly"&&<span style={{marginLeft:5,fontSize:9,opacity:0.85}}>33% off</span>}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* What's included */}
+      <div style={{background:card,border:`1px solid ${cardBorder}`,borderRadius:10,padding:14,marginBottom:12}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.1em",color:isDarkMode?"#2a3a54":"#9a9286",marginBottom:10}}>What's included</div>
+        <div style={{display:"grid",gap:7}}>
+          {plan.benefits.slice(0,4).map((b,i)=>(
+            <div key={i} style={{display:"flex",gap:9,alignItems:"flex-start"}}>
+              <span style={{color:accentColor,fontSize:13,flexShrink:0,lineHeight:1.4}}>✓</span>
+              <span style={{fontSize:12,color:isDarkMode?"#94a3b8":"#374151",lineHeight:1.5}}>{b}</span>
+            </div>
+          ))}
+          {plan.benefits.length>4 && <div style={{fontSize:11,color:accentColor,fontWeight:700,marginTop:2}}>+ {plan.benefits.length-4} more features</div>}
+        </div>
+      </div>
+
+      {/* Contact info */}
+      <div style={{background:card,border:`1px solid ${cardBorder}`,borderRadius:10,padding:14,marginBottom:12}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.1em",color:isDarkMode?"#2a3a54":"#9a9286",marginBottom:12}}>Your info</div>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <label style={{display:"flex",flexDirection:"column",gap:4}}>
+            <span style={{fontSize:11,fontWeight:700,color:muted}}>Full name</span>
+            <input value={name} onChange={e=>setName(e.target.value)} placeholder="Your name" style={{background:inputBg,border:`1px solid ${inputBd}`,borderRadius:7,padding:"10px 12px",color:text,fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
+          </label>
+          <label style={{display:"flex",flexDirection:"column",gap:4}}>
+            <span style={{fontSize:11,fontWeight:700,color:muted}}>Email address</span>
+            <input type="email" value={email} onChange={e=>{setEmail(e.target.value);setError(null);}} placeholder="you@email.com"
+              style={{background:inputBg,border:`1px solid ${email&&!emailValid?"#ef4444":inputBd}`,borderRadius:7,padding:"10px 12px",color:text,fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
+          </label>
+        </div>
+      </div>
+
+      {/* Order summary */}
+      {plan.monthlyRaw > 0 && (
+        <div style={{background:card,border:`1px solid ${cardBorder}`,borderRadius:10,padding:14,marginBottom:16}}>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.1em",color:isDarkMode?"#2a3a54":"#9a9286",marginBottom:10}}>Order summary</div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+            <span style={{fontSize:13,color:muted}}>R.O.M.A.N. {plan.label} · {billing==="yearly"?"Yearly":"Monthly"}</span>
+            <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:13,fontWeight:800,color:text}}>{price}</span>
+          </div>
+          {billing==="yearly"&&plan.yearlySave&&(
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <span style={{fontSize:12,color:"#14b8a6"}}>Annual discount</span>
+              <span style={{fontSize:12,fontWeight:700,color:"#14b8a6"}}>Applied ✓</span>
+            </div>
+          )}
+          <div style={{borderTop:`1px solid ${cardBorder}`,paddingTop:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontSize:14,fontWeight:800,color:text}}>Total due {billing==="yearly"?"today":""}</span>
+            <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:16,fontWeight:800,color:accentColor}}>{price}</span>
+          </div>
+        </div>
+      )}
+
+      {error && <div style={{background:isDarkMode?"#2a0808":"#fee2e2",border:"1px solid #ef4444",borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:12,color:"#ef4444"}}>{error}</div>}
+
+      {/* CTA */}
+      {stripeReady ? (
+        <button onClick={handleCheckout} disabled={loading} style={{width:"100%",height:50,borderRadius:10,border:"none",
+          background:loading?"#374151":`linear-gradient(135deg,${accentColor}cc,${accentColor})`,
+          color:"#fff",fontFamily:"'DM Sans',sans-serif",fontSize:15,fontWeight:800,cursor:loading?"default":"pointer",
+          letterSpacing:"0.01em",boxShadow:loading?"none":`0 4px 16px ${accentColor}44`,transition:"all 0.2s",marginBottom:10}}>
+          {loading?"Redirecting to Stripe...":"Continue to Secure Payment →"}
+        </button>
+      ) : (
+        <>
+          <button onClick={handleEarlyAccess} disabled={!emailValid} style={{width:"100%",height:50,borderRadius:10,border:"none",
+            background:!emailValid?"#374151":`linear-gradient(135deg,${accentColor}cc,${accentColor})`,
+            color:"#fff",fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:800,cursor:emailValid?"pointer":"default",
+            letterSpacing:"0.01em",boxShadow:emailValid?`0 4px 16px ${accentColor}44`:"none",transition:"all 0.2s",marginBottom:10}}>
+            Request Early Access →
+          </button>
+          <div style={{textAlign:"center",fontSize:11,color:muted,lineHeight:1.55,marginBottom:12}}>
+            Billing not yet live — we'll reach out when your plan is ready. Rate locked at today's price.
+          </div>
+        </>
+      )}
+
+      <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,opacity:0.45}}>
+        <span style={{fontSize:11,color:muted}}>🔒 Secured by</span>
+        <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,color:muted}}>Stripe</span>
+        <span style={{fontSize:11,color:muted}}>· Encrypted · No card stored here</span>
+      </div>
+    </div>
+  );
+}
+
+/* ─── AGENCY QUOTE SCREEN ────────────────────────────────────────────────── */
+function AgencyQuoteScreen({ isDarkMode, authUser, onBack }) {
+  const [form, setForm] = React.useState({
+    agencyName: "", agencyType: "", seats: "", contactName: authUser?.name || "",
+    contactEmail: authUser?.email || "", contactPhone: "", currentSystem: "",
+    goLive: "", notes: "", wantsDemo: true,
+  });
+  const [loading,   setLoading]   = React.useState(false);
+  const [error,     setError]     = React.useState(null);
+  const [submitted, setSubmitted] = React.useState(false);
+
+  const text       = isDarkMode ? "#e2e8f0" : "#0f172a";
+  const muted      = isDarkMode ? "#8aa0c2" : "#374151";
+  const card       = isDarkMode ? "#0d1120" : "#f5ede0";
+  const cardBorder = isDarkMode ? "#1a2338" : "#c5b9a8";
+  const inputBg    = isDarkMode ? "#090e1c" : "#ffffff";
+  const inputBd    = isDarkMode ? "#1e2d4a" : "#d1d5db";
+  const accent     = "#f59e0b";
+
+  const set = (k, v) => { setForm(p=>({...p,[k]:v})); setError(null); };
+  const emailValid = form.contactEmail.trim().includes("@");
+  const canSubmit  = form.agencyName.trim() && form.contactName.trim() && emailValid;
+
+  const handleSubmit = async () => {
+    if (!canSubmit) { setError("Agency name, contact name, and a valid email are required."); return; }
+    setLoading(true); setError(null);
+    try {
+      const res  = await fetch("/api/agency-quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, submittedAt: new Date().toISOString() }),
+      });
+      const data = await res.json();
+      if (res.ok) { setSubmitted(true); }
+      else { setError(data.error || "Submission failed. Try again."); setLoading(false); }
+    } catch { setError("Network error — check your connection and try again."); setLoading(false); }
+  };
+
+  const inputStyle = (extra={}) => ({
+    background:inputBg, border:`1px solid ${inputBd}`, borderRadius:7,
+    padding:"10px 12px", color:text, fontSize:13, outline:"none",
+    fontFamily:"'DM Sans',sans-serif", width:"100%", boxSizing:"border-box", ...extra,
+  });
+  const labelStyle = { display:"flex", flexDirection:"column", gap:4 };
+  const labelTxt   = { fontSize:11, fontWeight:700, color:muted };
+
+  if (submitted) {
+    return (
+      <div style={{paddingBottom:32}}>
+        <div style={{background:card,border:`1.5px solid ${accent}88`,borderRadius:12,padding:28,textAlign:"center",marginTop:20}}>
+          <div style={{fontSize:44,marginBottom:16}}>🚒</div>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:13,fontWeight:800,color:accent,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Quote Request Received</div>
+          <div style={{fontSize:14,color:text,fontWeight:600,marginBottom:8}}>{form.agencyName}</div>
+          <div style={{fontSize:13,color:muted,lineHeight:1.65,marginBottom:24}}>
+            We'll send a custom quote to <strong style={{color:text}}>{form.contactEmail}</strong>
+            {form.wantsDemo && <> and schedule your demo</>} within 1–2 business days.
+          </div>
+          <button onClick={onBack} style={{padding:"11px 28px",borderRadius:8,border:`1px solid ${accent}88`,background:`${accent}22`,color:accent,fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,cursor:"pointer"}}>← Back to Plans</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{paddingBottom:32}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20,paddingTop:4}}>
+        <button onClick={onBack} style={{width:34,height:34,borderRadius:8,border:`1px solid ${cardBorder}`,background:card,color:text,cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontWeight:800,flexShrink:0}}>←</button>
+        <div>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:1.3,color:accent}}>Agency Plan</div>
+          <div style={{fontSize:13,fontWeight:700,color:text,marginTop:1}}>Request a Quote + Demo</div>
+        </div>
+      </div>
+
+      {/* Intro */}
+      <div style={{background:isDarkMode?"#1a1000":"#fffbeb",border:`1px solid ${accent}55`,borderRadius:10,padding:14,marginBottom:14}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.1em",color:accent,marginBottom:6}}>Custom pricing for your team</div>
+        <div style={{fontSize:12,color:muted,lineHeight:1.6}}>
+          Agency pricing is based on seat count, agency type, and contract term. Fill in the form below and we'll send a tailored quote within 1–2 business days. Request a live demo and we'll schedule it at the same time.
+        </div>
+      </div>
+
+      {/* Agency info */}
+      <div style={{background:card,border:`1px solid ${cardBorder}`,borderRadius:10,padding:14,marginBottom:12}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.1em",color:isDarkMode?"#2a3a54":"#9a9286",marginBottom:12}}>Agency info</div>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <label style={labelStyle}>
+            <span style={labelTxt}>Agency / organization name <span style={{color:"#ef4444"}}>*</span></span>
+            <input value={form.agencyName} onChange={e=>set("agencyName",e.target.value)} placeholder="e.g. Metro EMS District 4" style={inputStyle()}/>
+          </label>
+          <label style={labelStyle}>
+            <span style={labelTxt}>Agency type</span>
+            <select value={form.agencyType} onChange={e=>set("agencyType",e.target.value)} style={inputStyle()}>
+              <option value="">Select type…</option>
+              {["EMS / Ambulance Service","Fire Department / Fire-EMS","Hospital / Health System","Training Program / EMS School","Military / Federal","Law Enforcement (First Aid)","Other"].map(t=>(
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </label>
+          <label style={labelStyle}>
+            <span style={labelTxt}>Estimated number of providers / seats</span>
+            <select value={form.seats} onChange={e=>set("seats",e.target.value)} style={inputStyle()}>
+              <option value="">Select range…</option>
+              {["1–9","10–24","25–49","50–99","100–249","250+"].map(r=>(
+                <option key={r} value={r}>{r} providers</option>
+              ))}
+            </select>
+          </label>
+          <label style={labelStyle}>
+            <span style={labelTxt}>Current drug reference / documentation system</span>
+            <input value={form.currentSystem} onChange={e=>set("currentSystem",e.target.value)} placeholder="e.g. paper protocols, ImageTrend, ESO…" style={inputStyle()}/>
+          </label>
+          <label style={labelStyle}>
+            <span style={labelTxt}>Target go-live / start date</span>
+            <input type="date" value={form.goLive} onChange={e=>set("goLive",e.target.value)} style={inputStyle()}/>
+          </label>
+        </div>
+      </div>
+
+      {/* Contact info */}
+      <div style={{background:card,border:`1px solid ${cardBorder}`,borderRadius:10,padding:14,marginBottom:12}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.1em",color:isDarkMode?"#2a3a54":"#9a9286",marginBottom:12}}>Your contact info</div>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <label style={labelStyle}>
+            <span style={labelTxt}>Full name <span style={{color:"#ef4444"}}>*</span></span>
+            <input value={form.contactName} onChange={e=>set("contactName",e.target.value)} placeholder="Your name" style={inputStyle()}/>
+          </label>
+          <label style={labelStyle}>
+            <span style={labelTxt}>Email address <span style={{color:"#ef4444"}}>*</span></span>
+            <input type="email" value={form.contactEmail} onChange={e=>set("contactEmail",e.target.value)} placeholder="you@agency.org"
+              style={inputStyle({borderColor:form.contactEmail&&!emailValid?"#ef4444":inputBd})}/>
+          </label>
+          <label style={labelStyle}>
+            <span style={labelTxt}>Phone number (optional)</span>
+            <input type="tel" value={form.contactPhone} onChange={e=>set("contactPhone",e.target.value)} placeholder="(555) 000-0000" style={inputStyle()}/>
+          </label>
+        </div>
+      </div>
+
+      {/* Additional notes */}
+      <div style={{background:card,border:`1px solid ${cardBorder}`,borderRadius:10,padding:14,marginBottom:12}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.1em",color:isDarkMode?"#2a3a54":"#9a9286",marginBottom:12}}>Additional details</div>
+        <label style={labelStyle}>
+          <span style={labelTxt}>Specific needs or questions (optional)</span>
+          <textarea value={form.notes} onChange={e=>set("notes",e.target.value)} rows={3} placeholder="Custom protocol integration, SSO requirements, training support, billing questions…"
+            style={{...inputStyle(), resize:"vertical", minHeight:72, lineHeight:1.55}}/>
+        </label>
+      </div>
+
+      {/* Demo toggle */}
+      <div style={{background:card,border:`1.5px solid ${form.wantsDemo?accent+"88":cardBorder}`,borderRadius:10,padding:14,marginBottom:16}}>
+        <label style={{display:"flex",alignItems:"flex-start",gap:12,cursor:"pointer"}} onClick={()=>set("wantsDemo",!form.wantsDemo)}>
+          <div style={{width:22,height:22,borderRadius:6,border:`2px solid ${form.wantsDemo?accent:"#6b7280"}`,background:form.wantsDemo?accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1,transition:"all 0.15s"}}>
+            {form.wantsDemo&&<span style={{color:"#fff",fontWeight:900,fontSize:13}}>✓</span>}
+          </div>
+          <div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,color:form.wantsDemo?accent:muted,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:3}}>Request a live demo</div>
+            <div style={{fontSize:12,color:muted,lineHeight:1.5}}>We'll schedule a walkthrough of R.O.M.A.N. with your team — protocols, arrest tracker, drug reference, and admin dashboard.</div>
+          </div>
+        </label>
+      </div>
+
+      {error && <div style={{background:isDarkMode?"#2a0808":"#fee2e2",border:"1px solid #ef4444",borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:12,color:"#ef4444"}}>{error}</div>}
+
+      <button onClick={handleSubmit} disabled={loading||!canSubmit} style={{width:"100%",height:50,borderRadius:10,border:"none",
+        background:(loading||!canSubmit)?"#374151":`linear-gradient(135deg,${accent}cc,${accent})`,
+        color:"#fff",fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:800,
+        cursor:(loading||!canSubmit)?"default":"pointer",letterSpacing:"0.01em",
+        boxShadow:(!loading&&canSubmit)?`0 4px 16px ${accent}44`:"none",transition:"all 0.2s",marginBottom:12}}>
+        {loading?"Submitting...":form.wantsDemo?"Submit Quote Request + Schedule Demo →":"Submit Quote Request →"}
+      </button>
+
+      <div style={{textAlign:"center",fontSize:11,color:muted,opacity:0.6}}>We respond within 1–2 business days · No commitment required</div>
+    </div>
+  );
+}
+
+function PricingScreen({ isDarkMode, authUser, onSelectPlan }) {
+  const [billing, setBilling] = React.useState("monthly");
+  const bg   = isDarkMode ? "#060a15" : "#f4efe7";
+  const text  = isDarkMode ? "#e2e8f0" : "#0f172a";
+  const muted = isDarkMode ? "#8aa0c2" : "#374151";
+  const card  = isDarkMode ? "#0d1120" : "#f5ede0";
+  const cardBorder = isDarkMode ? "#1a2338" : "#c5b9a8";
+
+  const BADGE_THEME = {
+    emt:       { badgeColor:"#14b8a6", badgeBg:isDarkMode?"#052e1e":"#d1faf0", borderColor:isDarkMode?"#0f4035":"#99f0da" },
+    aemt:      { badgeColor:"#3b82f6", badgeBg:isDarkMode?"#0c1a3a":"#dbeafe", borderColor:isDarkMode?"#1e3a8a":"#93c5fd" },
+    paramedic: { badgeColor:"#a855f7", badgeBg:isDarkMode?"#1a0c2e":"#f3e8ff", borderColor:isDarkMode?"#7c3aed":"#c084fc" },
+    agency:    { badgeColor:"#f59e0b", badgeBg:isDarkMode?"#1a1000":"#fefce8", borderColor:isDarkMode?"#92400e":"#fbbf24" },
+  };
+  const PLANS = PLAN_DATA.map(p => ({ ...p, ...BADGE_THEME[p.key] }));
+
+  const currentCert = authUser?.certLevel || null;
+
+  return (
+    <div style={{paddingBottom: 32}}>
+      {/* Header */}
+      <div style={{marginBottom: 20, paddingTop: 4}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:1.3,color:"#14b8a6",marginBottom:6}}>R.O.M.A.N. Plans</div>
+        <h2 style={{fontSize:24,fontWeight:800,color:text,margin:"0 0 6px",lineHeight:1.15}}>Choose your access level.</h2>
+        <p style={{fontSize:13,color:muted,lineHeight:1.55,margin:0}}>All plans include the core drug reference. Upgrade to unlock your full scope.</p>
+      </div>
+
+      {/* Billing toggle */}
+      <div style={{display:"flex",alignItems:"center",gap:0,marginBottom:18,background:isDarkMode?"#080c18":"#e8e0d4",borderRadius:8,padding:3,border:`1px solid ${cardBorder}`,width:"fit-content"}}>
+        {["monthly","yearly"].map(b=>(
+          <button key={b} onClick={()=>setBilling(b)} style={{padding:"7px 18px",borderRadius:6,border:"none",fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,cursor:"pointer",letterSpacing:"0.04em",transition:"all 0.15s",
+            background: billing===b ? (isDarkMode?"#14b8a6":"#0f766e") : "transparent",
+            color: billing===b ? (isDarkMode?"#042f2e":"#fff") : muted,
+          }}>
+            {b==="monthly" ? "Monthly" : "Yearly"}
+            {b==="yearly" && <span style={{marginLeft:6,fontSize:9,background:"#14b8a680",color:"#14b8a6",borderRadius:3,padding:"1px 4px"}}>33% off</span>}
+          </button>
+        ))}
+      </div>
+
+      {/* Plan cards */}
+      <div style={{display:"grid",gap:12}}>
+        {PLANS.map(plan => {
+          const price = billing === "yearly" ? plan.yearly : plan.monthly;
+          const isCurrentScope = currentCert === plan.label || (plan.key === "emt" && !currentCert);
+          return (
+            <div key={plan.key} style={{background:card,border:`1px solid ${isCurrentScope ? plan.accentColor+"88" : cardBorder}`,borderRadius:10,overflow:"hidden",boxShadow:isCurrentScope?`0 0 0 1px ${plan.accentColor}33`:"none",transition:"border-color 0.2s"}}>
+
+              {/* Card header */}
+              <div style={{padding:"14px 16px 0",display:"flex",alignItems:"flex-start",justifyContent:"space-between"}}>
+                <div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                    <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:15,fontWeight:800,color:plan.accentColor}}>{plan.label}</span>
+                    <span style={{fontSize:9,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em",background:plan.badgeBg,color:plan.badgeColor,border:`1px solid ${plan.borderColor}`,borderRadius:4,padding:"2px 6px"}}>{plan.badge}</span>
+                    {isCurrentScope && <span style={{fontSize:9,fontWeight:800,background:"#14b8a620",color:"#14b8a6",border:"1px solid #14b8a640",borderRadius:4,padding:"2px 6px"}}>Active</span>}
+                  </div>
+                  <p style={{fontSize:12,color:muted,margin:0,lineHeight:1.45}}>{plan.description}</p>
+                </div>
+                <div style={{textAlign:"right",flexShrink:0,marginLeft:12}}>
+                  <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:plan.key==="agency"?13:20,fontWeight:800,color:plan.key==="agency"?plan.accentColor:text,lineHeight:1}}>{price}</div>
+                  {plan.monthlyRaw>0 && <div style={{fontSize:10,color:muted,marginTop:2}}>{billing==="yearly"?"/year":"/month"}</div>}
+                  {billing==="yearly" && plan.yearlySave && plan.key!=="agency" && <div style={{fontSize:9,color:"#14b8a6",fontWeight:700,marginTop:3}}>{plan.yearlySave}</div>}
+                </div>
+              </div>
+
+              {/* Benefits */}
+              <div style={{padding:"12px 16px"}}>
+                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.1em",color:isDarkMode?"#2a3a54":"#9a9286",marginBottom:8}}>What's included</div>
+                <div style={{display:"grid",gap:6}}>
+                  {plan.benefits.map((b,i) => (
+                    <div key={i} style={{display:"flex",gap:9,alignItems:"flex-start"}}>
+                      <span style={{color:plan.accentColor,fontSize:13,flexShrink:0,marginTop:0,lineHeight:1.4}}>✓</span>
+                      <span style={{fontSize:12,color:isDarkMode?"#94a3b8":"#374151",lineHeight:1.5}}>{b}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* CTA */}
+              <div style={{padding:"0 16px 14px"}}>
+                <button
+                  disabled={plan.ctaDisabled || isCurrentScope}
+                  onClick={() => { if (!plan.ctaDisabled && !isCurrentScope) onSelectPlan?.(plan.key, billing); }}
+                  style={{
+                    width:"100%",height:42,borderRadius:8,border:`1px solid ${plan.accentColor}88`,
+                    background: (plan.ctaDisabled || isCurrentScope) ? (isDarkMode?"#0d1120":"#e8e0d4") : `linear-gradient(135deg, ${plan.accentColor}cc, ${plan.accentColor})`,
+                    color: (plan.ctaDisabled || isCurrentScope) ? muted : "#fff",
+                    fontWeight:800,fontSize:13,cursor:(plan.ctaDisabled||isCurrentScope)?"default":"pointer",
+                    fontFamily:"'DM Sans',sans-serif",letterSpacing:"0.01em",
+                    transition:"all 0.2s",
+                  }}
+                >
+                  {isCurrentScope ? "Current Scope" : plan.cta}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Footer note */}
+      <div style={{marginTop:18,padding:"12px 14px",background:isDarkMode?"#080c18":"#ede7dc",border:`1px solid ${cardBorder}`,borderRadius:8}}>
+        <p style={{fontSize:11,color:isDarkMode?"#475569":"#6b7280",lineHeight:1.6,margin:0,textAlign:"center"}}>
+          Individual plans are billed in USD via Stripe. Agency pricing is custom — request a quote for team rates. 24-hour guest passes are available on the login screen for one-time access.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* �������������������������������������������������������
+   APP TOUR
+������������������������������������������������������� */
+const TOUR_STEPS = [
+  { icon:"🚑", title:"Welcome to R.O.M.A.N.", tag:null, levels:["EMT","AEMT","Medic","Guest"],
+    body:"Rapid On-Scene Medical AI Navigator — your field-side EMS companion for drug reference, documentation, and clinical decision support." },
+  { icon:"🟢", title:"Starting a Call", tag:"New PT", levels:["EMT","AEMT","Medic"],
+    body:"Tap '+ New PT' in the top banner to begin a patient encounter. This stamps the call start time and opens the ePCR for demographics." },
+  { icon:"📋", title:"ePCR — Patient Demographics", tag:"HIPAA", levels:["EMT","AEMT","Medic"],
+    body:"Enter the patient's Age and Chief Complaint to unlock the drug screen. No patient names are ever stored — a system-generated Call ID is used instead." },
+  { icon:"💡", title:"Chief Complaint Suggestions", tag:"ePCR", levels:["EMT","AEMT","Medic"],
+    body:"Select a CC and R.O.M.A.N. suggests relevant drugs for that system. Tap the system badge to open its protocol, or tap any drug chip to jump directly to its card." },
+  { icon:"💊", title:"Drug Screen", tag:"Drugs", levels:["EMT","AEMT","Medic","Guest"],
+    body:"Browse drugs by body system — Cardiac, Trauma, Respiratory, Neuro, and more. Each card shows dose, route, concentration, contraindications, and weight-based calculations." },
+  { icon:"⚕", title:"Pre-Checks & Safety Gates", tag:"Safety", levels:["EMT","AEMT","Medic","Guest"],
+    body:"Before logging a dose the app walks you through required vitals and yes/no checks. ⛔ Red = contraindication blocked. ⚠ Yellow = caution — review before giving." },
+  { icon:"📝", title:"Medication Log", tag:"Med Log", levels:["EMT","AEMT","Medic"],
+    body:"The Med Log tracks every drug given this call with exact timestamps and doses. Tap any active drug pill in the banner to jump back to that card instantly." },
+  { icon:"📈", title:"Vitals Tracking", tag:"Vitals", levels:["AEMT","Medic"],
+    body:"Log BP, HR, RR, SpO₂, BGL, and GCS at any time from the Arrest / Vitals tab. Vitals entered during drug pre-checks are captured automatically — nothing gets lost." },
+  { icon:"❤", title:"Cardiac Arrest Tracker", tag:"CPR", levels:["AEMT","Medic"],
+    body:"The CPR tab runs a full arrest timer — 2-minute cycle tracking, epinephrine intervals, ROSC detection, airway management, and H's & T's documentation." },
+  { icon:"📖", title:"Clinical Protocols", tag:"Protocols", levels:["AEMT","Medic"],
+    body:"Step-by-step decision trees for ACS, burns, OB emergencies, and more. Your answers update the 'Next Action' card in real time to guide your treatment." },
+  { icon:"🔒", title:"Closing & Locking a Call", tag:"HIPAA", levels:["EMT","AEMT","Medic"],
+    body:"When transport is complete, tap 'Close Call'. Confirm the lock — call data is immediately archived to back-office, hidden on device, and auto-wiped after 5 hours." },
+  { icon:"🛡", title:"HIPAA Safeguards", tag:"Privacy", levels:["EMT","AEMT","Medic","Guest"],
+    body:"No patient names, ever. Only system-generated Call IDs. Archived records are locked and released to your agency only on formal request." },
+  { icon:"🚀", title:"You're All Set!", tag:null, levels:["EMT","AEMT","Medic","Guest"],
+    body:"Tap any icon in the nav menu to get started. You can replay this tour anytime by tapping '🗺 Tour' in the nav." },
+];
+
+function TourOverlay({ steps, stepIdx, onNext, onBack, onFinish, isDarkMode }) {
+  if(!steps.length) return null;
+  const step=steps[stepIdx];
+  const isLast=stepIdx===steps.length-1;
+  const isFirst=stepIdx===0;
+  const accent="#3b82f6";
+  const panel=isDarkMode?"#0d1728":"#ffffff";
+  const text=isDarkMode?"#e2e8f0":"#1a1a1a";
+  const sub=isDarkMode?"#64748b":"#6b7280";
+  const border=isDarkMode?"#1e3a5f":"#d1d5db";
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:9999,background:isDarkMode?"rgba(0,0,0,0.88)":"rgba(0,0,0,0.65)",display:"flex",alignItems:"center",justifyContent:"center",padding:"20px",backdropFilter:"blur(4px)"}}>
+      <div style={{background:panel,borderRadius:16,padding:"28px 22px 22px",maxWidth:370,width:"100%",textAlign:"center",border:`1px solid ${border}`,boxShadow:"0 24px 80px rgba(0,0,0,0.45)",position:"relative"}}>
+        {/* Skip */}
+        <button onClick={onFinish} style={{position:"absolute",top:12,right:12,background:"transparent",border:`1px solid ${border}`,color:sub,borderRadius:6,padding:"3px 9px",fontSize:10,cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontWeight:700}}>SKIP</button>
+        {/* Counter */}
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:700,color:sub,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:14}}>{stepIdx+1} / {steps.length}</div>
+        {/* Icon */}
+        <div style={{fontSize:44,marginBottom:10,lineHeight:1}}>{step.icon}</div>
+        {/* Tag */}
+        {step.tag&&<div style={{display:"inline-block",marginBottom:8,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.1em",background:`${accent}22`,color:accent,border:`1px solid ${accent}44`,borderRadius:4,padding:"2px 8px"}}>{step.tag}</div>}
+        {/* Title */}
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:14,fontWeight:800,color:text,marginBottom:10,lineHeight:1.3,marginTop:step.tag?0:4}}>{step.title}</div>
+        {/* Body */}
+        <div style={{fontSize:13,color:sub,lineHeight:1.65,marginBottom:22,fontFamily:"'DM Sans',sans-serif"}}>{step.body}</div>
+        {/* Buttons */}
+        <div style={{display:"flex",gap:8}}>
+          {!isFirst&&<button onClick={onBack} style={{flex:1,padding:"11px 0",borderRadius:8,border:`1px solid ${border}`,background:"transparent",color:text,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>← Back</button>}
+          <button onClick={isLast?onFinish:onNext} style={{flex:2,padding:"11px 0",borderRadius:8,border:"none",background:isLast?"#22c55e":accent,color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>{isLast?"Let's Go! 🚀":"Next →"}</button>
+        </div>
+        {/* Dot progress */}
+        <div style={{display:"flex",justifyContent:"center",gap:4,marginTop:16}}>
+          {steps.map((_,i)=>(
+            <div key={i} style={{width:i===stepIdx?18:6,height:6,borderRadius:3,background:i===stepIdx?accent:border,transition:"all 0.2s"}}/>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────
+   REFERENCE SCREEN — Pharmacology & Medical Terminology
+───────────────────────────────────────────────────── */
+const PHARM_DATA = [
+  // CARDIAC
+  { name:"Epinephrine 1:10,000", aka:"Adrenaline — Cardiac Dose", cat:"Cardiac", cls:"Catecholamine / Vasopressor",
+    moa:"Non-selective α/β adrenergic agonist. α-1 vasoconstriction raises coronary and cerebral perfusion pressure during CPR. β-1 increases myocardial contractility and heart rate.",
+    indications:["Cardiac arrest (VF, pVT, PEA, asystole)","Severe anaphylaxis — adjunct (second-line after IM epi)"],
+    contras:["Pulse present — do NOT use this concentration in non-arrest patients"],
+    se:["Tachyarrhythmias post-ROSC","Severe hypertension","Increased myocardial O₂ demand","Tissue necrosis if extravasation"],
+    notes:"Arrest dose: 1 mg IV/IO q3–5 min. Flush with 20 mL NS, elevate limb. Never confuse 1:10,000 with 1:1,000 concentration.", col:"#f87171", bg:"#2a0808" },
+
+  { name:"Epinephrine 1:1,000", aka:"Adrenaline — IM/Anaphylaxis Dose", cat:"Cardiac", cls:"Catecholamine / Bronchodilator",
+    moa:"Same α/β agonist. IM route for anaphylaxis: β-2 bronchodilation, α-1 reverses vasodilation and urticaria, β-1 improves cardiac output.",
+    indications:["Anaphylaxis / severe allergic reaction","Severe asthma refractory to albuterol (subcutaneous)"],
+    contras:["No absolute contraindications in anaphylaxis — benefit always outweighs risk","Caution: known coronary artery disease"],
+    se:["Palpitations / tachycardia","Anxiety / tremor","Transient hypertension","Headache"],
+    notes:"Adult: 0.3–0.5 mg IM anterolateral thigh. Peds: 0.01 mg/kg IM (max 0.3 mg). Repeat q5–15 min. Thigh preferred — faster absorption than deltoid.", col:"#f87171", bg:"#2a0808" },
+
+  { name:"Adenosine", aka:"Adenocard", cat:"Cardiac", cls:"Antiarrhythmic (Class V — Purinergic)",
+    moa:"Transiently blocks AV nodal conduction by activating A1 purinergic receptors → hyperpolarization of AV nodal cells. Terminates AV-nodal-dependent reentry SVT circuits.",
+    indications:["Narrow-complex SVT (PSVT, reentrant)","Diagnostic for wide-complex tachycardia of uncertain origin"],
+    contras:["2nd or 3rd degree AV block","Sick sinus syndrome without pacemaker","WPW with atrial flutter/fib (may accelerate accessory pathway)","Known hypersensitivity"],
+    se:["Transient asystole (seconds — warn patient)","Chest pressure / flushing","Bronchospasm (caution in severe asthma/COPD)","Brief hypotension"],
+    notes:"Rapid IV push at antecubital fossa or above, followed immediately by 20 mL NS flush. First dose: 6 mg. 2nd/3rd: 12 mg. Half-life <10 seconds.", col:"#60a5fa", bg:"#0d1f3a" },
+
+  { name:"Atropine", aka:"Atropine Sulfate", cat:"Cardiac", cls:"Anticholinergic / Parasympatholytic",
+    moa:"Competitive antagonist at muscarinic acetylcholine receptors. Blocks vagal tone at SA and AV nodes → increases heart rate and AV conduction velocity.",
+    indications:["Symptomatic bradycardia (hypotension, AMS, syncope, ischemic chest pain)","Organophosphate / nerve agent poisoning","Bradycardia during RSI (peds)"],
+    contras:["High-degree AV block Type II or complete — atropine may paradoxically worsen","Tachycardia","Acute angle-closure glaucoma"],
+    se:["Tachycardia","Dry mouth and skin","Urinary retention","Blurred vision","Hyperthermia","AMS / delirium in elderly"],
+    notes:"Bradycardia: 0.5 mg IV q3–5 min (max 3 mg). Doses <0.5 mg may paradoxically slow heart rate. Consider transcutaneous pacing if no response.", col:"#60a5fa", bg:"#0d1f3a" },
+
+  { name:"Amiodarone", aka:"Cordarone, Nexterone", cat:"Cardiac", cls:"Antiarrhythmic (Class III)",
+    moa:"Prolongs action potential duration and refractory period in atrial and ventricular tissue. Blocks Na⁺, K⁺, Ca²⁺ channels. Broadest antiarrhythmic spectrum (Classes I–IV properties).",
+    indications:["VF/pVT refractory to defibrillation","Stable wide-complex tachycardia","Atrial fibrillation with rapid ventricular rate"],
+    contras:["Bradycardia / AV block without pacemaker","Cardiogenic shock","Known hypersensitivity to amiodarone or iodine"],
+    se:["Hypotension (especially IV bolus)","Bradycardia","QT prolongation / Torsades","Phlebitis at IV site","Long-term: thyroid, pulmonary, hepatic toxicity"],
+    notes:"Cardiac arrest: 300 mg IV/IO push; repeat 150 mg for refractory VF. Stable VT/AF: 150 mg IV over 10 min. Infuse slowly to reduce hypotension.", col:"#60a5fa", bg:"#0d1f3a" },
+
+  { name:"Lidocaine", aka:"Xylocaine", cat:"Cardiac", cls:"Antiarrhythmic (Class Ib) / Local Anesthetic",
+    moa:"Blocks voltage-gated Na⁺ channels → suppresses automaticity in His-Purkinje fibers and ventricular myocardium. Minimal effect on SA node or atrial tissue.",
+    indications:["VF/pVT (alternative to amiodarone in cardiac arrest)","Stable VT refractory to other measures","IO administration to reduce procedural pain"],
+    contras:["Adams-Stokes syndrome without pacemaker","Severe SA or AV node dysfunction","Known hypersensitivity to amide-type local anesthetics"],
+    se:["CNS toxicity: tinnitus, perioral numbness, seizures, AMS","Cardiovascular depression at high doses","Bradycardia"],
+    notes:"Arrest: 1–1.5 mg/kg IV/IO push; repeat 0.5–0.75 mg/kg q5–10 min (max 3 mg/kg). Pre-IO: 40–50 mg IO to reduce intraosseous pain.", col:"#60a5fa", bg:"#0d1f3a" },
+
+  { name:"Aspirin", aka:"ASA, Acetylsalicylic Acid", cat:"Cardiac", cls:"Antiplatelet / NSAID",
+    moa:"Irreversibly inhibits COX-1 and COX-2 → reduces thromboxane A₂ synthesis → inhibits platelet aggregation. Effect lasts the platelet's entire lifespan (7–10 days) since platelets cannot synthesize new COX.",
+    indications:["Suspected ACS / STEMI (first-line, early administration)","Chest pain of probable cardiac origin"],
+    contras:["Active GI bleed or peptic ulcer","Known ASA or NSAID hypersensitivity","Full 324 mg dose already taken today","Children with viral illness (Reye syndrome risk)"],
+    se:["GI upset / nausea","Tinnitus (toxicity)","Bronchospasm in ASA-sensitive asthma","Increased bleeding"],
+    notes:"324 mg (four 81 mg tabs) chewed — not swallowed whole — for fastest buccal absorption. Reduce dose if prior aspirin taken today.", col:"#f87171", bg:"#2a0808" },
+
+  { name:"Nitroglycerin", aka:"Nitrostat, NTG", cat:"Cardiac", cls:"Organic Nitrate / Vasodilator",
+    moa:"Converted to nitric oxide (NO) in vascular smooth muscle → activates guanylyl cyclase → ↑ cGMP → smooth muscle relaxation. Venodilation reduces preload; arterial dilation reduces afterload and myocardial O₂ demand.",
+    indications:["Ischemic chest pain / ACS","Acute cardiogenic pulmonary edema (Medic level, with adequate SBP)","Hypertensive urgency"],
+    contras:["SBP <100 mmHg","PDE-5 inhibitor use within 48 h (sildenafil, tadalafil, vardenafil) — severe hypotension risk","Suspected RVI (preload-dependent)","Severe aortic stenosis"],
+    se:["Hypotension (can be profound)","Reflex tachycardia","Headache","Dizziness / syncope"],
+    notes:"0.4 mg SL q3–5 min, max 3 doses. Check SBP before each dose. Burning/tingling under tongue confirms potency. Do not swallow — sublingual absorption only.", col:"#f87171", bg:"#2a0808" },
+
+  { name:"Dopamine", aka:"Intropin", cat:"Cardiac", cls:"Catecholamine / Vasoactive Infusion",
+    moa:"Dose-dependent receptor activity: Low (1–5 mcg/kg/min): dopaminergic → renal/mesenteric vasodilation. Moderate (5–10): β-1 → ↑ contractility and HR. High (10–20): α-1 dominant → vasoconstriction, ↑ SVR.",
+    indications:["Symptomatic hypotension unresponsive to fluid resuscitation","Cardiogenic shock","Post-ROSC hypotension with bradycardia"],
+    contras:["Uncorrected hypovolemia (give fluids first)","Pheochromocytoma","VF/VT","Known hypersensitivity"],
+    se:["Tachycardia and arrhythmias","Tissue necrosis if extravasation","Nausea / vomiting","Increased myocardial O₂ demand"],
+    notes:"5–20 mcg/kg/min IV infusion titrated to SBP >90. Weight-based calculation required. Central line preferred — extravasation causes serious tissue injury.", col:"#60a5fa", bg:"#0d1f3a" },
+
+  // RESPIRATORY
+  { name:"Albuterol", aka:"Proventil, Ventolin, AccuNeb", cat:"Respiratory", cls:"Short-Acting Beta-2 Agonist (SABA)",
+    moa:"Selective β-2 adrenergic agonist → ↑ intracellular cAMP → relaxes bronchial smooth muscle → bronchodilation. Also mildly reduces mast cell mediator release.",
+    indications:["Acute asthma exacerbation","COPD exacerbation with bronchospasm","Anaphylaxis bronchospasm component","Suspected hyperkalemia (β-2 shifts K⁺ intracellularly — temporizing)"],
+    contras:["Known hypersensitivity to albuterol or levalbuterol","Tachyarrhythmias (relative — benefit usually outweighs risk in bronchospasm)"],
+    se:["Tachycardia (most common)","Tremor / anxiety","Hypokalemia (continuous high doses)","Paradoxical bronchospasm (rare)"],
+    notes:"Nebulizer: 2.5 mg in 3 mL NS over 8–10 min. Continuous neb for severe attacks. MDI via spacer: 4–8 puffs equivalent to one neb treatment.", col:"#86efac", bg:"#071a0e" },
+
+  { name:"Ipratropium", aka:"Atrovent", cat:"Respiratory", cls:"Short-Acting Muscarinic Antagonist (SAMA)",
+    moa:"Blocks muscarinic (M3) receptors in bronchial smooth muscle → reduces bronchoconstriction and secretions. Complements albuterol via different pathway (anticholinergic vs. adrenergic).",
+    indications:["COPD exacerbation (first-line bronchodilator)","Moderate-severe asthma combined with albuterol"],
+    contras:["Hypersensitivity to ipratropium, atropine, or solanaceous alkaloids","Peanut/soy allergy (MDI formulation)"],
+    se:["Dry mouth","Headache","Blurred vision if contacts eyes","Urinary retention (less common than systemic atropine)"],
+    notes:"0.5 mg via nebulizer combined with albuterol (DuoNeb). Minimal systemic absorption — acts locally. Onset 15 min, peak effect 1–2 h.", col:"#86efac", bg:"#071a0e" },
+
+  { name:"Methylprednisolone", aka:"Solu-Medrol", cat:"Respiratory", cls:"Corticosteroid / Anti-inflammatory",
+    moa:"Binds glucocorticoid receptors → suppresses inflammatory cytokines, prostaglandins, leukotrienes → reduces airway inflammation and mucosal edema. Onset slow — effect develops over 4–6 hours.",
+    indications:["Moderate-severe asthma exacerbation","COPD exacerbation","Anaphylaxis (second-line adjunct after epinephrine)","Spinal cord injury (per medical direction — NASCIS protocol, controversial)"],
+    contras:["Systemic fungal infection","Active untreated tuberculosis (relative)"],
+    se:["Hyperglycemia","Hypertension","Fluid retention","Immunosuppression","GI upset"],
+    notes:"Asthma/COPD: 125 mg IV. Anaphylaxis: 125 mg IV. NOT a first-line acute bronchodilator — onset too slow. Bridges patient to definitive care.", col:"#86efac", bg:"#071a0e" },
+
+  // ANALGESICS
+  { name:"Fentanyl", aka:"Sublimaze, Duragesic", cat:"Analgesic", cls:"Opioid Analgesic (μ-Opioid Agonist)",
+    moa:"Binds μ (mu) opioid receptors in CNS and spinal cord → inhibits substance P release → reduces pain signal transmission. Brainstem μ receptors mediate respiratory depression.",
+    indications:["Moderate-severe acute pain (trauma, burns, ischemia, fractures)","Procedural analgesia","RSI (blunts laryngoscopy hemodynamic response)"],
+    contras:["Severe respiratory depression RR <10","Known hypersensitivity","Caution: hypotension, concurrent CNS depressants"],
+    se:["Respiratory depression (dose-dependent, most dangerous effect)","Chest wall rigidity (wooden chest) at high IV doses","Nausea / vomiting","Bradycardia","Hypotension"],
+    notes:"Adult: 1–2 mcg/kg IV (25–100 mcg). Intranasal: 2 mcg/kg via atomizer. 100× more potent than morphine. Preferred in hemodynamic instability. Reversed by naloxone.", col:"#fb923c", bg:"#1a0500" },
+
+  { name:"Morphine Sulfate", aka:"MS Contin, Roxanol", cat:"Analgesic", cls:"Opioid Analgesic (μ-Opioid Agonist)",
+    moa:"Binds μ opioid receptors → reduces pain. Triggers histamine release → venodilation and reduced preload (beneficial in pulmonary edema). Slower onset than fentanyl.",
+    indications:["Moderate-severe pain (ACS, renal colic, major trauma)","Acute cardiogenic pulmonary edema — adjunct (reduces anxiety and preload)"],
+    contras:["SBP <90","RR <10","Known hypersensitivity","Caution in COPD/asthma (histamine release may worsen bronchospasm)"],
+    se:["Respiratory depression","Hypotension (histamine-mediated vasodilation)","Nausea / vomiting","Pruritis","Urinary retention"],
+    notes:"0.1 mg/kg IV (typical adult: 2–4 mg, titrated q5–10 min). Avoid in hemodynamic instability — use fentanyl instead. Reversed by naloxone.", col:"#fb923c", bg:"#1a0500" },
+
+  { name:"Ketamine", aka:"Ketalar", cat:"Analgesic", cls:"Dissociative Anesthetic / NMDA Antagonist",
+    moa:"Antagonizes NMDA glutamate receptors → dissociation, analgesia, amnesia. Stimulates sympathetic nervous system — maintains BP/HR. Preserves protective airway reflexes and spontaneous respirations at procedural doses.",
+    indications:["Procedural sedation (dislocation, wound care)","Sub-dissociative analgesia","RSI induction (especially hemodynamically unstable patients)","Excited delirium / severe agitation","Status asthmaticus refractory to standard treatment"],
+    contras:["Active psychosis or schizophrenia (emergence reactions can be severe)","Uncontrolled hypertension (relative)","Use caution: suspected elevated ICP (previous restriction largely abandoned — evidence evolving)"],
+    se:["Emergence reactions (hallucinations, dysphoria — adult > peds)","Hypertension and tachycardia","Hypersalivation","Laryngospasm (rare)","Transient apnea at high IV doses"],
+    notes:"Sedation: 1–2 mg/kg IV or 4–6 mg/kg IM. Analgesia: 0.1–0.3 mg/kg IV slow push. Benzodiazepine premedication reduces emergence reactions.", col:"#fb923c", bg:"#1a0500" },
+
+  { name:"Ketorolac", aka:"Toradol", cat:"Analgesic", cls:"NSAID / Non-Opioid Analgesic",
+    moa:"Inhibits COX-1 and COX-2 → reduces prostaglandin synthesis → anti-inflammatory and analgesic. No opioid receptor activity — no respiratory depression.",
+    indications:["Moderate pain (renal colic, musculoskeletal, headache)","Opioid-sparing strategy","Non-opioid alternative when respiratory depression risk is high"],
+    contras:["Renal impairment","Active or recent GI bleed / peptic ulcer","Known NSAID or ASA hypersensitivity","Pregnancy 3rd trimester","Volume depletion / hemorrhagic shock"],
+    se:["GI upset and ulceration","Renal impairment with prolonged use","Platelet inhibition / increased bleeding risk","Hypersensitivity reaction"],
+    notes:"15–30 mg IV; 30–60 mg IM. Onset 30 min. Short-term only (≤5 days). Avoid in dehydrated patients — NSAIDs reduce renal perfusion.", col:"#fb923c", bg:"#1a0500" },
+
+  // SEDATION
+  { name:"Midazolam", aka:"Versed", cat:"Sedation", cls:"Short-Acting Benzodiazepine",
+    moa:"Positive allosteric modulator at GABA-A receptors → potentiates GABA (chief inhibitory neurotransmitter) → CNS depression, sedation, anxiolysis, anterograde amnesia, anticonvulsant, muscle relaxation.",
+    indications:["Active seizures / status epilepticus","Procedural sedation","Excited delirium (chemical restraint)","RSI adjunct","Acute severe anxiety"],
+    contras:["SBP <90","RR <8 — hold, significant respiratory depression present","No airway management capability available","Known hypersensitivity"],
+    se:["Respiratory depression (profound with opioid combination)","Hypotension","Paradoxical agitation (children, elderly)","Anterograde amnesia"],
+    notes:"Seizures: 5–10 mg IM, 0.1 mg/kg IV/IO, or 5 mg intranasal. IN route works without IV access — fastest field option. Reversed by flumazenil.", col:"#c084fc", bg:"#1a0e28" },
+
+  { name:"Lorazepam", aka:"Ativan", cat:"Sedation", cls:"Intermediate-Acting Benzodiazepine",
+    moa:"Positive allosteric modulation at GABA-A receptors (same mechanism as midazolam). Longer clinical duration due to slower redistribution from CNS.",
+    indications:["Status epilepticus","Acute severe anxiety / agitation","Alcohol withdrawal seizures","Procedural sedation"],
+    contras:["SBP <90","RR <8","Acute angle-closure glaucoma","Known hypersensitivity"],
+    se:["Respiratory depression","Hypotension","Prolonged sedation","Paradoxical agitation"],
+    notes:"Seizures: 2–4 mg IV/IM. May repeat once after 5–10 min. Duration 6–12 h. Some formulations require refrigeration — check agency policy.", col:"#c084fc", bg:"#1a0e28" },
+
+  { name:"Haloperidol", aka:"Haldol", cat:"Sedation", cls:"Typical Antipsychotic (D2 Antagonist / Butyrophenone)",
+    moa:"Blocks D2 dopamine receptors in mesolimbic pathway → antipsychotic. D2 blockade in CTZ → antiemetic. Does NOT cause respiratory depression at clinical IM doses.",
+    indications:["Excited delirium","Acute psychosis / severe agitation","Nausea and vomiting refractory to other antiemetics"],
+    contras:["Parkinson's disease (dopamine blockade worsens motor symptoms)","Known QT prolongation or concurrent QT-prolonging meds","Known hypersensitivity"],
+    se:["QT prolongation / Torsades de Pointes (major risk)","Extrapyramidal symptoms: acute dystonia, akathisia","Neuroleptic malignant syndrome (rare)","Hypotension"],
+    notes:"Agitation: 5–10 mg IM (adult). Often combined with midazolam ± diphenhydramine (DRD protocol). Stimulant toxicity: caution — may unmask arrhythmias.", col:"#c084fc", bg:"#1a0e28" },
+
+  // ANTIDOTES
+  { name:"Naloxone", aka:"Narcan, Evzio, Kloxxado", cat:"Antidote", cls:"Opioid Antagonist",
+    moa:"Competitive antagonist at μ, κ, and δ opioid receptors → rapidly reverses opioid-induced respiratory depression, sedation, and analgesia. Higher receptor affinity than most opioids.",
+    indications:["Opioid overdose (triad: respiratory depression, AMS, miosis)","Reversal of iatrogenic opioid respiratory depression","Empiric therapy in unexplained AMS"],
+    contras:["Known hypersensitivity (rare)","Caution in opioid-dependent patients — precipitates acute withdrawal (agitation, hypertensive emergency, pulmonary edema)"],
+    se:["Acute opioid withdrawal (N/V, diaphoresis, hypertension, agitation)","Re-narcotization when naloxone wears off (half-life shorter than most opioids)","Pulmonary edema (rare)"],
+    notes:"Titrate to respirations, NOT consciousness. Adult: 0.4–2 mg IV/IO/IM; 4 mg IN per nostril. May repeat q2–3 min. Half-life 30–90 min — re-dosing often needed. Monitor closely.", col:"#fb923c", bg:"#1a0500" },
+
+  { name:"Diphenhydramine", aka:"Benadryl", cat:"Antidote", cls:"H1 Antihistamine / Anticholinergic",
+    moa:"Competitively blocks H1 histamine receptors → reduces allergic response. Crosses blood-brain barrier → sedation and antiemesis. Strong anticholinergic activity.",
+    indications:["Mild-moderate allergic reaction (urticaria, pruritus)","Anaphylaxis adjunct — H1 blockade after epinephrine","Extrapyramidal reactions from antipsychotics (acute dystonia)","Nausea / motion sickness"],
+    contras:["Acute angle-closure glaucoma","Benign prostatic hypertrophy (urinary retention)","MAO inhibitor use","Neonates"],
+    se:["Sedation (potentiates all CNS depressants)","Dry mouth, urinary retention, constipation","Tachycardia","Paradoxical excitation in young children"],
+    notes:"25–50 mg IV/IM (adult). NOT first-line for anaphylaxis — epinephrine always first. Useful for urticaria and extrapyramidal reactions.", col:"#fb923c", bg:"#1a0500" },
+
+  // METABOLIC
+  { name:"Dextrose", aka:"D50W, D10W, D25W (peds)", cat:"Metabolic", cls:"Carbohydrate / Glucose Supplement",
+    moa:"Provides exogenous glucose directly into circulation → rapidly raises blood glucose → reverses hypoglycemia-induced cerebral dysfunction (brain's primary fuel is glucose).",
+    indications:["Symptomatic hypoglycemia (BGL <60–70 with symptoms)","AMS of unknown etiology — empiric therapy","Suspected hypoglycemia without IV access (use glucagon)"],
+    contras:["Confirmed hyperglycemia","Suspected CVA (large glucose load may worsen ischemic injury — controversial)","Caution: Wernicke's encephalopathy (give thiamine first)"],
+    se:["Hyperglycemia","Phlebitis and tissue necrosis if extravasation (hypertonic — caustic)","Hypokalemia at high doses"],
+    notes:"Adult: D50W 25 g (50 mL) IV push. Peds: D10W 5 mL/kg or D25W 2 mL/kg. D10W preferred in peds to reduce osmolality. Confirm IV patency — extravasation causes serious injury. Recheck BGL at 10 min.", col:"#fde68a", bg:"#1a1200" },
+
+  { name:"Glucagon", aka:"GlucaGen", cat:"Metabolic", cls:"Pancreatic Hormone / Hyperglycemic Agent",
+    moa:"Activates hepatic glucagon receptors → stimulates glycogenolysis and gluconeogenesis → raises blood glucose. Also positive inotrope/chronotrope via non-adrenergic cAMP pathway — useful in beta-blocker overdose.",
+    indications:["Hypoglycemia without IV/IO access","Beta-blocker overdose refractory to standard treatment","Calcium channel blocker overdose (adjunct)"],
+    contras:["Pheochromocytoma (may trigger catecholamine release)","Known hypersensitivity","Chronic alcoholism / starvation (depleted glycogen — reduced efficacy)"],
+    se:["Nausea / vomiting (reposition to prevent aspiration)","Tachycardia","Hyperglycemia"],
+    notes:"1 mg IM/SQ (peds: 0.5 mg or 0.02 mg/kg). Onset 10–15 min IM. Ineffective in glycogen-depleted states. Once conscious, give oral glucose.", col:"#fde68a", bg:"#1a1200" },
+
+  { name:"Magnesium Sulfate", aka:"MgSO₄, Mag", cat:"Metabolic", cls:"Electrolyte / Anticonvulsant / Antiarrhythmic",
+    moa:"Replaces magnesium deficit; competes with calcium at vascular smooth muscle → vasodilation; blocks NMDA receptors; inhibits neuromuscular junction; slows SA/AV node conduction.",
+    indications:["Eclampsia and severe pre-eclampsia (drug of choice)","Torsades de Pointes","Refractory VF/pVT with suspected hypomagnesemia","Severe asthma / status asthmaticus","Preterm labor — tocolytic"],
+    contras:["Significant renal failure (accumulation risk)","Heart block without pacemaker","Myasthenia gravis"],
+    se:["Hypotension","Respiratory depression and arrest (toxicity)","Loss of deep tendon reflexes (early toxicity warning)","Facial flushing and warmth","Cardiac arrest at very high serum levels"],
+    notes:"Eclampsia: 4–6 g IV over 15–20 min SLOWLY. Torsades: 1–2 g IV over 5–20 min. Monitor DTRs as toxicity marker. Antidote: calcium gluconate 1 g IV. Peds: 25–50 mg/kg IV (max 2 g).", col:"#fde68a", bg:"#1a1200" },
+
+  { name:"Ondansetron", aka:"Zofran", cat:"Metabolic", cls:"5-HT3 Serotonin Antagonist / Antiemetic",
+    moa:"Selectively blocks 5-HT3 serotonin receptors in the chemoreceptor trigger zone (CTZ) and peripheral vagal nerve terminals → interrupts vomiting reflex pathway.",
+    indications:["Nausea and vomiting (opioid-induced, GI, head trauma, vertigo)","Post-procedure nausea","Gastroenteritis"],
+    contras:["Known hypersensitivity","Concurrent QT-prolonging medications","Caution: congenital long QT syndrome"],
+    se:["Headache","QT prolongation (dose-dependent)","Constipation","Dizziness"],
+    notes:"4 mg IV/IM or ODT. Peds: 0.1 mg/kg IV (max 4 mg). Does NOT cause sedation — neurological assessment remains valid.", col:"#fde68a", bg:"#1a1200" },
+
+  { name:"Sodium Bicarbonate", aka:"NaHCO₃, Bicarb", cat:"Metabolic", cls:"Buffer / Alkalinizing Agent",
+    moa:"Provides bicarbonate ions → buffers excess hydrogen ions → raises blood pH. In TCA overdose, alkalinization increases protein binding of TCAs → reduces free toxic drug and narrows QRS.",
+    indications:["TCA overdose with wide QRS or arrhythmia","Severe metabolic acidosis pH <7.1 (per medical direction)","Hyperkalemia — temporizing (shifts K⁺ intracellularly)","Cardiac arrest with prolonged downtime (per medical direction)"],
+    contras:["Inadequate ventilation (produces CO₂ — worsens respiratory acidosis)","Metabolic alkalosis","Hypocalcemia"],
+    se:["Hypernatremia","Hypokalemia","Paradoxical intracellular acidosis","Metabolic alkalosis overshoot","Precipitates with calcium-containing solutions"],
+    notes:"1 mEq/kg IV bolus (adult: typically 50–100 mEq). NEVER mix in same line as calcium — immediate precipitation. TCA: target arterial pH 7.45–7.55.", col:"#fde68a", bg:"#1a1200" },
+
+  { name:"Calcium Chloride", aka:"CaCl₂", cat:"Metabolic", cls:"Electrolyte / Cardiac Membrane Stabilizer",
+    moa:"Raises ionized calcium → antagonizes hyperkalemia and calcium channel blocker effects on cardiac membrane potential. Restores membrane resting potential without reversing channel blockade directly.",
+    indications:["Hyperkalemia with cardiac manifestations (peaked T waves, wide QRS)","Calcium channel blocker overdose","Magnesium toxicity (antidote)","Fluoride poisoning"],
+    contras:["Digoxin toxicity (may cause fatal arrhythmia)","Hypercalcemia","Do NOT infuse with sodium bicarbonate in same line (precipitates)"],
+    se:["Bradycardia with rapid infusion","Severe tissue necrosis if extravasation","Hypercalcemia","Hypotension at high rates"],
+    notes:"1 g (10 mL of 10% solution) IV slowly over 2–5 min. Contains 3× more elemental calcium than calcium gluconate. Central line preferred — very irritating to peripheral veins.", col:"#fde68a", bg:"#1a1200" },
+
+  // OB
+  { name:"Oxytocin", aka:"Pitocin", cat:"OB", cls:"Uterotonic Hormone",
+    moa:"Binds uterine oxytocin receptors → stimulates uterine smooth muscle contractions → increases frequency and force. Requires delivery of placenta to avoid fetal hemodynamic effects.",
+    indications:["Postpartum hemorrhage after placenta delivery","Uterine atony unresponsive to uterine massage"],
+    contras:["Placenta NOT yet delivered — risk of fetal distress","Cardiovascular disease (vasodilatory hypotension)","Antepartum use in field (relative)"],
+    se:["Hypotension (rapid IV push — NEVER give as bolus)","Uterine tetany / hyperstimulation","Water intoxication (prolonged infusion)","Nausea"],
+    notes:"10–20 units IM OR 10–40 units in 1 L NS as IV infusion. NEVER rapid IV bolus. Confirm placenta delivered before administering.", col:"#f9a8d4", bg:"#1a0515" },
+];
+
+const MED_TERMS = [
+  { term:"ACS", cat:"Cardiovascular", def:"Acute Coronary Syndrome — umbrella term for sudden reduction in coronary blood flow: unstable angina, NSTEMI, and STEMI. All require immediate ASA and time-sensitive treatment." },
+  { term:"STEMI", cat:"Cardiovascular", def:"ST-Elevation Myocardial Infarction — complete coronary artery occlusion causing full-thickness (transmural) myocardial injury. Identified by ≥1 mm ST elevation in two contiguous leads. Time-critical reperfusion." },
+  { term:"NSTEMI", cat:"Cardiovascular", def:"Non-ST-Elevation MI — partial coronary occlusion with elevated troponin but no ST elevation on 12-lead. ST depression or T-wave inversions may be present." },
+  { term:"VF", cat:"Cardiovascular", def:"Ventricular Fibrillation — completely disorganized ventricular electrical activity with no effective cardiac output. Immediately life-threatening. Treatment: immediate defibrillation + CPR." },
+  { term:"VT", cat:"Cardiovascular", def:"Ventricular Tachycardia — ≥3 consecutive ventricular beats at >100 bpm. Wide-complex QRS (>0.12 sec). Can be with pulse (stable/unstable) or pulseless." },
+  { term:"pVT", cat:"Cardiovascular", def:"Pulseless Ventricular Tachycardia — VT without a palpable pulse. Treated identically to VF: immediate defibrillation." },
+  { term:"PEA", cat:"Cardiovascular", def:"Pulseless Electrical Activity — organized electrical rhythm without adequate mechanical cardiac output. Reversible causes: 5H/5T (hypovolemia, hypoxia, H⁺ acidosis, hypo/hyperkalemia, hypothermia; tension PTX, tamponade, toxins, thrombosis PE, thrombosis coronary)." },
+  { term:"SVT", cat:"Cardiovascular", def:"Supraventricular Tachycardia — rapid rhythm originating above the bundle of His. Typically narrow-complex, regular, HR 150–250 bpm. Most common type in EMS is AVNRT (AV nodal reentry)." },
+  { term:"ROSC", cat:"Cardiovascular", def:"Return of Spontaneous Circulation — reestablishment of a palpable pulse after cardiac arrest. Signs: organized rhythm, palpable pulse, possible purposeful movement, rising EtCO₂." },
+  { term:"RVI", cat:"Cardiovascular", def:"Right Ventricular Infarction — occurs with inferior STEMI (ST elevation II, III, aVF). Right side is preload-dependent: avoid nitroglycerin, morphine, diuretics. Give IV fluids." },
+  { term:"Preload", cat:"Cardiovascular", def:"Volume of blood filling the ventricle at end-diastole. Stretching force on myocardium before contraction (Frank-Starling law). Reduced by nitroglycerin, furosemide; increased by IV fluids." },
+  { term:"Afterload", cat:"Cardiovascular", def:"Resistance the ventricle must overcome to eject blood — primarily systemic vascular resistance. Elevated in hypertension, vasopressors. Reduced by vasodilators." },
+  { term:"5Hs and 5Ts", cat:"Cardiovascular", def:"Reversible causes of cardiac arrest. H: Hypovolemia, Hypoxia, H⁺ (acidosis), Hypo/Hyperkalemia, Hypothermia. T: Tension pneumothorax, Tamponade (cardiac), Toxins, Thrombosis (PE), Thrombosis (coronary/STEMI)." },
+  { term:"Beck's Triad", cat:"Cardiovascular", def:"Classic signs of cardiac tamponade: (1) hypotension, (2) muffled/distant heart sounds, (3) jugular venous distension (JVD). Pulsus paradoxus also classic." },
+  { term:"Pulsus Paradoxus", cat:"Cardiovascular", def:"Exaggerated drop of >10 mmHg in SBP during inspiration. Seen in cardiac tamponade and severe asthma/COPD. Caused by respiratory variation in ventricular filling." },
+  { term:"PAC", cat:"Cardiovascular", def:"Premature Atrial Contraction — early beat from an ectopic atrial focus. P-wave morphology differs from sinus P wave. Generally benign; monitor for frequency in ACS." },
+  { term:"PVC", cat:"Cardiovascular", def:"Premature Ventricular Contraction — early beat from a ventricular ectopic focus. Wide, bizarre QRS without preceding P wave. Concerning if: >6/min, runs of 2+ (couplets, triplets), or R-on-T." },
+  { term:"SBP", cat:"Vitals", def:"Systolic Blood Pressure — peak arterial pressure generated during ventricular contraction. Normal adult: 100–140 mmHg. <90 = hypotension (shock threshold); >180 = hypertensive urgency." },
+  { term:"DBP", cat:"Vitals", def:"Diastolic Blood Pressure — arterial pressure during ventricular relaxation. Normal adult: 60–90 mmHg. Reflects systemic vascular resistance." },
+  { term:"MAP", cat:"Vitals", def:"Mean Arterial Pressure — average arterial pressure during one cardiac cycle. Formula: DBP + ⅓(SBP − DBP). Target: ≥65 mmHg in septic shock; ≥70 for traumatic brain injury." },
+  { term:"SpO₂", cat:"Vitals", def:"Peripheral oxygen saturation via pulse oximetry. Estimates hemoglobin saturation. Normal ≥95%. Unreliable in: poor perfusion, CO poisoning, severe anemia, dark nail polish or varnish." },
+  { term:"EtCO₂", cat:"Vitals", def:"End-Tidal CO₂ — CO₂ at end of exhalation by capnography. Normal 35–45 mmHg. Confirms ETT placement. Monitors ventilation, circulation (↓ EtCO₂ in low CO), and detects ROSC (sudden rise)." },
+  { term:"BGL", cat:"Vitals", def:"Blood Glucose Level — capillary glucose by glucometer. Normal fasting: 70–110 mg/dL. <70 = hypoglycemia; >200 = hyperglycemia; >400 = critical. Always check in AMS." },
+  { term:"GCS", cat:"Neurological", def:"Glasgow Coma Scale — Eyes (1–4), Verbal (1–5), Motor (1–6). Max 15 = fully alert. ≤8 = severe impairment, consider airway. Serial GCS tracks trajectory over time." },
+  { term:"AMS", cat:"Neurological", def:"Altered Mental Status — any deviation from patient's baseline mentation. First check: BGL. Other causes: hypoxia, CVA, toxidrome, head trauma, sepsis, metabolic derangement." },
+  { term:"CVA", cat:"Neurological", def:"Cerebrovascular Accident (Stroke) — sudden neurological deficit from ischemia (thrombotic or embolic) or hemorrhage. Ischemic: tPA window 3–4.5 h from symptom onset. Time is brain." },
+  { term:"TIA", cat:"Neurological", def:"Transient Ischemic Attack — stroke-like symptoms resolving within 24 h (usually <1 h). High short-term stroke risk (up to 10% within 48 h). Treat as potential stroke in field." },
+  { term:"ICP", cat:"Neurological", def:"Intracranial Pressure — pressure inside the skull. Normal <15 mmHg. Elevated ICP → herniation. Signs: Cushing's triad, fixed/dilated pupil, decorticate/decerebrate posturing." },
+  { term:"Cushing's Triad", cat:"Neurological", def:"Late sign of severely elevated ICP with impending herniation: (1) hypertension with widened pulse pressure, (2) bradycardia, (3) irregular / agonal respirations. Immediate intervention required." },
+  { term:"Postictal", cat:"Neurological", def:"Post-seizure recovery phase: confusion, lethargy, AMS lasting minutes to hours. Patient gradually returns to baseline. Differentiate from new stroke or ongoing seizure." },
+  { term:"Status Epilepticus", cat:"Neurological", def:"Seizure lasting >5 minutes OR ≥2 seizures without full recovery between them. Medical emergency — the longer untreated, the harder to stop and greater neurological injury. First-line: benzodiazepine." },
+  { term:"AVPU", cat:"Neurological", def:"Rapid mental status scale: Alert, Verbal (responds to voice), Painful (responds to pain only), Unresponsive. P = approximately GCS 8. Use for rapid trending." },
+  { term:"SOB / Dyspnea", cat:"Respiratory", def:"Shortness of breath — subjective sensation of difficult, uncomfortable, or labored breathing. Assess objectively: respiratory rate, accessory muscle use, SpO₂, position of comfort (tripod = severe)." },
+  { term:"CPAP", cat:"Respiratory", def:"Continuous Positive Airway Pressure — non-invasive ventilation delivering constant pressure to recruit collapsed alveoli. Used in CHF pulmonary edema, COPD exacerbation. Contraindicated: vomiting, unable to cooperate, facial trauma." },
+  { term:"BVM", cat:"Respiratory", def:"Bag-Valve Mask — manual positive-pressure ventilation. Two-person technique (one seals mask, one squeezes bag) significantly improves seal and tidal volume delivery." },
+  { term:"ETT", cat:"Respiratory", def:"Endotracheal Tube — definitive airway placed through the glottis into the trachea. Confirm with: direct visualization of cords, EtCO₂ waveform, bilateral breath sounds, chest rise." },
+  { term:"RSI", cat:"Respiratory", def:"Rapid Sequence Intubation — simultaneous sedative + neuromuscular blocking agent to facilitate urgent ETT placement. Minimizes aspiration risk and time to definitive airway." },
+  { term:"PEEP", cat:"Respiratory", def:"Positive End-Expiratory Pressure — pressure maintained in airway at end of exhalation during ventilation. Prevents alveolar collapse. Optimal PEEP typically 5–10 cmH₂O." },
+  { term:"Wheeze", cat:"Respiratory", def:"High-pitched, musical expiratory sound from narrowed intrathoracic airways. Hallmark of bronchospasm (asthma, anaphylaxis, COPD). A silent chest in severe asthma means no air movement — emergent." },
+  { term:"Stridor", cat:"Respiratory", def:"High-pitched inspiratory sound from upper airway (larynx/trachea) obstruction. Causes: croup, epiglottitis, anaphylaxis, foreign body, post-extubation edema. Indicates critical narrowing." },
+  { term:"Crackles / Rales", cat:"Respiratory", def:"Discontinuous, non-musical lung sounds from collapsed or fluid-filled alveoli re-opening on inspiration. Fine crackles: pulmonary edema (CHF). Coarse: secretions, pneumonia." },
+  { term:"Diaphoresis", cat:"Assessment", def:"Profuse sweating — autonomic response. Commonly associated with MI, hypoglycemia, shock, sympathomimetic toxidrome, opioid withdrawal, severe pain. Always a significant finding." },
+  { term:"Pallor", cat:"Assessment", def:"Abnormal paleness from reduced peripheral perfusion, anemia, or vasovagal response. Check conjunctivae and palms in patients with darker skin tones." },
+  { term:"Cyanosis", cat:"Assessment", def:"Bluish-purple discoloration from deoxygenated hemoglobin >5 g/dL. Central (lips, tongue) = significant systemic hypoxia. Peripheral (fingertips only) may be cold-related." },
+  { term:"Mottling", cat:"Assessment", def:"Patchy, irregular skin discoloration (blotchy red/white/purple) from inadequate perfusion. Late sign of severe shock. Typically starts at knees and progresses toward trunk." },
+  { term:"JVD", cat:"Assessment", def:"Jugular Venous Distension — jugular veins distended >3 cm at 45° head elevation. Indicates elevated right heart filling pressure: tension pneumothorax, cardiac tamponade, right heart failure, RVI." },
+  { term:"Tracheal Deviation", cat:"Assessment", def:"Tracheal shift from midline away from affected side. Late sign of tension pneumothorax. Do NOT wait for this sign to treat suspected tension PTX — treat based on clinical presentation." },
+  { term:"SAMPLE", cat:"Assessment", def:"EMS history mnemonic: Signs/Symptoms, Allergies, Medications, Pertinent past medical history, Last oral intake (time and what), Events leading to emergency." },
+  { term:"OPQRST", cat:"Assessment", def:"Pain assessment mnemonic: Onset (when/how it started), Provocation/Palliation (better or worse with anything), Quality (describe the pain), Region/Radiation, Severity (0–10), Time (duration and changes)." },
+  { term:"DCAP-BTLS", cat:"Assessment", def:"Trauma physical exam mnemonic: Deformities, Contusions, Abrasions, Punctures/Penetrations, Burns, Tenderness, Lacerations, Swelling. Applied to each body region during rapid trauma assessment." },
+  { term:"Shock", cat:"Assessment", def:"Inadequate tissue perfusion and oxygen delivery. Types: Hypovolemic (blood/fluid loss), Cardiogenic (pump failure), Distributive (septic/anaphylactic/neurogenic), Obstructive (tension PTX, tamponade, massive PE)." },
+  { term:"Sepsis", cat:"Assessment", def:"Life-threatening organ dysfunction from dysregulated host response to infection. Signs: fever >38°C or <36°C, HR >90, RR >20, AMS, SBP <90. Early recognition and fluid resuscitation are critical." },
+  { term:"Toxidrome", cat:"Pharmacology", def:"Constellation of signs and symptoms characteristic of a specific class of toxin. Five classic EMS toxidromes: opioid, sympathomimetic, anticholinergic, cholinergic, sedative-hypnotic." },
+  { term:"Opioid Toxidrome", cat:"Pharmacology", def:"Classic triad: pinpoint miosis, respiratory depression (RR <12), decreased LOC. Skin may be cool and clammy. Bowel sounds decreased. Reversed by naloxone." },
+  { term:"Sympathomimetic Toxidrome", cat:"Pharmacology", def:"Tachycardia, hypertension, hyperthermia, mydriasis (dilated pupils), diaphoresis, agitation, psychosis. Caused by cocaine, methamphetamine, amphetamines, synthetic cathinones." },
+  { term:"Anticholinergic Toxidrome", cat:"Pharmacology", def:"Mnemonic — dry as a bone (anhidrosis), blind as a bat (mydriasis), red as a beet (flushing), mad as a hatter (AMS/delirium), hot as a hare (hyperthermia), fast as a fiddle (tachycardia). Causes: antihistamines, TCAs, jimsonweed." },
+  { term:"Cholinergic Toxidrome (SLUDGE)", cat:"Pharmacology", def:"Salivation, Lacrimation, Urination, Defecation, GI distress, Emesis — plus bradycardia, bronchospasm, bronchorrhea, miosis. From organophosphates, nerve agents. Treat: atropine + pralidoxime." },
+  { term:"Half-Life", cat:"Pharmacology", def:"Time for plasma drug concentration to decrease by 50%. Clinical relevance: naloxone half-life (~60 min) is shorter than most opioids — re-narcotization is a real risk requiring monitoring or repeat dosing." },
+  { term:"First-Pass Metabolism", cat:"Pharmacology", def:"Drug absorbed from GI tract passes through liver before reaching systemic circulation — significantly reduces bioavailability. Sublingual and rectal routes bypass first-pass. IV = 100% bioavailability." },
+  { term:"Tidal Volume", cat:"Respiratory", def:"Volume of air moved per breath. Normal adult: ~500 mL (6–8 mL/kg IBW). BVM target: ~6 mL/kg to avoid overinflation and gastric distension. Avoid over-ventilation — worsens cardiac output in arrest." },
+];
+
+function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
+  const t   = isDarkMode ? "#e2e8f0" : "#0f172a";
+  const mu  = isDarkMode ? "#8aa0c2" : "#4b5563";
+  const su  = isDarkMode ? "#0d1120" : "#ffffff";
+  const bd  = isDarkMode ? "#1a2338" : "#d1d5db";
+  const inp = isDarkMode ? "#090e1c" : "#f9fafb";
+
+  const [tab, setTab]            = React.useState("pharm");
+  const [q, setQ]                = React.useState("");
+  const [catFilter, setCatFilter]= React.useState("All");
+  const [expanded, setExpanded]  = React.useState(null);
+
+  const isGuest = authUser?.role === "Guest";
+
+  const PHARM_CATS = ["All","Cardiac","Respiratory","Analgesic","Sedation","Antidote","Metabolic","OB"];
+  const TERM_CATS  = ["All","Cardiovascular","Respiratory","Neurological","Assessment","Pharmacology","Vitals"];
+  const cats = tab === "pharm" ? PHARM_CATS : TERM_CATS;
+
+  const CAT_COLORS = {
+    Cardiac:"#f87171", Respiratory:"#86efac", Analgesic:"#fb923c",
+    Sedation:"#c084fc", Antidote:"#fde68a", Metabolic:"#38bdf8", OB:"#f9a8d4",
+    Cardiovascular:"#f87171", Neurological:"#a78bfa", Assessment:"#60a5fa",
+    Pharmacology:"#fb923c", Vitals:"#4ade80",
+  };
+
+  const filteredPharm = React.useMemo(() => {
+    let list = PHARM_DATA;
+    if(catFilter !== "All") list = list.filter(d => d.cat === catFilter);
+    if(q.trim()) {
+      const lq = q.toLowerCase();
+      list = list.filter(d =>
+        d.name.toLowerCase().includes(lq) ||
+        (d.aka||"").toLowerCase().includes(lq) ||
+        d.cls.toLowerCase().includes(lq) ||
+        d.moa.toLowerCase().includes(lq) ||
+        d.indications.some(i => i.toLowerCase().includes(lq))
+      );
+    }
+    return list;
+  }, [q, catFilter]);
+
+  const filteredTerms = React.useMemo(() => {
+    let list = MED_TERMS;
+    if(catFilter !== "All") list = list.filter(d => d.cat === catFilter);
+    if(q.trim()) {
+      const lq = q.toLowerCase();
+      list = list.filter(d =>
+        d.term.toLowerCase().includes(lq) ||
+        d.def.toLowerCase().includes(lq) ||
+        d.cat.toLowerCase().includes(lq)
+      );
+    }
+    return list;
+  }, [q, catFilter]);
+
+  return (
+    <div style={{paddingBottom:60}}>
+      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:mu,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:14}}>
+        📚 Reference Library
+      </div>
+
+      {isGuest && (
+        <div style={{background:isDarkMode?"#0d1120":"#f0f4ff",border:"1px solid #1e3a8a",borderRadius:12,padding:"22px 18px",marginBottom:16,textAlign:"center"}}>
+          <div style={{fontSize:28,marginBottom:8}}>🔒</div>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,color:"#60a5fa",marginBottom:6,letterSpacing:"0.06em"}}>PAID FEATURE</div>
+          <div style={{fontSize:13,color:mu,marginBottom:18,lineHeight:1.6}}>
+            The Reference Library — full pharmacology, mechanisms of action, and medical terminology — is included in the AEMT and Paramedic plans.
+          </div>
+          <button onClick={onUpgrade} style={{padding:"11px 28px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#0369a1,#0ea5e9)",color:"#fff",fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,cursor:"pointer",letterSpacing:"0.06em",boxShadow:"0 4px 12px rgba(14,165,233,.35)"}}>
+            View Plans →
+          </button>
+        </div>
+      )}
+
+      {/* Tab Toggle */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",background:"var(--c-nav)",border:`1px solid ${bd}`,borderRadius:10,padding:3,gap:3,marginBottom:12,opacity:isGuest?0.35:1,pointerEvents:isGuest?"none":"auto"}}>
+        {[["pharm","💊 Pharmacology"],["terms","📖 Med Terms"]].map(([k,l])=>(
+          <button key={k} onClick={()=>{setTab(k);setCatFilter("All");setExpanded(null);setQ("");}}
+            style={{padding:"9px 0",borderRadius:8,border:"none",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:700,letterSpacing:"0.04em",
+              background:tab===k?(isDarkMode?"#1a2338":"#d1d5db"):"transparent",
+              color:tab===k?t:mu,transition:"all 0.15s"}}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      <div style={{opacity:isGuest?0.35:1,pointerEvents:isGuest?"none":"auto"}}>
+        {/* Search */}
+        <div style={{position:"relative",marginBottom:10}}>
+          <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,pointerEvents:"none",color:mu}}>🔍</span>
+          <input type="text" value={q} onChange={e=>setQ(e.target.value)}
+            placeholder={tab==="pharm"?"Search drug, class, indication…":"Search term or definition…"}
+            style={{width:"100%",padding:"10px 34px 10px 34px",borderRadius:9,border:`1px solid ${bd}`,background:inp,color:t,fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box"}}/>
+          {q&&<button onClick={()=>setQ("")} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"transparent",border:"none",color:mu,cursor:"pointer",fontSize:14,padding:2}}>✕</button>}
+        </div>
+
+        {/* Category Filter Chips */}
+        <div style={{display:"flex",gap:5,overflowX:"auto",paddingBottom:4,marginBottom:12,scrollbarWidth:"none",WebkitOverflowScrolling:"touch"}}>
+          {cats.map(c=>{
+            const cc=CAT_COLORS[c]||"#60a5fa";
+            const active=catFilter===c;
+            return(
+              <button key={c} onClick={()=>{setCatFilter(c);setExpanded(null);}}
+                style={{flexShrink:0,padding:"5px 12px",borderRadius:20,border:`1px solid ${active?cc:bd}`,
+                  background:active?(isDarkMode?"#0d1120":"#e2e8f0"):"transparent",
+                  color:active?cc:mu,
+                  fontFamily:"'IBM Plex Mono',monospace",fontSize:9.5,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",transition:"all 0.12s"}}>
+                {c}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* PHARMACOLOGY CARDS */}
+        {tab==="pharm"&&(
+          filteredPharm.length===0
+          ? <div style={{textAlign:"center",color:mu,fontSize:12,padding:"36px 0",fontFamily:"'IBM Plex Mono',monospace"}}>No results for "{q}"</div>
+          : filteredPharm.map(drug=>{
+              const key=`ph-${drug.name}`;
+              const isOpen=expanded===key;
+              const cc=CAT_COLORS[drug.cat]||"#60a5fa";
+              return(
+                <div key={key} style={{marginBottom:7,borderRadius:11,border:`1px solid ${isOpen?cc:bd}`,overflow:"hidden",transition:"border-color 0.15s"}}>
+                  <button onClick={()=>setExpanded(isOpen?null:key)} style={{width:"100%",background:isOpen?drug.bg:su,padding:"13px 14px",display:"flex",alignItems:"center",gap:10,border:"none",cursor:"pointer",textAlign:"left",transition:"background 0.15s"}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:700,color:isOpen?cc:t,fontFamily:"'DM Sans',sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{drug.name}</div>
+                      <div style={{fontSize:9.5,color:mu,fontFamily:"'IBM Plex Mono',monospace",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{drug.aka}</div>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                      <span style={{background:isDarkMode?"#0d1120":"#f1f5f9",border:`1px solid ${cc}`,color:cc,borderRadius:5,padding:"2px 7px",fontFamily:"'IBM Plex Mono',monospace",fontSize:8,fontWeight:800}}>{drug.cat}</span>
+                      <span style={{color:mu,fontSize:10}}>{isOpen?"▲":"▼"}</span>
+                    </div>
+                  </button>
+                  {isOpen&&(
+                    <div style={{padding:"0 14px 16px",background:drug.bg,borderTop:`1px solid ${cc}25`}}>
+                      <div style={{background:"#00000025",borderRadius:7,padding:"8px 11px",marginTop:12,marginBottom:14}}>
+                        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:mu,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:3}}>Drug Class</div>
+                        <div style={{fontSize:12,color:t,fontWeight:600}}>{drug.cls}</div>
+                      </div>
+
+                      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:cc,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Mechanism of Action</div>
+                      <div style={{fontSize:12,color:t,lineHeight:1.65,marginBottom:14}}>{drug.moa}</div>
+
+                      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:"#4ade80",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Indications</div>
+                      <div style={{marginBottom:14}}>
+                        {drug.indications.map((ind,j)=>(
+                          <div key={j} style={{fontSize:12,color:t,lineHeight:1.6,paddingLeft:14,position:"relative"}}>
+                            <span style={{position:"absolute",left:2,color:"#4ade80",fontSize:10}}>▸</span>{ind}
+                          </div>
+                        ))}
+                      </div>
+
+                      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:"#fca5a5",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Contraindications</div>
+                      <div style={{marginBottom:14}}>
+                        {drug.contras.map((c,j)=>(
+                          <div key={j} style={{fontSize:12,color:"#fca5a5",lineHeight:1.6,paddingLeft:14,position:"relative"}}>
+                            <span style={{position:"absolute",left:2,fontSize:10}}>⚠</span>{c}
+                          </div>
+                        ))}
+                      </div>
+
+                      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:"#fdba74",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Side Effects</div>
+                      <div style={{fontSize:12,color:mu,lineHeight:1.6,marginBottom:14}}>{drug.se.join(" · ")}</div>
+
+                      <div style={{background:"#ffffff0d",borderRadius:9,padding:"11px 13px",border:`1px solid ${cc}35`}}>
+                        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:cc,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>⚕ EMS Clinical Notes</div>
+                        <div style={{fontSize:12,color:t,lineHeight:1.65}}>{drug.notes}</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+        )}
+
+        {/* MEDICAL TERMS */}
+        {tab==="terms"&&(
+          filteredTerms.length===0
+          ? <div style={{textAlign:"center",color:mu,fontSize:12,padding:"36px 0",fontFamily:"'IBM Plex Mono',monospace"}}>No results for "{q}"</div>
+          : filteredTerms.map(term=>{
+              const key=`tr-${term.term}`;
+              const isOpen=expanded===key;
+              const cc=CAT_COLORS[term.cat]||"#60a5fa";
+              return(
+                <div key={key} style={{marginBottom:6,borderRadius:10,border:`1px solid ${isOpen?cc:bd}`,overflow:"hidden",transition:"border-color 0.12s"}}>
+                  <button onClick={()=>setExpanded(isOpen?null:key)} style={{width:"100%",background:isOpen?(isDarkMode?"#0d1120":"#f0f4ff"):su,padding:"11px 14px",display:"flex",alignItems:"center",gap:10,border:"none",cursor:"pointer",textAlign:"left",transition:"background 0.12s"}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:800,color:isOpen?cc:t,fontFamily:"'IBM Plex Mono',monospace",marginBottom:isOpen?0:2}}>{term.term}</div>
+                      {!isOpen&&<div style={{fontSize:10,color:mu,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{term.def.slice(0,65)}…</div>}
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                      <span style={{border:`1px solid ${cc}`,color:cc,borderRadius:5,padding:"2px 6px",fontFamily:"'IBM Plex Mono',monospace",fontSize:8,fontWeight:700,whiteSpace:"nowrap"}}>{term.cat}</span>
+                      <span style={{color:mu,fontSize:10}}>{isOpen?"▲":"▼"}</span>
+                    </div>
+                  </button>
+                  {isOpen&&(
+                    <div style={{padding:"4px 14px 14px",background:isDarkMode?"#090e1c":"#f8fafc",borderTop:`1px solid ${cc}25`}}>
+                      <div style={{fontSize:12.5,color:t,lineHeight:1.7,paddingTop:8}}>{term.def}</div>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Keyword aliases for fuzzy CC matching
+const CC_KEYWORDS = {
+  "Chest Pain / ACS":["chest pain","chest pressure","chest tightness","chest discomfort","cp","mi","acs","stemi","nstemi","angina","cardiac","heart attack","arm pain","jaw pain","diaphoretic"],
+  "Cardiac Arrest":["arrest","cardiac arrest","pulseless","no pulse","cpr","code","down","flatline","unresponsive no pulse"],
+  "Symptomatic Bradycardia":["bradycardia","slow heart","slow pulse","low heart rate","bradycardia"],
+  "Palpitations / SVT":["palpitations","racing heart","fast heart","tachycardia","svt","flutter","afib","atrial","rapid pulse","heart racing"],
+  "Syncope":["syncope","passed out","fainted","fainting","blackout","lost consciousness","syncopal","fall unresponsive"],
+  "Shortness of Breath":["shortness of breath","sob","dyspnea","can't breathe","difficulty breathing","labored breathing","respiratory distress","breathing hard","short of breath"],
+  "Asthma / Bronchospasm":["asthma","bronchospasm","wheeze","wheezing","inhaler","albuterol","reactive airway"],
+  "COPD Exacerbation":["copd","emphysema","chronic bronchitis","copd flare","exacerbation"],
+  "Altered Mental Status":["ams","altered","confusion","confused","altered mental","not responding","lethargic","disoriented","unresponsive altered","altered level"],
+  "Seizure":["seizure","seizures","convulsion","shaking","postictal","epilepsy","epileptic","status epilepticus"],
+  "Stroke / CVA":["stroke","cva","tia","facial droop","slurred speech","one sided weakness","aphasia","paralysis","numbness face","facial weakness","face droop"],
+  "Diabetic Emergency / Hypoglycemia":["diabetic","diabetes","hypoglycemia","low blood sugar","low bgl","glucose low","dka","hyperglycemia","hypoglycemic","blood sugar"],
+  "Allergic Reaction / Anaphylaxis":["allergic","allergy","anaphylaxis","anaphylactic","hives","rash","swelling","angioedema","bee sting","epipen","allergic reaction"],
+  "Opioid Overdose":["opioid overdose","heroin","fentanyl","opioid","narcan","opiate","overdose opioid","drug overdose opioid","opioid od"],
+  "Overdose / Poisoning":["overdose","od","ingestion","poisoning","toxic","poison","pills","drug ingestion","substance","suicidal ingestion"],
+  "Trauma / Injury":["trauma","injury","injured","accident","mvc","mva","motor vehicle","car accident","gsw","gunshot","stabbing","assault","blunt trauma","penetrating"],
+  "Burns":["burn","burns","burned","fire","thermal","chemical burn","scald","scalding","smoke inhalation"],
+  "Hemorrhage / Bleeding":["bleeding","hemorrhage","blood loss","laceration","wound","cut","blood","massive hemorrhage","hemorrhagic"],
+  "Pain (General)":["pain","painful","hurts","aching","sore","generalized pain"],
+  "Abdominal Pain":["abdominal pain","abdominal","abdomen","stomach pain","belly pain","nausea","vomiting","n/v","nauseous","gi bleed","belly"],
+  "OB Emergency":["ob","obstetric","pregnancy","pregnant","labor","delivery","crowning","contractions","miscarriage","ectopic","birth","baby"],
+  "Behavioral / Psychiatric Emergency":["psychiatric","psych","behavioral","mental health","suicidal","homicidal","agitation","agitated","violent","combative","excited delirium","hallucinations","psychosis"],
+  "Fever / Sepsis":["fever","sepsis","septic","infection","febrile","temperature elevated","chills","rigors","hot","hypothermia"],
+};
+
+function matchCcInput(text) {
+  if(!text.trim()) return null;
+  const q = text.toLowerCase();
+  let best = null, bestScore = 0;
+  for(const [cc, kws] of Object.entries(CC_KEYWORDS)) {
+    let score = 0;
+    for(const kw of kws) {
+      if(q.includes(kw)) score += kw.split(" ").length * 10;
+    }
+    // Also score against the CC key itself
+    const ccLower = cc.toLowerCase();
+    for(const word of q.split(/\s+/)) {
+      if(word.length > 2 && ccLower.includes(word)) score += 5;
+    }
+    if(score > bestScore) { bestScore = score; best = cc; }
+  }
+  return bestScore >= 10 ? best : null;
+}
+
+function QuickIntakeModal({ isDarkMode, onStart, onCancel }) {
+  const [age, setAge]                   = useState("");
+  const [ageUnit, setAgeUnit]           = useState("yrs");
+  const [sex, setSex]                   = useState("");
+  const [weightLb, setWeightLb]         = useState("");
+  const [ccInput, setCcInput]           = useState("");
+  const [ccInputMatch, setCcInputMatch] = useState(null);
+  const [ccList, setCcList]             = useState([]); // [{raw, matched}]
+
+  const t   = isDarkMode ? "#e2e8f0" : "#0f172a";
+  const mu  = isDarkMode ? "#8aa0c2" : "#4b5563";
+  const su  = isDarkMode ? "#0d1120" : "#ffffff";
+  const bd  = isDarkMode ? "#1a2338" : "#d1d5db";
+  const inp = isDarkMode ? "#090e1c" : "#f9fafb";
+
+  const ageNum = parseInt(age, 10);
+  const isPeds = age !== "" && !isNaN(ageNum) && (ageUnit === "mos" || ageNum < 18);
+  const wLb    = parseFloat(weightLb) || 0;
+  const wKg    = wLb > 0 ? +(wLb / 2.2046).toFixed(1) : 0;
+
+  const handleCcInputChange = (val) => {
+    setCcInput(val);
+    setCcInputMatch(matchCcInput(val));
+  };
+
+  const addCc = () => {
+    const raw = ccInput.trim();
+    if (!raw) return;
+    const label = (ccInputMatch || raw).toLowerCase();
+    if (ccList.some(c => (c.matched || c.raw).toLowerCase() === label)) {
+      setCcInput(""); setCcInputMatch(null); return;
+    }
+    setCcList(p => [...p, { raw, matched: ccInputMatch }]);
+    setCcInput(""); setCcInputMatch(null);
+  };
+
+  const removeCc = (i) => setCcList(p => p.filter((_,idx) => idx !== i));
+
+  const canStart = ccList.length > 0 || ccInput.trim().length > 0;
+
+  const handleStart = () => {
+    if (!canStart) return;
+    let finalList = [...ccList];
+    if (ccInput.trim()) finalList = [...finalList, { raw: ccInput.trim(), matched: ccInputMatch }];
+    const firstMatched = finalList.find(c => c.matched)?.matched || null;
+    const ccDisplay = finalList.map(c => c.matched || c.raw).join(" / ");
+    onStart({ age: age.trim(), ageUnit, sex, cc: firstMatched || ccDisplay, hpi: ccDisplay, weightLb: wLb, weightKg: wKg, ccList: finalList });
+  };
+
+  const SYS_LABEL = { cardiac:"Cardiac", respiratory:"Respiratory", neuro:"Neuro", metabolic:"Metabolic", anaphylaxis:"Anaphylaxis", trauma:"Trauma", burns:"Burns", assess:"Assessment" };
+  const inputMatchInfo = ccInputMatch ? CC_DRUG_MAP[ccInputMatch] : null;
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.78)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:9999}}>
+      <div style={{width:"100%",maxWidth:480,background:su,borderRadius:"18px 18px 0 0",padding:"22px 18px 36px",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 -16px 48px rgba(0,0,0,.55)"}}>
+
+        {/* Header */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18}}>
+          <div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#38bdf8",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:3}}>New Patient Encounter</div>
+            <div style={{fontSize:19,fontWeight:800,color:t}}>Quick Intake</div>
+          </div>
+          <button onClick={onCancel} style={{background:"transparent",border:"none",color:mu,fontSize:22,cursor:"pointer",lineHeight:1,padding:"2px 6px"}}>✕</button>
+        </div>
+
+        {/* Age + Sex row */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+          <div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:700,color:mu,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Age</div>
+            <div style={{display:"flex",gap:6}}>
+              <input type="number" value={age} onChange={e=>setAge(e.target.value)} placeholder="e.g. 6" min={0} max={999}
+                style={{flex:1,padding:"10px 10px",borderRadius:9,border:`1px solid ${isPeds?"#38bdf8":bd}`,background:inp,color:t,fontSize:15,fontFamily:"'DM Sans',sans-serif",boxSizing:"border-box",outline:"none",minWidth:0}}/>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:3,flexShrink:0}}>
+                {[["yrs","Yrs"],["mos","Mos"]].map(([u,l])=>(
+                  <button key={u} onClick={()=>setAgeUnit(u)}
+                    style={{padding:"6px 4px",borderRadius:7,border:`1px solid ${ageUnit===u?"#38bdf8":bd}`,background:ageUnit===u?(isDarkMode?"#0c2a3e":"#dbeafe"):"transparent",color:ageUnit===u?"#38bdf8":mu,fontWeight:700,fontSize:10,cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",whiteSpace:"nowrap"}}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:700,color:mu,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Sex</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5}}>
+              {[["M","M"],["F","F"],["?","Unk"]].map(([v,l])=>(
+                <button key={v} onClick={()=>setSex(p=>p===v?"":v)}
+                  style={{padding:"9px 4px",borderRadius:8,border:`1px solid ${sex===v?"#38bdf8":bd}`,background:sex===v?(isDarkMode?"#0c2a3e":"#dbeafe"):"transparent",color:sex===v?"#38bdf8":mu,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace"}}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Peds weight */}
+        {isPeds&&(
+          <div style={{background:isDarkMode?"#050e1c":"#eff6ff",border:"1px solid #38bdf8",borderRadius:11,padding:"12px 14px",marginBottom:14}}>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#38bdf8",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>
+              👶 Pediatric Patient — Enter Weight
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <div style={{flex:1}}>
+                <input type="number" value={weightLb} onChange={e=>setWeightLb(e.target.value)}
+                  placeholder="Weight in lbs" min={0} max={220} step={0.1}
+                  style={{width:"100%",padding:"11px 12px",borderRadius:9,border:`1px solid ${wLb>0?"#4ade80":bd}`,background:inp,color:t,fontSize:16,fontFamily:"'DM Sans',sans-serif",boxSizing:"border-box",outline:"none"}}/>
+              </div>
+              <div style={{textAlign:"right",flexShrink:0}}>
+                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:14,fontWeight:800,color:wKg>0?"#4ade80":mu,lineHeight:1}}>
+                  {wKg>0?`${wKg} kg`:"— kg"}
+                </div>
+                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:mu,marginTop:3}}>auto-converted</div>
+              </div>
+            </div>
+            {wLb===0&&(
+              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:isDarkMode?"#1d4ed8":"#2563eb",marginTop:7}}>
+                Weight required for peds dosing — enter above or estimate via Broselow/Handtevy.
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Chief Complaints — multi-add */}
+        <div style={{marginBottom:12}}>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:700,color:mu,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6,display:"flex",alignItems:"center",gap:8}}>
+            <span>Chief Complaint(s) <span style={{color:"#ef4444"}}>*</span></span>
+            {ccList.length > 0 && (
+              <span style={{color:"#4ade80",fontWeight:800}}>{ccList.length} added</span>
+            )}
+          </div>
+          {/* Input + Add */}
+          <div style={{display:"flex",gap:8}}>
+            <input
+              value={ccInput}
+              onChange={e=>handleCcInputChange(e.target.value)}
+              onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault(); addCc(); } }}
+              placeholder="Type complaint and press Enter or tap + Add…"
+              autoFocus
+              style={{flex:1,padding:"10px 12px",borderRadius:9,border:`1px solid ${inputMatchInfo?inputMatchInfo.color:bd}`,background:inp,color:t,fontSize:13,fontFamily:"'DM Sans',sans-serif",boxSizing:"border-box",outline:"none",transition:"border-color 0.18s",minWidth:0}}
+            />
+            <button onClick={addCc} disabled={!ccInput.trim()}
+              style={{padding:"10px 14px",borderRadius:9,border:`1px solid ${ccInput.trim()?"#38bdf8":bd}`,background:ccInput.trim()?(isDarkMode?"#0c2a3e":"#dbeafe"):"transparent",color:ccInput.trim()?"#38bdf8":mu,fontWeight:700,fontSize:12,cursor:ccInput.trim()?"pointer":"not-allowed",fontFamily:"'IBM Plex Mono',monospace",whiteSpace:"nowrap",flexShrink:0}}>
+              + Add
+            </button>
+          </div>
+          {/* Live match hint */}
+          {inputMatchInfo && ccInput.trim() && (
+            <div style={{marginTop:6,padding:"6px 10px",borderRadius:7,background:`${inputMatchInfo.color}12`,border:`1px solid ${inputMatchInfo.color}33`,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+              <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,fontWeight:800,color:inputMatchInfo.color,textTransform:"uppercase"}}>Match:</span>
+              <span style={{fontSize:11,fontWeight:700,color:t}}>{ccInputMatch}</span>
+              <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,padding:"1px 5px",borderRadius:3,background:`${inputMatchInfo.color}22`,color:inputMatchInfo.color,border:`1px solid ${inputMatchInfo.color}44`,textTransform:"uppercase"}}>{SYS_LABEL[inputMatchInfo.sys]||inputMatchInfo.sys}</span>
+            </div>
+          )}
+          {ccInput.trim().length > 3 && !inputMatchInfo && (
+            <div style={{fontSize:10,color:mu,marginTop:5,fontFamily:"'IBM Plex Mono',monospace"}}>
+              No protocol match — will add as free-text CC.
+            </div>
+          )}
+        </div>
+
+        {/* Added CC cards */}
+        {ccList.length > 0 && (
+          <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
+            {ccList.map((cc,i) => {
+              const info  = cc.matched ? CC_DRUG_MAP[cc.matched] : null;
+              const color = info?.color || (isDarkMode ? "#4b5563" : "#9ca3af");
+              return (
+                <div key={i} style={{borderRadius:9,border:`1px solid ${color}33`,borderLeft:`3px solid ${color}`,background:isDarkMode?"#060f1e":"#f8fafc",padding:"10px 12px"}}>
+                  <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap"}}>
+                        <span style={{fontSize:13,fontWeight:700,color:t,lineHeight:1.2}}>{cc.matched || cc.raw}</span>
+                        {info ? (
+                          <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,fontWeight:800,padding:"2px 6px",borderRadius:4,background:`${color}20`,color,border:`1px solid ${color}44`,textTransform:"uppercase",flexShrink:0}}>{SYS_LABEL[info.sys]||info.sys}</span>
+                        ) : (
+                          <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,fontWeight:800,padding:"2px 6px",borderRadius:4,background:isDarkMode?"#1e293b":"#f1f5f9",color:mu,border:`1px solid ${bd}`,textTransform:"uppercase",flexShrink:0}}>Free Text</span>
+                        )}
+                      </div>
+                      {info && (
+                        <>
+                          <div style={{display:"flex",flexWrap:"wrap",gap:3,marginBottom:4}}>
+                            {info.drugs.slice(0,3).map(d=>(
+                              <span key={d} style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,padding:"1px 6px",borderRadius:3,background:`${color}15`,color,border:`1px solid ${color}30`}}>{d}</span>
+                            ))}
+                          </div>
+                          <div style={{fontSize:9,color:mu,lineHeight:1.5}}>{info.hint}</div>
+                        </>
+                      )}
+                    </div>
+                    <button onClick={()=>removeCc(i)}
+                      style={{flexShrink:0,background:"transparent",border:"none",color:mu,fontSize:18,cursor:"pointer",lineHeight:1,padding:"0 2px",marginTop:1}}>
+                      ×
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <button onClick={handleStart} disabled={!canStart}
+          style={{width:"100%",height:52,borderRadius:12,border:"none",background:canStart?"linear-gradient(135deg,#0369a1,#0ea5e9)":"#1a2338",color:canStart?"#fff":(isDarkMode?"#374151":"#9ca3af"),fontWeight:800,fontSize:16,cursor:canStart?"pointer":"not-allowed",fontFamily:"'DM Sans',sans-serif",marginTop:4,letterSpacing:"0.02em",transition:"all 0.18s"}}>
+          🚑  Start Call →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ShiftHomeScreen({ authUser, isDarkMode, onNewPatient, onNavigate, callStartTs, patient, tick, totalDoses, onJumpDrug }) {
+  const hour      = new Date().getHours();
+  const timeEmoji = hour < 6 ? "🌙" : hour < 12 ? "☀️" : hour < 18 ? "🌤" : "🌙";
+  const greeting  = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const dateStr   = new Date().toLocaleDateString([],{weekday:"long",month:"short",day:"numeric"});
+
+  const t    = isDarkMode ? "#e2e8f0" : "#0f172a";
+  const mu   = isDarkMode ? "#8aa0c2" : "#4b5563";
+  const su   = isDarkMode ? "#0d1120" : "#fbf7f0";
+  const bd   = isDarkMode ? "#1a2338" : "#c8bfb4";
+  const card = isDarkMode ? "#080c18" : "#f0e9df";
+
+  const isCallActive = !!callStartTs;
+  const certLabel    = authUser?.certLevel || "Provider";
+  const hasPatient   = isCallActive && (patient.age || patient.sex || patient.cc);
+
+  const TOOLS = [
+    { label:"Drugs",      icon:"💊", s:"drugs",       color:"#60a5fa" },
+    { label:"Protocols",  icon:"📋", s:"protocols",   color:"#c084fc" },
+    { label:"Assess",     icon:"🩺", s:"assessments", color:"#22d3ee" },
+    { label:"Arrest",     icon:"❤", s:"arrest",      color:"#f87171" },
+    { label:"Med Log",    icon:"⏱", s:"medlog",      color:"#fb923c" },
+    { label:"Narrative",  icon:"✨", s:"epcr",        color:"#a78bfa" },
+    { label:"Reference",  icon:"📚", s:"ref",         color:"#38bdf8" },
+  ];
+
+  const SPOTLIGHTS = [
+    { cc:"Chest Pain / ACS",               icon:"💙", color:"#3b82f6" },
+    { cc:"Cardiac Arrest",                  icon:"❤",  color:"#ef4444" },
+    { cc:"Shortness of Breath",             icon:"🫁", color:"#22c55e" },
+    { cc:"Altered Mental Status",           icon:"🧠", color:"#a855f7" },
+    { cc:"Seizure",                         icon:"⚡", color:"#a855f7" },
+    { cc:"Allergic Reaction / Anaphylaxis", icon:"⚠️", color:"#ef4444" },
+    { cc:"Trauma / Injury",                 icon:"🩹", color:"#f59e0b" },
+    { cc:"Opioid Overdose",                 icon:"💊", color:"#e11d48" },
+    { cc:"Diabetic Emergency / Hypoglycemia",icon:"🩸",color:"#f97316" },
+    { cc:"Stroke / CVA",                    icon:"🧠", color:"#a855f7" },
+    { cc:"OB Emergency",                    icon:"👶", color:"#ec4899" },
+    { cc:"Fever / Sepsis",                  icon:"🌡", color:"#f97316" },
+  ];
+  const spot     = SPOTLIGHTS[new Date().getDate() % SPOTLIGHTS.length];
+  const spotInfo = CC_DRUG_MAP[spot.cc];
+
+  return (
+    <div style={{padding:"20px 0 48px"}}>
+
+      {/* Header — greeting + status inline */}
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:20}}>
+        <div>
+          <div style={{fontSize:11,color:mu,fontFamily:"'IBM Plex Mono',monospace",marginBottom:4}}>{timeEmoji} {dateStr}</div>
+          <div style={{fontSize:23,fontWeight:800,color:t,lineHeight:1.15}}>{greeting},<br/>{(authUser?.name||"Provider").split(" ")[0]}.</div>
+        </div>
+        <div style={{textAlign:"right",flexShrink:0,paddingTop:2}}>
+          <div style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 10px",borderRadius:20,
+            background:isCallActive?(isDarkMode?"#071a0e":"#dcfce7"):(isDarkMode?"#080c18":"#f0e9df"),
+            border:`1px solid ${isCallActive?"#14532d":bd}`}}>
+            <div style={{width:7,height:7,borderRadius:"50%",background:isCallActive?"#4ade80":"#22c55e"}} />
+            <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,
+              color:isCallActive?"#4ade80":isDarkMode?"#38bdf8":"#1d4ed8"}}>
+              {isCallActive?"ON CALL":"READY"}
+            </span>
+          </div>
+          <div style={{fontSize:10,color:mu,fontFamily:"'IBM Plex Mono',monospace",marginTop:4}}>{certLabel}</div>
+          {totalDoses>0&&<div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:"#fb923c",marginTop:2,fontWeight:700}}>{totalDoses} dose{totalDoses!==1?"s":""} given</div>}
+        </div>
+      </div>
+
+      {/* Active patient card */}
+      {hasPatient&&(
+        <div style={{background:isDarkMode?"#071a0e":"#dcfce7",border:"1px solid #14532d",borderRadius:12,padding:"12px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:16,animation:"pulse 1.5s ease-in-out infinite",display:"inline-block"}}>🟢</span>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,color:"#4ade80"}}>ACTIVE PATIENT</div>
+            <div style={{fontSize:13,color:"#86efac",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:600}}>
+              {patient.cc||"No CC"}{patient.age?` · ${patient.age}yo`:""}{patient.sex?` ${patient.sex}`:""}
+            </div>
+          </div>
+          <button onClick={()=>onNavigate("epcr")} style={{padding:"7px 11px",borderRadius:8,border:"1px solid #14532d",background:"transparent",color:"#4ade80",fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap"}}>Narrative →</button>
+        </div>
+      )}
+
+      {/* New Patient CTA */}
+      <button onClick={onNewPatient}
+        style={{width:"100%",height:62,borderRadius:14,border:"none",background:"linear-gradient(135deg,#0369a1,#0ea5e9)",color:"#fff",fontWeight:800,fontSize:17,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginBottom:24,display:"flex",alignItems:"center",justifyContent:"center",gap:10,boxShadow:"0 6px 20px rgba(14,165,233,.35)",letterSpacing:"0.02em",transition:"all 0.18s"}}>
+        <span style={{fontSize:22}}>🚑</span>New Patient
+      </button>
+
+      {/* Tools — horizontal scroll row */}
+      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:mu,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>Tools</div>
+      <div style={{display:"flex",gap:10,overflowX:"auto",paddingBottom:8,marginBottom:22,scrollbarWidth:"none",msOverflowStyle:"none"}}>
+        {TOOLS.map(({label,icon,s,color})=>(
+          <button key={s} onClick={()=>onNavigate(s)}
+            style={{flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:6,padding:"14px 10px",borderRadius:14,border:`1px solid ${bd}`,background:su,cursor:"pointer",minWidth:68,transition:"all 0.1s"}}>
+            <span style={{fontSize:22,lineHeight:1}}>{icon}</span>
+            <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:700,color,whiteSpace:"nowrap"}}>{label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Protocol Spotlight */}
+      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:mu,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>Protocol Spotlight</div>
+      <div style={{background:card,border:`1px solid ${bd}`,borderRadius:14,overflow:"hidden",marginBottom:22,cursor:"pointer"}}
+        onClick={()=>onNavigate(spotInfo?`protocols:${spotInfo.sys}`:"protocols")}>
+        <div style={{background:`linear-gradient(135deg,${spot.color}22,${spot.color}08)`,borderBottom:`1px solid ${spot.color}33`,padding:"14px 16px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:22}}>{spot.icon}</span>
+            <div>
+              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,fontWeight:800,color:spot.color,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:3}}>Today's Focus</div>
+              <div style={{fontSize:15,fontWeight:800,color:t}}>{spot.cc}</div>
+            </div>
+          </div>
+        </div>
+        {spotInfo&&(
+          <div style={{padding:"12px 16px"}}>
+            <div style={{fontSize:11,color:mu,lineHeight:1.6,marginBottom:10}}>{spotInfo.hint}</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+              {spotInfo.drugs.slice(0,3).map(d=>(
+                <button key={d} onClick={e=>{e.stopPropagation();onJumpDrug&&onJumpDrug(d);}}
+                  style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,padding:"3px 8px",borderRadius:5,cursor:"pointer",
+                    background:`${spot.color}18`,color:spot.color,border:`1px solid ${spot.color}33`}}>{d}</button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Secondary: Plans + Tour */}
+      <div style={{display:"flex",gap:8}}>
+        {[["pricing","💳","Plans"],["__tour","🗺","Tour"]].map(([s,icon,label])=>(
+          <button key={s} onClick={()=>onNavigate(s)}
+            style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"10px 8px",borderRadius:11,border:`1px solid ${bd}`,background:su,color:mu,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,cursor:"pointer",transition:"all 0.1s"}}>
+            <span style={{fontSize:15,lineHeight:1}}>{icon}</span>{label}
+          </button>
+        ))}
+      </div>
+
+    </div>
+  );
+}
+
+function WelcomeScreen({ isDarkMode, authUser, onContinue }) {
+  const [agreed, setAgreed] = React.useState(false);
+  const bg   = isDarkMode ? "#060a15" : "#f4efe7";
+  const text  = isDarkMode ? "#e2e8f0" : "#0f172a";
+  const muted = isDarkMode ? "#8aa0c2" : "#374151";
+  const card  = isDarkMode ? "#0d1120" : "#ede7dc";
+  const cardBorder = isDarkMode ? "#1a2338" : "#c5b9a8";
+  const firstName = authUser?.name?.split(" ")[0] || "Provider";
+
+  const features = [
+    ["Drug Reference",     "Dosing, contraindications, and warnings for common ALS/BLS medications — filtered to your cert level."],
+    ["Live Pre-Check",     "Vital sign screening with automatic block/warn triggers run before each dose is given."],
+    ["Medication Log",     "Timestamped administration log auto-captured with every dose given during the call."],
+    ["Protocol Companion", "Cardiac, trauma, OB, and pediatric protocol guides with embedded clinical cues."],
+    ["AI Narrative",       "Auto-populated PCR narrative generated from your live call data — review, edit, copy, and paste into your agency ePCR."],
+  ];
+
+  return (
+    <>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}body{background:${bg}}`}</style>
+      <main style={{minHeight:"100vh",background:bg,color:text,fontFamily:"'DM Sans',sans-serif",display:"flex",justifyContent:"center"}}>
+        <div style={{width:"100%",maxWidth:480,minHeight:"100vh",display:"flex",flexDirection:"column"}}>
+
+          <div style={{width:"100%",height:260,overflow:"hidden",position:"relative",flexShrink:0}}>
+            <img src="/login-screen.png" alt="R.O.M.A.N. EMS companion" style={{width:"100%",height:"100%",objectFit:"cover",objectPosition:"top center",display:"block"}} />
+            <div style={{position:"absolute",inset:0,background:`linear-gradient(to bottom, transparent 40%, ${bg} 100%)`}} />
+          </div>
+
+          <div style={{flex:1,padding:"4px 20px 32px",display:"flex",flexDirection:"column"}}>
+            <div style={{marginBottom:20}}>
+              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,textTransform:"uppercase",letterSpacing:1.4,color:"#14b8a6",marginBottom:8}}>R.O.M.A.N. · EMS Drug Reference</div>
+              <h1 style={{fontSize:30,fontWeight:800,lineHeight:1.1,color:text,margin:0}}>Welcome back,<br />{firstName}.</h1>
+              <p style={{fontSize:14,lineHeight:1.6,color:muted,marginTop:10}}>
+                R.O.M.A.N. is your field-side clinical decision support tool — built for ALS/BLS providers on the call.
+              </p>
+            </div>
+
+            <div style={{display:"grid",gap:9,marginBottom:20}}>
+              {features.map(([title, desc]) => (
+                <div key={title} style={{display:"flex",gap:12,alignItems:"flex-start",background:card,border:`1px solid ${cardBorder}`,borderRadius:8,padding:"11px 13px"}}>
+                  <span style={{color:"#14b8a6",fontSize:16,flexShrink:0,marginTop:1}}>›</span>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:700,color:text,marginBottom:2}}>{title}</div>
+                    <div style={{fontSize:12,color:muted,lineHeight:1.5}}>{desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Terms & Conditions */}
+            <div style={{marginBottom:16}}>
+              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:1.2,color:isDarkMode?"#475569":"#6b7280",marginBottom:8}}>Terms &amp; Conditions</div>
+              <div style={{background:isDarkMode?"#080c18":"#f0e9df",border:`1px solid ${cardBorder}`,borderRadius:8,padding:"12px 14px",height:180,overflowY:"auto",marginBottom:12}}>
+                <p style={{fontSize:11.5,color:isDarkMode?"#64748b":"#6b7280",lineHeight:1.65,margin:0}}>
+                  <strong style={{color:isDarkMode?"#94a3b8":"#374151",display:"block",marginBottom:6}}>1. Clinical Disclaimer</strong>
+                  R.O.M.A.N. (Rapid On-Scene Medical AI Navigator) is a clinical reference and decision-support tool intended solely to assist licensed EMS providers. It does not replace the judgment of a qualified medical professional. All clinical decisions must be made in accordance with your agency's standing orders, local protocols, and the direction of your medical director.
+                </p>
+                <p style={{fontSize:11.5,color:isDarkMode?"#64748b":"#6b7280",lineHeight:1.65,margin:"12px 0 0"}}>
+                  <strong style={{color:isDarkMode?"#94a3b8":"#374151",display:"block",marginBottom:6}}>2. Scope of Use</strong>
+                  This application is designed for use by certified Emergency Medical Technicians (EMTs), Advanced EMTs (AEMTs), and Paramedics operating within their licensed scope of practice. Unauthorized use by uncertified individuals is strictly prohibited. Drug dosing, contraindication flags, and clinical guidance within this app are based on nationally recognized guidelines (GA SOP-2024, NASEMSO v3, AHA/AAP 2025 PALS) and are subject to change.
+                </p>
+                <p style={{fontSize:11.5,color:isDarkMode?"#64748b":"#6b7280",lineHeight:1.65,margin:"12px 0 0"}}>
+                  <strong style={{color:isDarkMode?"#94a3b8":"#374151",display:"block",marginBottom:6}}>3. No Liability</strong>
+                  The developers and maintainers of R.O.M.A.N. assume no liability for clinical outcomes resulting from use or misuse of information provided within this application. Users accept full professional and legal responsibility for all clinical decisions made while using this tool.
+                </p>
+                <p style={{fontSize:11.5,color:isDarkMode?"#64748b":"#6b7280",lineHeight:1.65,margin:"12px 0 0"}}>
+                  <strong style={{color:isDarkMode?"#94a3b8":"#374151",display:"block",marginBottom:6}}>4. Data & Privacy</strong>
+                  Patient data entered into R.O.M.A.N. is stored locally on your device and is not transmitted to external servers unless Firebase sync is explicitly enabled. You are responsible for ensuring that any patient information entered complies with applicable HIPAA regulations and your agency's data handling policies.
+                </p>
+                <p style={{fontSize:11.5,color:isDarkMode?"#64748b":"#6b7280",lineHeight:1.65,margin:"12px 0 0"}}>
+                  <strong style={{color:isDarkMode?"#94a3b8":"#374151",display:"block",marginBottom:6}}>5. Updates & Accuracy</strong>
+                  Clinical guidelines and drug protocols evolve. R.O.M.A.N. is updated on a best-effort basis but may not immediately reflect the most current evidence-based recommendations. Always verify critical dosing information against your agency's current standing orders before administration.
+                </p>
+              </div>
+
+              {/* Acknowledgment checkbox */}
+              <label style={{display:"flex",alignItems:"flex-start",gap:11,cursor:"pointer",userSelect:"none"}}>
+                <div
+                  onClick={()=>setAgreed(v=>!v)}
+                  style={{
+                    width:20,height:20,borderRadius:5,flexShrink:0,marginTop:1,
+                    border:`2px solid ${agreed?"#14b8a6":isDarkMode?"#2a3a54":"#9a9286"}`,
+                    background:agreed?"#14b8a6":"transparent",
+                    display:"flex",alignItems:"center",justifyContent:"center",
+                    transition:"all 0.18s",cursor:"pointer",
+                  }}
+                >
+                  {agreed && <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="#042f2e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                </div>
+                <span style={{fontSize:13,color:muted,lineHeight:1.5}}>
+                  I have read and agree to the Terms &amp; Conditions. I understand that R.O.M.A.N. is a reference tool only and does not replace my agency's protocols or medical director guidance.
+                </span>
+              </label>
+            </div>
+
+            <button
+              onClick={agreed ? onContinue : undefined}
+              style={{
+                height:52,borderRadius:10,fontFamily:"'DM Sans',sans-serif",
+                border:agreed?"1px solid rgba(125,249,255,.6)":"1px solid transparent",
+                background:agreed?"linear-gradient(135deg,#0f766e,#0284c7)":isDarkMode?"#1a2338":"#c5b9a8",
+                color:agreed?"#fff":isDarkMode?"#2a3a54":"#8a9286",
+                fontWeight:800,fontSize:16,letterSpacing:"0.01em",
+                cursor:agreed?"pointer":"not-allowed",
+                boxShadow:agreed?"0 12px 30px rgba(20,184,166,.22)":"none",
+                transition:"all 0.2s",
+              }}
+            >
+              Enter App
+            </button>
+          </div>
+
+        </div>
+      </main>
+    </>
+  );
+}
+
 function getCertWarnings(user){
   if(!user || ["Guest","Student","PaidGuest"].includes(user.role)) return [];
   const p = user.profile || {};
@@ -6347,8 +8559,10 @@ export default function App(){
     const paid=getPaidAccess();
     if(paid) return paid.certLevel ? "app" : "purchase24hr";
     const saved=localStorage.getItem("medic-ai-user");
-    try { return saved && JSON.parse(saved) ? "app" : "home"; }
-    catch { return "home"; }
+    try { if(saved && JSON.parse(saved)) return "app"; } catch {}
+    // Show permission screen on very first launch only
+    if(!localStorage.getItem("roman-perms-asked")) return "permissions";
+    return "home";
   });
   const[authUser,setAuthUser]=useState(()=>{
     if(typeof window==="undefined") return null;
@@ -6379,6 +8593,7 @@ export default function App(){
   const[reChecks,setReChecks]=useState({});
   const[tick,setTick]=useState(0);
   const[screen,setScreen]=useState("home");
+  const[checkoutPlan,setCheckoutPlan]=useState({planKey:null,billing:"monthly"});
   const[navOpen,setNavOpen]=useState(false);
   const[sysDdOpen,setSysDdOpen]=useState(false);
   const[vitalsEntries,setVitalsEntries]=useState([]);
@@ -6391,13 +8606,14 @@ export default function App(){
     patientType:null  // "adult" | "infant" | "child"
   });
   const[burnMaps,setBurnMaps]=useState({ adult:{}, peds:{} });
-  const[patient,setPatient]=useState({
-    run:"",unit:"",provider:"",
-    name:"",age:"",sex:"",
-    allergies:"",meds:"",
-    cc:"",hpi:"",pmh:"",
-    interventions:"",response:"",dispo:""
-  });
+  const[patient,setPatient]=useState({ age:"", sex:"", cc:"" });
+  const[callStartTs,setCallStartTs]=useState(null);
+  const[showQuickIntake,setShowQuickIntake]=useState(false);
+  const[protocolInitSys,setProtocolInitSys]=useState("assess");
+  const[showTour,setShowTour]=useState(false);
+  const[tourStep,setTourStep]=useState(0);
+  const[showEndCallModal,setShowEndCallModal]=useState(false);
+  const[showNewCallWarning,setShowNewCallWarning]=useState(false);
 
   const CERT_SCOPE_MAP={ EMT:"EMT", AEMT:"AEMT", Paramedic:"Medic" };
 
@@ -6405,10 +8621,13 @@ export default function App(){
     setAuthUser(user);
     const noSave=["Guest","Student","PaidGuest"];
     if(!noSave.includes(user.role)) localStorage.setItem("medic-ai-user", JSON.stringify(user));
-    setPatient(p=>p.provider ? p : { ...p, provider:user.name });
     if(user.certLevel) setScope(CERT_SCOPE_MAP[user.certLevel] || "all");
-    setScreen("drugs");
-    setAppView("app");
+    // Ask for notification permission + unlock audio — login button tap is the required user gesture on iOS
+    _unlockAudio();
+    if('Notification' in window && Notification.permission==='default'){
+      Notification.requestPermission();
+    }
+    setAppView("welcome");
   },[]);
 
   const handleHomeLogin=useCallback(()=>{
@@ -6525,7 +8744,11 @@ export default function App(){
   const findDrugLocation=useCallback((name)=>DRUG_LOCATION_MAP.get(name)||null,[]);
 
   const handlePillClick=useCallback((name)=>{
-    const loc=findDrugLocation(name);
+    // Prefer the drug card that matches the current mode; fall back to whichever bank has it
+    const loc=(mode==="peds"
+      ? (DRUG_LOC_PEDS.get(name)||DRUG_LOC_ADULT.get(name))
+      : (DRUG_LOC_ADULT.get(name)||DRUG_LOC_PEDS.get(name))
+    );
     if(!loc) return;
     setScreen("drugs");
     setMode(loc.mode);
@@ -6534,10 +8757,132 @@ export default function App(){
     clearTimeout(highlightTimerRef.current);
     setHighlightDrug(name);
     highlightTimerRef.current=setTimeout(()=>setHighlightDrug(null), 3000);
-  },[findDrugLocation]);
+  },[mode]);
 
   useEffect(()=>{const id=setInterval(()=>setTick(t=>t+1),1000);return()=>clearInterval(id);},[]);
   useEffect(()=>setSearch(""),[mode,aSys,pSys]);
+
+
+  const wakeLockRef=useRef(null);
+  const soundedRef=useRef({});
+
+  // ── Service worker registration ──────────────────────────────────────
+  useEffect(()=>{
+    if('serviceWorker' in navigator){
+      navigator.serviceWorker.register('/sw.js',{scope:'/'}).catch(()=>{});
+    }
+  },[]);
+
+  // ── Wake lock: keep screen on during active arrest ───────────────────
+  useEffect(()=>{
+    const active=arrestState.startTs&&!arrestState.endTs;
+    if(active){
+      if('wakeLock' in navigator){
+        navigator.wakeLock.request('screen').then(l=>{wakeLockRef.current=l;}).catch(()=>{});
+      }
+    } else {
+      wakeLockRef.current?.release().catch(()=>{});
+      wakeLockRef.current=null;
+    }
+  },[arrestState.startTs,arrestState.endTs]);
+
+  // Re-acquire wake lock when screen wakes back up (OS releases it on sleep)
+  useEffect(()=>{
+    const handler=()=>{
+      if(document.visibilityState==='visible'&&arrestState.startTs&&!arrestState.endTs&&!wakeLockRef.current){
+        if('wakeLock' in navigator){
+          navigator.wakeLock.request('screen').then(l=>{wakeLockRef.current=l;}).catch(()=>{});
+        }
+      }
+    };
+    document.addEventListener('visibilitychange',handler);
+    return()=>document.removeEventListener('visibilitychange',handler);
+  },[arrestState.startTs,arrestState.endTs]);
+
+  // ── Schedule CPR cycle background notification whenever cycle resets ──
+  useEffect(()=>{
+    if(!arrestState.cycleStartTs) return;
+    swCancel('cpr-cycle');
+    swNotify('CPR Cycle Complete','Switch compressor — check rhythm','cpr-cycle',120000,true);
+  },[arrestState.cycleStartTs]);
+
+  // ── Schedule epi background notification whenever epi is given ───────
+  useEffect(()=>{
+    if(!arrestState.lastEpiTs) return;
+    swCancel('epi-due');
+    swNotify('Epinephrine Due','Reassess rhythm — Epi 1 mg IV/IO if indicated','epi-due',180000,true);
+  },[arrestState.lastEpiTs]);
+
+  // ── In-app audio alerts (tick-based, fires sounds when app is visible)
+  useEffect(()=>{
+    const now=Date.now();
+    // CPR cycle sound
+    if(arrestState.startTs&&!arrestState.endTs&&arrestState.cycleStartTs){
+      const elapsed=now-arrestState.cycleStartTs;
+      const key=`cpr-${Math.floor(elapsed/120000)}`;
+      if(elapsed>=120000&&!soundedRef.current[key]){soundedRef.current[key]=true;SOUNDS.cprCycle();}
+    }
+    // Epi due sound
+    if(arrestState.startTs&&!arrestState.endTs&&arrestState.lastEpiTs){
+      const elapsed=now-arrestState.lastEpiTs;
+      const key=`epi-${Math.floor(elapsed/180000)}`;
+      if(elapsed>=180000&&!soundedRef.current[key]){soundedRef.current[key]=true;SOUNDS.epiDue();}
+    }
+    // Drug redose sounds
+    Object.entries(adminLog).forEach(([name,log])=>{
+      const times=log?.times||[];if(!times.length)return;
+      const lastAt=times[times.length-1];
+      let redoseMins=null;
+      for(const drugs of Object.values(ADULT)){const d=drugs.find(d=>d.name===name);if(d?.redoseMins){redoseMins=d.redoseMins;break;}}
+      if(!redoseMins)return;
+      const elapsed=now-lastAt;
+      const key=`drug-${name}-${times.length}`;
+      if(elapsed>=redoseMins*60000&&!soundedRef.current[key]){soundedRef.current[key]=true;SOUNDS.drugDue();}
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[tick]);
+
+
+  const ARREST_INIT={startTs:null,endTs:null,endReason:null,rhythm:null,cycleStartTs:null,lastEpiTs:null,events:[],airway:null,hts:{},access:[],patientType:null};
+
+  const handleNewCall=useCallback((intake={})=>{
+    SOUNDS.callStart();
+    soundedRef.current={};
+    // Wipe all data from any previous call
+    setAdminLog({});
+    setInitChecks({});
+    setReChecks({});
+    setVitalsEntries([]);
+    setArrestState(ARREST_INIT);
+    setPatient({age:"",sex:"",cc:""});
+    setPedsWkg(0);setPedsWlb(0);setAdultWkg(0);setAdultWlb(0);
+    const ts=Date.now();
+    setCallStartTs(ts);
+    if(intake.age||intake.sex||intake.cc){
+      const displayAge=intake.age?(intake.ageUnit==="mos"?`${intake.age} mos`:intake.age):"";
+      setPatient(p=>({...p,age:displayAge,sex:intake.sex||"",cc:intake.cc||intake.hpi||""}));
+    }
+    // Auto-switch drug/protocol mode and pre-estimate peds weight
+    if(intake.age!==undefined&&intake.age!==""){
+      const ageNum=parseInt(intake.age,10);
+      if(!isNaN(ageNum)){
+        const isPeds=intake.ageUnit==="mos"||ageNum<18;
+        setMode(isPeds?"peds":"adult");
+        if(isPeds&&intake.weightKg>0){
+          setPedsWkg(intake.weightKg);
+          setPedsWlb(intake.weightLb||+(intake.weightKg*2.2046).toFixed(1));
+        }
+      }
+    }
+    setShowQuickIntake(false);
+    // Route to matched protocol system if CC matched, otherwise fall back to drugs
+    if(intake.cc&&CC_DRUG_MAP[intake.cc]){
+      setProtocolInitSys(CC_DRUG_MAP[intake.cc].sys);
+      setScreen("protocols");
+    } else {
+      setScreen("drugs");
+    }
+  },[setMode,setProtocolInitSys,setPedsWkg,setPedsWlb]);
 
   const handleGive=useCallback((name)=>{
     const ts=Date.now();
@@ -6549,7 +8894,15 @@ export default function App(){
     if(Object.keys(captured).length>0){
       setVitalsEntries(p=>[...p,{...EMPTY_VITALS,...captured,gcsTotal:null,ts,autoCapture:true,drugName:name}]);
     }
+    // Schedule background redose notification via service worker
+    let redoseMins=null;
+    for(const drugs of Object.values(ADULT)){const d=drugs.find(d=>d.name===name);if(d?.redoseMins){redoseMins=d.redoseMins;break;}}
+    if(redoseMins){
+      swCancel(`drug-bg-${name}`);
+      swNotify(`${name} Due`,`Reassess and re-administer if indicated`,`drug-bg-${name}`,redoseMins*60000,false);
+    }
   },[initChecks]);
+
   const handleReset=useCallback(name=>{setAdminLog(p=>{const n={...p};delete n[name];return n;});setInitChecks(p=>{const n={...p};delete n[name];return n;});setReChecks(p=>{const n={...p};delete n[name];return n;});},[]);
   const handleInitUpdate=useCallback((dn,id,v)=>setInitChecks(p=>({...p,[dn]:{...(p[dn]||{}),[id]:v}})),[]);
   const handleReUpdate=useCallback((dn,id,v)=>setReChecks(p=>({...p,[dn]:{...(p[dn]||{}),[id]:v}})),[]);
@@ -6652,6 +9005,10 @@ export default function App(){
     </div>
   );
 
+  if(appView==="permissions"){
+    return <PermissionScreen isDarkMode={isDarkMode} onDone={()=>{ localStorage.setItem("roman-perms-asked","1"); setAppView("home"); }} />;
+  }
+
   if(appView==="home"){
     return <>{guestAckModal}<HomeScreen isDarkMode={isDarkMode} onLogin={handleHomeLogin} onSignup={handleShowSignup} onGuest={handleGuest} onStudentCode={handleStudentCode} on24hr={handle24hr} onToggleTheme={()=>setIsDarkMode(v=>!v)} /></>;
   }
@@ -6670,6 +9027,10 @@ export default function App(){
 
   if(appView==="signup"){
     return <SignupScreen isDarkMode={isDarkMode} values={signupForm} onChange={handleSignupChange} onSubmit={handleSignupSubmit} onBack={()=>setAppView("home")} onLogin={handleHomeLogin} error={signupError} onToggleTheme={()=>setIsDarkMode(v=>!v)} />;
+  }
+
+  if(appView==="welcome"){
+    return <WelcomeScreen isDarkMode={isDarkMode} authUser={authUser} onContinue={()=>{logTCAcceptance(authUser);setScreen("home");setAppView("app");if(!localStorage.getItem("roman-tour-done")){setTimeout(()=>{setTourStep(0);setShowTour(true);},400);}}} />;
   }
 
   if(appView==="profilesetup"){
@@ -6722,14 +9083,15 @@ export default function App(){
             </button>
             {(()=>{
               const NAV=[
+                ["home","🏠 Home",isDarkMode?"#0a1628":"#e2e8f0",isDarkMode?"#e2e8f0":"#0f172a"],
                 ["drugs","💊 Drugs",isDarkMode?"#0d1f3a":"#9fbce2",isDarkMode?"#93c5fd":"#172554"],
                 ["protocols","Protocols",isDarkMode?"#1a0e28":"#c7a4e6",isDarkMode?"#c084fc":"#4c1d95"],
                 ["arrest","❤ Arrest",isDarkMode?"#2a0808":"#e5a2a2",isDarkMode?"#fca5a5":"#7f1d1d"],
                 ["medlog","⏱ Log",isDarkMode?"#1a0a18":"#e4b07e",isDarkMode?"#fb923c":"#7c2d12"],
-                ["epcr","📝 ePCR",isDarkMode?"#1a0e28":"#c7a4e6",isDarkMode?"#c084fc":"#4c1d95"],
-                ["savedcalls","☁ Saved",isDarkMode?"#0a1a28":"#9fbce2",isDarkMode?"#38bdf8":"#075985"],
+                ["epcr","✨ Narrative",isDarkMode?"#1a0e28":"#c7a4e6",isDarkMode?"#c084fc":"#4c1d95"],
                 ["profile","👤 Profile",isDarkMode?"#0a1a28":"#c4d4e0",isDarkMode?"#7dd3fc":"#075985"],
-                ["report","📞 Report",isDarkMode?"#0a1a28":"#d4e0c4",isDarkMode?"#86efac":"#166534"],
+                ["assessments","🩺 Assess",isDarkMode?"#071a1a":"#cff9fd",isDarkMode?"#22d3ee":"#0e7490"],
+                ["ref","📚 Reference",isDarkMode?"#0a1628":"#dbeafe",isDarkMode?"#38bdf8":"#075985"],
                 ["__logout","⬅ Sign Out",isDarkMode?"var(--c-surface)":"#eee7dd",isDarkMode?"#8aa0c2":"#374151"],
               ];
               const cur=NAV.find(([s])=>s===screen)||NAV[0];
@@ -6759,6 +9121,8 @@ export default function App(){
                         return(
                           <button key={s} onClick={()=>{
                             if(s==="__logout"){handleLogout();}
+                            else if(s==="__tour"){setTourStep(0);setShowTour(true);}
+                            else if(s==="assessments"){setProtocolInitSys("assess");setScreen("protocols");}
                             else{setScreen(s);}
                             setNavOpen(false);
                           }} style={{padding:"10px 6px",borderRadius:8,border:"none",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontSize:10.5,fontWeight:700,letterSpacing:"0.02em",background:active?bg:arrAct?"#2a0808":"transparent",color:active?fg:arrAct?"#fca5a5":"var(--c-text4)",transition:"all 0.12s",position:"relative",textAlign:"center"}}>
@@ -6812,6 +9176,115 @@ export default function App(){
           );
         })()}
 
+
+        {/* HOME SCREEN */}
+        {screen==="home"&&(
+          <ShiftHomeScreen
+            authUser={authUser}
+            isDarkMode={isDarkMode}
+            onNewPatient={()=>{ if(callStartTs) setShowNewCallWarning(true); else setShowQuickIntake(true); }}
+            onNavigate={s=>{
+              if(s==="assessments"){setProtocolInitSys("assess");setScreen("protocols");}
+              else if(s.startsWith("protocols:")){setProtocolInitSys(s.split(":")[1]);setScreen("protocols");}
+              else if(s==="__tour"){setTourStep(0);setShowTour(true);}
+              else setScreen(s);
+            }}
+            callStartTs={callStartTs}
+            patient={patient}
+            tick={tick}
+            totalDoses={totalDoses}
+            onJumpDrug={handlePillClick}
+          />
+        )}
+
+        {/* QUICK INTAKE MODAL */}
+        {showQuickIntake&&(
+          <QuickIntakeModal
+            isDarkMode={isDarkMode}
+            onStart={intake=>handleNewCall(intake)}
+            onCancel={()=>setShowQuickIntake(false)}
+          />
+        )}
+
+        {/* NEW CALL WARNING — active call already in progress */}
+        {showNewCallWarning&&(
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.82)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:9999}}>
+            <div style={{width:"100%",maxWidth:480,background:isDarkMode?"#0d1120":"#ffffff",borderRadius:"18px 18px 0 0",padding:"26px 20px 40px",boxShadow:"0 -16px 48px rgba(0,0,0,.6)"}}>
+              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#f97316",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:6}}>Call In Progress</div>
+              <div style={{fontSize:19,fontWeight:800,color:isDarkMode?"#e2e8f0":"#0f172a",marginBottom:10}}>Start a new patient?</div>
+              <div style={{fontSize:13,color:isDarkMode?"#8aa0c2":"#4b5563",lineHeight:1.6,marginBottom:20}}>
+                A call is already active. Starting a new intake will <strong style={{color:"#ef4444"}}>clear all current call data</strong> — medications, vitals, and the active patient — with no way to recover it.<br/><br/>
+                <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:"#f97316",fontWeight:700}}>⚠ End the current call and build your narrative first if you need that data.</span>
+              </div>
+              <div style={{display:"flex",gap:10}}>
+                <button onClick={()=>setShowNewCallWarning(false)}
+                  style={{flex:1,height:48,borderRadius:11,border:`1px solid ${isDarkMode?"#1a2338":"#d1d5db"}`,background:"transparent",color:isDarkMode?"#8aa0c2":"#4b5563",fontFamily:"'DM Sans',sans-serif",fontSize:15,fontWeight:700,cursor:"pointer"}}>
+                  Cancel
+                </button>
+                <button onClick={()=>{setShowNewCallWarning(false);setShowQuickIntake(true);}}
+                  style={{flex:2,height:48,borderRadius:11,border:"none",background:"linear-gradient(135deg,#c2410c,#f97316)",color:"#fff",fontFamily:"'DM Sans',sans-serif",fontSize:15,fontWeight:800,cursor:"pointer"}}>
+                  Replace & Start New
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* END CALL MODAL */}
+        {showEndCallModal&&(
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.82)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:9999}}>
+            <div style={{width:"100%",maxWidth:480,background:isDarkMode?"#0d1120":"#ffffff",borderRadius:"18px 18px 0 0",padding:"26px 20px 40px",boxShadow:"0 -16px 48px rgba(0,0,0,.6)"}}>
+              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#ef4444",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:6}}>End Call</div>
+              <div style={{fontSize:19,fontWeight:800,color:isDarkMode?"#e2e8f0":"#0f172a",marginBottom:10}}>Ready to close this call?</div>
+              <div style={{fontSize:13,color:isDarkMode?"#8aa0c2":"#4b5563",lineHeight:1.6,marginBottom:20}}>
+                You'll be taken to the <strong style={{color:isDarkMode?"#a78bfa":"#6d28d9"}}>AI Narrative builder</strong> to generate your PCR narrative. Review and copy it into your agency ePCR before clearing.<br /><br />
+                <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:"#ef4444",fontWeight:700}}>⚠ This app does not submit your ePCR. Always document in your agency system.</span>
+              </div>
+              <div style={{display:"flex",gap:10}}>
+                <button onClick={()=>setShowEndCallModal(false)}
+                  style={{flex:1,height:48,borderRadius:11,border:`1px solid ${isDarkMode?"#1a2338":"#d1d5db"}`,background:"transparent",color:isDarkMode?"#8aa0c2":"#4b5563",fontFamily:"'DM Sans',sans-serif",fontSize:15,fontWeight:700,cursor:"pointer"}}>
+                  Cancel
+                </button>
+                <button onClick={()=>{
+                  setShowEndCallModal(false);
+                  setCallStartTs(null);
+                  setArrestState({startTs:null,endTs:null,endReason:null,rhythm:null,cycleStartTs:null,lastEpiTs:null,events:[],airway:null,hts:{},access:[],patientType:null});
+                  setScreen("epcr");
+                }}
+                  style={{flex:2,height:48,borderRadius:11,border:"none",background:"linear-gradient(135deg,#6d28d9,#a78bfa)",color:"#fff",fontFamily:"'DM Sans',sans-serif",fontSize:15,fontWeight:800,cursor:"pointer",letterSpacing:"0.02em"}}>
+                  ✨ Build Narrative
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* CALL STATUS BANNER — hidden on home and profile screens */}
+        {screen!=="home"&&screen!=="profile"&&(()=>{
+          // ── ACTIVE: call in progress ───────────────────────────────────
+          if(callStartTs){
+            const elapsed=Date.now()-callStartTs;
+            const eh=Math.floor(elapsed/3600000);
+            const em=Math.floor((elapsed%3600000)/60000);
+            const es=Math.floor((elapsed%60000)/1000);
+            const fmtE=eh>0?`${eh}h ${em}m`:`${em}m ${es}s`;
+            return(
+              <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 11px",marginBottom:8,background:"#071a0e",border:"1px solid #14532d",borderRadius:7}}>
+                <span style={{fontSize:13,animation:"pulse 1.5s ease-in-out infinite",display:"inline-block"}}>🟢</span>
+                <div style={{flex:1}}>
+                  <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,color:"#4ade80"}}>Call Active · {fmtE}</div>
+                  <div style={{fontSize:9,color:"#166534",fontFamily:"'IBM Plex Mono',monospace",marginTop:1}}>{patient.cc||"No CC"}</div>
+                </div>
+                <button onClick={()=>setShowEndCallModal(true)} style={{flexShrink:0,height:28,padding:"0 10px",borderRadius:6,border:"1px solid #ef4444",background:"transparent",color:"#ef4444",fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,cursor:"pointer",letterSpacing:"0.04em",whiteSpace:"nowrap"}}>
+                  End Call
+                </button>
+              </div>
+            );
+          }
+          // ── IDLE: no banner on clinical screens ───────────────────────
+          return null;
+        })()}
+
         {/* ACTIVE SUMMARY */}
         {activeDrugs.length>0&&(
           <div style={{background:isDarkMode?"#120e05":"#f1d8cf",border:isDarkMode?"1px solid #f9731630":"1px solid #c2410c",borderRadius:8,padding:"8px 12px",marginBottom:10}}>
@@ -6836,7 +9309,7 @@ export default function App(){
 
         {/* PROTOCOLS SCREEN */}
         {screen==="protocols"&&(
-          <ProtocolsScreen mode={mode} setMode={setMode} isDarkMode={isDarkMode} burnMaps={burnMaps} setBurnMaps={setBurnMaps} onJumpDrug={handlePillClick} findDrugLocation={findDrugLocation} wkg={wkg} wlb={wlb} setWkg={setWkg} setWlb={setWlb} authUser={authUser}/>
+          <ProtocolsScreen mode={mode} setMode={setMode} isDarkMode={isDarkMode} burnMaps={burnMaps} setBurnMaps={setBurnMaps} onJumpDrug={handlePillClick} findDrugLocation={findDrugLocation} wkg={wkg} wlb={wlb} setWkg={setWkg} setWlb={setWlb} authUser={authUser} initialSystem={protocolInitSys}/>
         )}
 
         {/* ARREST SCREEN + VITALS */}
@@ -6845,7 +9318,8 @@ export default function App(){
             <ArrestTracker arrestState={arrestState} setArrestState={setArrestState} tick={tick} onLogMed={handleGive} wkg={wkg} setWkg={setWkg} setWlb={setWlb} mode={mode} isDarkMode={isDarkMode} patient={patient}/>
             <VitalsLog initChecks={initChecks} reChecks={reChecks} entries={vitalsEntries} setEntries={setVitalsEntries} onClearCall={()=>{
               setAdminLog({});setInitChecks({});setReChecks({});setVitalsEntries([]);
-              setPatient(p=>({run:"",unit:p.unit,provider:p.provider,name:"",age:"",sex:"",allergies:"",meds:"",cc:"",hpi:"",pmh:"",interventions:"",response:"",dispo:""}));
+              setPatient({age:"",sex:"",cc:""});
+              setCallStartTs(null);
             }}/>
           </>
         )}
@@ -6855,14 +9329,53 @@ export default function App(){
           <MedLog adminLog={adminLog} findDrugLocation={findDrugLocation} onJump={handlePillClick} onClearAll={()=>{setAdminLog({});setInitChecks({});setReChecks({});}} onResetDrug={handleReset} wkg={wkg}/>
         )}
 
-        {/* ePCR SCREEN */}
+        {/* NARRATIVE SCREEN */}
         {screen==="epcr"&&(
-          <Epcr patient={patient} setPatient={setPatient} adminLog={adminLog} vitalsEntries={vitalsEntries} wkg={wkg} wlb={wlb} mode={mode} findDrugLocation={findDrugLocation} isDarkMode={isDarkMode}/>
+          <NarrativeScreen patient={patient} setPatient={setPatient} adminLog={adminLog} vitalsEntries={vitalsEntries} wkg={wkg} wlb={wlb} mode={mode} isDarkMode={isDarkMode}
+            onClearCall={()=>{
+              setAdminLog({});setInitChecks({});setReChecks({});setVitalsEntries([]);
+              setPatient({age:"",sex:"",cc:""});
+              setCallStartTs(null);
+              setPedsWkg(0);setPedsWlb(0);setAdultWkg(0);setAdultWlb(0);
+              setArrestState({startTs:null,endTs:null,endReason:null,rhythm:null,cycleStartTs:null,lastEpiTs:null,events:[],airway:null,hts:{},access:[],patientType:null});
+              setMode("adult");
+              setScreen("home");
+            }}
+          />
         )}
 
-        {/* SAVED CALLS SCREEN */}
-        {screen==="savedcalls"&&(
-          <SavedCallsScreen isDarkMode={isDarkMode}/>
+
+        {/* PRICING SCREEN */}
+        {screen==="pricing"&&(
+          <PricingScreen
+            isDarkMode={isDarkMode}
+            authUser={authUser}
+            onSelectPlan={(planKey, billing) => {
+              setCheckoutPlan({ planKey, billing: billing || "monthly" });
+              setScreen(planKey === "agency" ? "agency-quote" : "checkout");
+            }}
+          />
+        )}
+
+        {/* CHECKOUT SCREEN */}
+        {screen==="checkout"&&(
+          <CheckoutScreen
+            isDarkMode={isDarkMode}
+            authUser={authUser}
+            planKey={checkoutPlan.planKey}
+            billing={checkoutPlan.billing}
+            onBack={()=>setScreen("pricing")}
+            onChangeBilling={b=>setCheckoutPlan(p=>({...p,billing:b}))}
+          />
+        )}
+
+        {/* AGENCY QUOTE SCREEN */}
+        {screen==="agency-quote"&&(
+          <AgencyQuoteScreen
+            isDarkMode={isDarkMode}
+            authUser={authUser}
+            onBack={()=>setScreen("pricing")}
+          />
         )}
 
         {/* PROFILE SCREEN */}
@@ -6891,22 +9404,14 @@ export default function App(){
           />
         )}
 
-        {/* RADIO REPORT SCREEN */}
-        {screen==="report"&&(
-          <RadioReportScreen
-            patient={patient}
-            vitalsEntries={vitalsEntries}
-            adminLog={adminLog}
-            authUser={authUser}
-            wkg={wkg}
-            mode={mode}
-            arrestState={arrestState}
-            isDarkMode={isDarkMode}
-          />
+
+        {/* REFERENCE SCREEN */}
+        {screen==="ref"&&(
+          <ReferenceScreen isDarkMode={isDarkMode} authUser={authUser} onUpgrade={()=>setScreen("pricing")}/>
         )}
 
         {/* DRUG CALC SCREEN */}
-        {(screen==="home" || screen==="drugs")&&(<>
+        {screen==="drugs"&&(<>
 
         {/* MODE TOGGLE */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",background:"var(--c-nav)",border:"1px solid var(--c-border-sub)",borderRadius:10,padding:3,gap:3,marginBottom:11}}>
@@ -7019,6 +9524,24 @@ export default function App(){
         <div style={{marginTop:30,textAlign:"center",color:"#0e1525",fontSize:9.5,lineHeight:1.8,fontFamily:"'IBM Plex Mono',monospace"}}>Clinical reference only — follow local protocols &amp; medical direction</div>
         </>)}
       </div>
+
+      {/* APP TOUR OVERLAY */}
+      {showTour&&(()=>{
+        const certScope=authUser?.certLevel==="Paramedic"?"Medic":(authUser?.certLevel||(authUser?.role==="Guest"?"Guest":"EMT"));
+        const steps=TOUR_STEPS.filter(s=>s.levels.includes(certScope));
+        const finishTour=()=>{setShowTour(false);setTourStep(0);localStorage.setItem("roman-tour-done","1");};
+        return(
+          <TourOverlay
+            steps={steps}
+            stepIdx={Math.min(tourStep,steps.length-1)}
+            onNext={()=>setTourStep(i=>Math.min(i+1,steps.length-1))}
+            onBack={()=>setTourStep(i=>Math.max(i-1,0))}
+            onFinish={finishTour}
+            isDarkMode={isDarkMode}
+          />
+        );
+      })()}
     </>
   );
 }
+

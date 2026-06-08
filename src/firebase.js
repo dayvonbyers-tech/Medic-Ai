@@ -7,6 +7,8 @@ import {
   query,
   orderBy,
   serverTimestamp,
+  updateDoc,
+  doc,
 } from "firebase/firestore";
 
 // ─── PASTE YOUR FIREBASE CONFIG HERE ───────────────────────────────────────
@@ -48,6 +50,35 @@ export async function saveArrestReport(reportData) {
     savedAt: serverTimestamp(),
   });
   return ref.id;
+}
+
+/**
+ * Archive a completed call record to Firestore.
+ * Data is locked as "archived" — only released to the agency on request.
+ * No patient name is stored; the callId is the only reference.
+ */
+export async function saveCallRecord(callData) {
+  const firestore = getDb();
+  const ref = await addDoc(collection(firestore, "call_records"), {
+    ...callData,
+    status: "archived",
+    savedAt: serverTimestamp(),
+    releasedAt: null,
+    releasedTo: null,
+  });
+  return ref.id;
+}
+
+/**
+ * Mark a call record as released to an agency (agency-side admin action only).
+ */
+export async function releaseCallRecord(docId, releasedTo) {
+  const firestore = getDb();
+  await updateDoc(doc(firestore, "call_records", docId), {
+    status: "released",
+    releasedAt: serverTimestamp(),
+    releasedTo,
+  });
 }
 
 /**
