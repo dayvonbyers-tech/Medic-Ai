@@ -9882,7 +9882,7 @@ export default function App(){
                 ["arrest","❤ Arrest",isDarkMode?"#2a0808":"#e5a2a2",isDarkMode?"#fca5a5":"#7f1d1d"],
                 ["medlog","⏱ Log",isDarkMode?"#1a0a18":"#e4b07e",isDarkMode?"#fb923c":"#7c2d12"],
                 ["epcr","✨ Narrative",isDarkMode?"#1a0e28":"#c7a4e6",isDarkMode?"#c084fc":"#4c1d95"],
-                ["profile","👤 Profile",isDarkMode?"#0a1a28":"#c4d4e0",isDarkMode?"#7dd3fc":"#075985"],
+
                 ["assessments","🩺 Assess",isDarkMode?"#071a1a":"#cff9fd",isDarkMode?"#22d3ee":"#0e7490"],
                 ["ref","📚 Reference",isDarkMode?"#0a1628":"#dbeafe",isDarkMode?"#38bdf8":"#075985"],
                 ["__logout","⬅ Sign Out",isDarkMode?"var(--c-surface)":"#eee7dd",isDarkMode?"#8aa0c2":"#374151"],
@@ -10482,6 +10482,7 @@ export default function App(){
                       <div style={{fontSize:11,color:tx4,marginTop:3}}>{authUser.certLevel||authUser.role||"Guest"}</div>
                     </div>
                   )}
+                  <NavBtn icon="👤" lbl="My Profile" action={()=>{setShowSettings(false);setScreen("profile");}} />
                   <button onClick={()=>{setShowSettings(false);handleLogout();}}
                     style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:9,border:"1px solid #ef4444",background:isDarkMode?"#1a0a0a":"#fef2f2",color:"#ef4444",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:600}}>
                     <span style={{fontSize:16}}>⬅</span><span style={{flex:1}}>Sign Out</span>
