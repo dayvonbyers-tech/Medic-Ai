@@ -8837,9 +8837,9 @@ function CallOverviewScreen({ ccList, patient, isDarkMode, onOpenProtocol, onOpe
   );
 }
 
-function QuickIntakeModal({ isDarkMode, onStart, onCancel }) {
+function QuickIntakeModal({ isDarkMode, onStart, onCancel, defaultAgeUnit="yrs" }) {
   const [age, setAge]                   = useState("");
-  const [ageUnit, setAgeUnit]           = useState("yrs");
+  const [ageUnit, setAgeUnit]           = useState(defaultAgeUnit);
   const [sex, setSex]                   = useState("");
   const [weightLb, setWeightLb]         = useState("");
   const [ccInput, setCcInput]           = useState("");
@@ -9172,15 +9172,6 @@ function ShiftHomeScreen({ authUser, isDarkMode, onNewPatient, onNavigate, callS
         )}
       </div>
 
-      {/* Secondary: Plans + Tour */}
-      <div style={{display:"flex",gap:8}}>
-        {[["pricing","💳","Plans"],["__tour","🗺","Tour"]].map(([s,icon,label])=>(
-          <button key={s} onClick={()=>onNavigate(s)}
-            style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"10px 8px",borderRadius:11,border:`1px solid ${bd}`,background:su,color:mu,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,cursor:"pointer",transition:"all 0.1s"}}>
-            <span style={{fontSize:15,lineHeight:1}}>{icon}</span>{label}
-          </button>
-        ))}
-      </div>
 
     </div>
   );
@@ -9390,8 +9381,46 @@ export default function App(){
   const[tourStep,setTourStep]=useState(0);
   const[showEndCallModal,setShowEndCallModal]=useState(false);
   const[showNewCallWarning,setShowNewCallWarning]=useState(false);
+  const[showSettings,setShowSettings]=useState(false);
+  const[fontSize,setFontSize]=useState(()=>localStorage.getItem("roman-font-size")||"md");
+  const[soundOn,setSoundOn]=useState(()=>localStorage.getItem("roman-sound")!=="0");
+  const[vibrationOn,setVibrationOn]=useState(()=>localStorage.getItem("roman-vibrate")!=="0");
+  const[notifyOn,setNotifyOn]=useState(()=>localStorage.getItem("roman-notify")==="1");
+  const[defaultAgeUnit,setDefaultAgeUnit]=useState(()=>localStorage.getItem("roman-age-unit")||"yrs");
+  const[defaultWeightUnit,setDefaultWeightUnit]=useState(()=>localStorage.getItem("roman-wt-unit")||"lbs");
 
   const CERT_SCOPE_MAP={ EMT:"EMT", AEMT:"AEMT", Paramedic:"Medic" };
+
+  const playSound=useCallback((type="beep")=>{
+    if(!soundOn) return;
+    try{
+      const ctx=new(window.AudioContext||window.webkitAudioContext)();
+      const osc=ctx.createOscillator(); const gain=ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      if(type==="click"){
+        osc.type="sine"; osc.frequency.value=800;
+        gain.gain.setValueAtTime(0.07,ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.08);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime+0.08);
+      } else if(type==="alert"){
+        osc.type="square"; osc.frequency.value=880;
+        gain.gain.setValueAtTime(0.15,ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.25);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime+0.25);
+      } else if(type==="success"){
+        osc.type="sine"; osc.frequency.setValueAtTime(600,ctx.currentTime); osc.frequency.exponentialRampToValueAtTime(920,ctx.currentTime+0.15);
+        gain.gain.setValueAtTime(0.1,ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.2);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime+0.2);
+      } else if(type==="warn"){
+        osc.type="sawtooth"; osc.frequency.value=380;
+        gain.gain.setValueAtTime(0.12,ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.4);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime+0.4);
+      } else {
+        osc.type="sine"; osc.frequency.value=660;
+        gain.gain.setValueAtTime(0.1,ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.15);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime+0.15);
+      }
+      setTimeout(()=>ctx.close(),600);
+    }catch(e){}
+  },[soundOn]);
 
   const enterApp=useCallback((user)=>{
     setAuthUser(user);
@@ -9828,7 +9857,7 @@ export default function App(){
     <>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700&display=swap');*{box-sizing:border-box;margin:0;padding:0}input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}input[type=number]{-moz-appearance:textfield}::-webkit-scrollbar{width:0;height:0}@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}@keyframes flash{0%,100%{background:#2a0808}50%{background:#7f1d1d}}:root{--c-surface:#0d1120;--c-surface-open:#141c2e;--c-nav:#0a0f1c;--c-input:#090e1c;--c-deep:#080c18;--c-deep2:#0d1525;--c-border:#1a2338;--c-border-sub:#141e30;--c-text-sub:#8a9dc0;--c-text:#e2e8f0;--c-text2:#c0cfe8;--c-text3:#a0b4d0;--c-text4:#6b82a8;--c-text5:#7a90b0;--c-text-ghost:#1a2638}[data-theme="light"]{--c-surface:#e6edf4;--c-surface-open:#d8e2ec;--c-nav:#dce4ec;--c-input:#eef3f7;--c-deep:#dce6ef;--c-deep2:#e7eef5;--c-border:#8796aa;--c-border-sub:#98a8bb;--c-text-sub:#26364c;--c-text:#0f172a;--c-text2:#172033;--c-text3:#25354d;--c-text4:#36455c;--c-text5:#1f2f46;--c-text-ghost:#53637a}`}</style>
 
-      <div style={{minHeight:"100vh",background:isDarkMode?"#060a15":"#f4efe7",fontFamily:"'DM Sans',sans-serif",maxWidth:480,margin:"0 auto",padding:"14px 11px 60px",transition:"background-color 0.3s"}}>
+      <div style={{minHeight:"100vh",background:isDarkMode?"#060a15":"#f4efe7",fontFamily:"'DM Sans',sans-serif",maxWidth:480,margin:"0 auto",padding:"14px 11px 60px",transition:"background-color 0.3s",zoom:{sm:0.9,md:1,lg:1.15,xl:1.3}[fontSize]||1}}>
 
         {/* HEADER */}
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
@@ -9840,26 +9869,11 @@ export default function App(){
             <div style={{color:isDarkMode?"var(--c-text-ghost)":"#374151",fontSize:9,marginTop:2,letterSpacing:"0.03em",fontFamily:"'IBM Plex Mono',monospace"}}>GA SOP-2024 · NASEMSO v3 · AHA/AAP 2025 PALS</div>
           </div>
           <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8}}>
-            <button 
-              onClick={()=>setIsDarkMode(!isDarkMode)}
-              style={{
-                width:36,
-                height:36,
-                borderRadius:8,
-                border:isDarkMode?"1px solid var(--c-border)":"1px solid #9a9286",
-                background:isDarkMode?"var(--c-surface)":"#eee7dd",
-                color:isDarkMode?"#f97316":"#111827",
-                cursor:"pointer",
-                fontSize:16,
-                display:"flex",
-                alignItems:"center",
-                justifyContent:"center",
-                transition:"all 0.3s",
-              }}
-              title={isDarkMode?"Switch to light mode":"Switch to dark mode"}
-            >
-              {isDarkMode?"☀️":"🌙"}
-            </button>
+            <button
+              onClick={()=>setShowSettings(true)}
+              style={{width:36,height:36,borderRadius:8,border:isDarkMode?"1px solid var(--c-border)":"1px solid #9a9286",background:isDarkMode?"var(--c-surface)":"#eee7dd",color:isDarkMode?"#94a3b8":"#374151",cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.3s"}}
+              title="Settings"
+            >⚙️</button>
             {(()=>{
               const NAV=[
                 ["home","🏠 Home",isDarkMode?"#0a1628":"#e2e8f0",isDarkMode?"#e2e8f0":"#0f172a"],
@@ -9998,6 +10012,7 @@ export default function App(){
             isDarkMode={isDarkMode}
             onStart={intake=>handleNewCall(intake)}
             onCancel={()=>setShowQuickIntake(false)}
+            defaultAgeUnit={defaultAgeUnit}
           />
         )}
 
@@ -10333,6 +10348,160 @@ export default function App(){
         <div style={{marginTop:30,textAlign:"center",color:"#0e1525",fontSize:9.5,lineHeight:1.8,fontFamily:"'IBM Plex Mono',monospace"}}>Clinical reference only — follow local protocols &amp; medical direction</div>
         </>)}
       </div>
+
+      {/* SETTINGS PANEL */}
+      {showSettings&&(()=>{
+        const bd2=isDarkMode?"var(--c-border)":"#c5b9a8";
+        const deep=isDarkMode?"var(--c-deep)":"#ede7dc";
+        const tx=isDarkMode?"var(--c-text)":"#0f172a";
+        const tx4=isDarkMode?"var(--c-text4)":"#6b7280";
+        const tx3=isDarkMode?"var(--c-text3)":"#374151";
+        const ST=(on,fn)=>(
+          <div onClick={fn} style={{width:44,height:24,borderRadius:12,background:on?"#22c55e":isDarkMode?"#1a2338":"#c5b9a8",cursor:"pointer",position:"relative",transition:"background 0.2s",flexShrink:0}}>
+            <div style={{position:"absolute",top:3,left:on?22:3,width:18,height:18,borderRadius:9,background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.25)"}} />
+          </div>
+        );
+        const SRow=({label,sub,right})=>(
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"11px 0",borderBottom:`1px solid ${isDarkMode?"#0e1525":"#d5c9be"}`}}>
+            <div style={{flex:1,marginRight:10}}>
+              <div style={{fontSize:13,fontWeight:600,color:tx}}>{label}</div>
+              {sub&&<div style={{fontSize:10,color:tx4,marginTop:2}}>{sub}</div>}
+            </div>
+            {right}
+          </div>
+        );
+        const SHead=({title})=>(
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:isDarkMode?"#f97316":"#9a3412",letterSpacing:"0.12em",textTransform:"uppercase",paddingBottom:6,borderBottom:`1px solid ${bd2}`}}>{title}</div>
+        );
+        const FBtn=({k,l})=>(
+          <button onClick={()=>{setFontSize(k);localStorage.setItem("roman-font-size",k);}}
+            style={{padding:"5px 11px",borderRadius:6,border:`1px solid ${fontSize===k?"#f97316":bd2}`,background:fontSize===k?"#f97316":deep,color:fontSize===k?"#fff":tx3,fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+            {l}
+          </button>
+        );
+        const NavBtn=({icon,lbl,action})=>(
+          <button onClick={action}
+            style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:9,border:`1px solid ${bd2}`,background:deep,color:tx,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:600,marginBottom:7}}>
+            <span style={{fontSize:18}}>{icon}</span><span style={{flex:1}}>{lbl}</span><span style={{opacity:0.35,fontSize:14}}>→</span>
+          </button>
+        );
+        return(
+          <>
+            <div onClick={()=>setShowSettings(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:299,backdropFilter:"blur(2px)"}} />
+            <div style={{position:"fixed",top:0,right:0,bottom:0,width:"min(340px,100vw)",zIndex:300,background:isDarkMode?"var(--c-surface)":"#f4efe7",display:"flex",flexDirection:"column",boxShadow:"-4px 0 32px rgba(0,0,0,0.5)"}}>
+              {/* Header */}
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"18px 16px 14px",borderBottom:`1px solid ${bd2}`,flexShrink:0,background:isDarkMode?"var(--c-nav)":"#e8e0d4"}}>
+                <div>
+                  <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:15,fontWeight:800,color:tx,letterSpacing:"0.04em"}}>⚙️ SETTINGS</div>
+                  <div style={{fontSize:10,color:tx4,marginTop:2}}>R.O.M.A.N. Drug Calc</div>
+                </div>
+                <button onClick={()=>setShowSettings(false)} style={{width:32,height:32,borderRadius:8,border:`1px solid ${bd2}`,background:"transparent",color:tx4,cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+              </div>
+              {/* Body */}
+              <div style={{flex:1,overflowY:"auto",padding:"18px 16px 36px",display:"flex",flexDirection:"column",gap:20}}>
+
+                {/* DISPLAY */}
+                <div style={{display:"flex",flexDirection:"column",gap:0}}>
+                  <SHead title="Display" />
+                  <SRow label="Dark Mode" sub="Interface theme" right={ST(isDarkMode,()=>setIsDarkMode(v=>!v))} />
+                  <SRow label="Font Size" right={
+                    <div style={{display:"flex",gap:5}}>
+                      <FBtn k="sm" l="SM" /><FBtn k="md" l="MD" /><FBtn k="lg" l="LG" /><FBtn k="xl" l="XL" />
+                    </div>
+                  } />
+                </div>
+
+                {/* ALERTS & SOUNDS */}
+                <div style={{display:"flex",flexDirection:"column",gap:0}}>
+                  <SHead title="Alerts & Sounds" />
+                  <SRow label="Push Notifications"
+                    sub={typeof Notification!=="undefined"&&Notification.permission==="denied"?"Blocked — enable in browser settings":notifyOn?"Active":"Tap to enable"}
+                    right={ST(notifyOn,()=>{
+                      const n=!notifyOn;
+                      if(n&&typeof Notification!=="undefined"&&Notification.permission==="default") Notification.requestPermission();
+                      setNotifyOn(n); localStorage.setItem("roman-notify",n?"1":"0");
+                    })}
+                  />
+                  <SRow label="Sounds" sub="Timer, dose, and alert tones" right={ST(soundOn,()=>{const n=!soundOn;setSoundOn(n);localStorage.setItem("roman-sound",n?"1":"0");})} />
+                  {soundOn&&(
+                    <div style={{display:"flex",gap:6,paddingBottom:10,paddingTop:2}}>
+                      {[["click","Click"],["alert","Alert"],["success","OK"],["warn","Warn"]].map(([t,l])=>(
+                        <button key={t} onClick={()=>playSound(t)}
+                          style={{flex:1,padding:"6px 2px",borderRadius:7,border:`1px solid ${bd2}`,background:deep,color:tx3,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:700,cursor:"pointer"}}>
+                          ▶ {l}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <SRow label="Vibration" sub="Haptic feedback"
+                    right={ST(vibrationOn,()=>{const n=!vibrationOn;setVibrationOn(n);localStorage.setItem("roman-vibrate",n?"1":"0");if(n&&navigator.vibrate)navigator.vibrate([40,20,40]);})}
+                  />
+                  <SRow label="Cert Expiry Reminders" sub="30-day and 7-day alerts" right={ST(notifyOn,()=>{})} />
+                </div>
+
+                {/* CALL DEFAULTS */}
+                <div style={{display:"flex",flexDirection:"column",gap:0}}>
+                  <SHead title="Call Defaults" />
+                  <SRow label="Default Age Unit" right={
+                    <div style={{display:"flex",gap:5}}>
+                      {[["yrs","Yrs"],["mos","Mos"]].map(([k,l])=>(
+                        <button key={k} onClick={()=>{setDefaultAgeUnit(k);localStorage.setItem("roman-age-unit",k);}}
+                          style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${defaultAgeUnit===k?"#3b82f6":bd2}`,background:defaultAgeUnit===k?"#1d4ed8":deep,color:defaultAgeUnit===k?"#fff":tx3,fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:700,cursor:"pointer"}}>
+                          {l}
+                        </button>
+                      ))}
+                    </div>
+                  } />
+                  <SRow label="Default Weight Unit" right={
+                    <div style={{display:"flex",gap:5}}>
+                      {[["lbs","lbs"],["kg","kg"]].map(([k,l])=>(
+                        <button key={k} onClick={()=>{setDefaultWeightUnit(k);localStorage.setItem("roman-wt-unit",k);}}
+                          style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${defaultWeightUnit===k?"#3b82f6":bd2}`,background:defaultWeightUnit===k?"#1d4ed8":deep,color:defaultWeightUnit===k?"#fff":tx3,fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:700,cursor:"pointer"}}>
+                          {l}
+                        </button>
+                      ))}
+                    </div>
+                  } />
+                </div>
+
+                {/* NAVIGATE */}
+                <div>
+                  <SHead title="Navigate" />
+                  <div style={{marginTop:10}}>
+                    <NavBtn icon="💳" lbl="Plans & Pricing" action={()=>{setShowSettings(false);setScreen("pricing");}} />
+                    <NavBtn icon="🗺" lbl="App Tour" action={()=>{setShowSettings(false);setTourStep(0);setShowTour(true);}} />
+                  </div>
+                </div>
+
+                {/* ACCOUNT */}
+                <div>
+                  <SHead title="Account" />
+                  {authUser&&(
+                    <div style={{padding:"11px 14px",borderRadius:9,border:`1px solid ${bd2}`,background:deep,marginTop:10,marginBottom:8}}>
+                      <div style={{fontSize:14,fontWeight:700,color:tx}}>{authUser.name||"Provider"}</div>
+                      <div style={{fontSize:11,color:tx4,marginTop:3}}>{authUser.certLevel||authUser.role||"Guest"}</div>
+                    </div>
+                  )}
+                  <button onClick={()=>{setShowSettings(false);handleLogout();}}
+                    style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:9,border:"1px solid #ef4444",background:isDarkMode?"#1a0a0a":"#fef2f2",color:"#ef4444",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:600}}>
+                    <span style={{fontSize:16}}>⬅</span><span style={{flex:1}}>Sign Out</span>
+                  </button>
+                </div>
+
+                {/* ABOUT */}
+                <div style={{display:"flex",flexDirection:"column",gap:0}}>
+                  <SHead title="About" />
+                  <SRow label="App Version" right={<span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,color:tx4}}>v1.0.0</span>} />
+                  <SRow label="Protocol Set" right={<span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,color:tx4}}>2025–2026</span>} />
+                  <SRow label="Reference Base" sub="GA SOP-2024 · NASEMSO v3 · AHA/AAP 2025" right={<span style={{fontSize:13}}>📚</span>} />
+                  <SRow label="Clinical Reference Only" sub="Follow local protocols and medical direction" right={<span style={{fontSize:13}}>⚕️</span>} />
+                </div>
+
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
       {/* APP TOUR OVERLAY */}
       {showTour&&(()=>{
