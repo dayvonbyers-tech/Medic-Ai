@@ -9885,7 +9885,6 @@ export default function App(){
 
                 ["assessments","🩺 Assess",isDarkMode?"#071a1a":"#cff9fd",isDarkMode?"#22d3ee":"#0e7490"],
                 ["ref","📚 Reference",isDarkMode?"#0a1628":"#dbeafe",isDarkMode?"#38bdf8":"#075985"],
-                ["__logout","⬅ Sign Out",isDarkMode?"var(--c-surface)":"#eee7dd",isDarkMode?"#8aa0c2":"#374151"],
               ];
               const cur=NAV.find(([s])=>s===screen)||NAV[0];
               const [,curL,curBg,curFg]=cur;
