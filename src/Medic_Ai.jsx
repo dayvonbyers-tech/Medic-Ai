@@ -4182,6 +4182,7 @@ const PROTOCOL_DEFINITIONS = [
     title:"Chest Pain / ACS",
     sub:"12-lead, aspirin, nitro screen, transport",
     scope:"EMT",
+    patientType:"adult",
     questions:[
       ["stemi","STEMI or concerning 12-lead changes?"],
       ["hypotension","SBP less than protocol threshold or signs of shock?"],
@@ -4200,11 +4201,89 @@ const PROTOCOL_DEFINITIONS = [
     triggers:["stemi","hypotension"],
   },
   {
+    id:"bradycardia",
+    system:"cardiac",
+    title:"Symptomatic Bradycardia (Adult)",
+    sub:"HR <60 with symptoms · atropine · TCP · dopamine/epi infusion",
+    scope:"AEMT",
+    patientType:"adult",
+    questions:[
+      ["sympt","Bradycardia SYMPTOMATIC — hypotension, AMS, syncope, chest pain, or acute HF?"],
+      ["avblock","Monitor shows Type II or 3rd-degree (complete) AV block?"],
+      ["atropineFail","No improvement after atropine?"],
+      ["tcp","Transcutaneous pacing unit available?"],
+    ],
+    steps:[
+      "Confirm HR <60 on monitor. KEY: Is the bradycardia CAUSING symptoms? Asymptomatic bradycardia (athletes, sleep) — do NOT treat.",
+      "Symptomatic signs: hypotension, AMS, syncope, chest pain, acute heart failure, hemodynamic instability.",
+      "Atropine 0.5 mg IV/IO — repeat q3–5 min to max 3 mg total. Do NOT give <0.5 mg (paradoxical worsening risk).",
+      "Type II or 3rd-degree AV block: Atropine typically ineffective — prepare TCP immediately. Do not delay pacing for multiple atropine attempts.",
+      "Transcutaneous Pacing (TCP): Set rate 60–80 bpm, increase output mA until electrical AND mechanical capture confirmed. Verify capture by pulse palpation. Sedate/analgize conscious patient per protocol.",
+      "No TCP or TCP fails: Dopamine 5–20 mcg/kg/min IV infusion OR Epinephrine 2–10 mcg/min IV infusion as bridge (Medic scope).",
+      "Identify reversible causes: Hypoxia, hypothermia, hyperkalemia (peaked T-waves, wide QRS), inferior STEMI (AV blocks), vagal tone, beta-blocker/Ca-channel blocker toxicity.",
+      "12-lead ECG. Continuous cardiac monitoring. Transport to cardiac-capable facility.",
+    ],
+    meds:["Atropine","Dopamine","Epinephrine 1:10,000"],
+    triggers:["sympt","avblock"],
+  },
+  {
+    id:"tachycardia-svt",
+    system:"cardiac",
+    title:"Tachycardia / SVT (Adult)",
+    sub:"Narrow-complex SVT · wide-complex VT · synchronized cardioversion",
+    scope:"AEMT",
+    patientType:"adult",
+    questions:[
+      ["unstable","Hemodynamically UNSTABLE — hypotension, AMS, chest pain, acute HF, or syncope?"],
+      ["narrowSvt","Narrow-complex, regular tachycardia HR 150–220 bpm consistent with SVT?"],
+      ["afib","Irregular narrow-complex — atrial fibrillation or flutter?"],
+      ["wideComplex","Wide-complex tachycardia (QRS ≥0.12 sec)?"],
+    ],
+    steps:[
+      "Assess hemodynamic stability FIRST. UNSTABLE (hypotension, AMS, ischemia, shock) = synchronized cardioversion immediately — sedate if alert per protocol.",
+      "NARROW-COMPLEX STABLE SVT: Vagal maneuvers first — modified Valsalva (Trendelenburg + bear-down 15 sec); carotid sinus massage (one side only, no bruit).",
+      "Adenosine 6 mg RAPID IV push via proximal antecubital site + 20 mL NS rapid flush immediately after. If no conversion in 1–2 min: 12 mg repeat dose. Confirm narrow-complex SVT before administering.",
+      "WIDE-COMPLEX STABLE: Treat as ventricular tachycardia (VT) until proven otherwise. Amiodarone 150 mg IV over 10 min (Medic scope). Do NOT give adenosine for wide irregular (pre-excitation AF).",
+      "UNSTABLE with pulse: Synchronized cardioversion. Initial energy: AFib 100–200 J, AFL/SVT 50–100 J, VT with pulse 100 J (biphasic). Sedate conscious patient per protocol.",
+      "Atrial fibrillation / flutter: Do NOT give adenosine. Prehospital rate-control pharmacology not typically indicated — monitor and transport.",
+      "12-lead ECG. IV access. Continuous monitoring. Transport to cardiac-capable facility.",
+    ],
+    meds:["Adenosine","Amiodarone","Lidocaine"],
+    triggers:["unstable","narrowSvt","wideComplex"],
+  },
+  {
+    id:"heart-failure",
+    system:"cardiac",
+    title:"Acute Heart Failure / Pulmonary Edema",
+    sub:"Upright position · CPAP · nitrates · avoid fluids",
+    scope:"AEMT",
+    patientType:"adult",
+    questions:[
+      ["crackles","Bilateral crackles on auscultation with respiratory distress?"],
+      ["sbpOk","SBP ≥100 mmHg (safe for nitrates)?"],
+      ["pde5Use","PDE-5 inhibitor use (Viagra/Cialis/Levitra) in last 48 hours?"],
+      ["hypotension","SBP <90 mmHg or cardiogenic shock signs?"],
+    ],
+    steps:[
+      "POSITION: Sit upright, legs dependent — reduces preload, improves ventilation. DO NOT lay flat.",
+      "High-flow oxygen; SpO₂ monitoring. Early CPAP 5–10 cm H₂O for awake patient with SBP ≥90 — reduces WOB, improves oxygenation, decreases preload and afterload.",
+      "12-lead ECG: identify STEMI, bundle branch block, rate/rhythm trigger. Many AHF presentations are precipitated by ACS or dysrhythmia.",
+      "Nitroglycerin 0.4 mg SL q3–5 min if SBP ≥100 AND no PDE-5 inhibitor use within 48 hrs — potent venodilator, rapidly reduces preload and afterload.",
+      "CARDIOGENIC SHOCK (SBP <90, poor perfusion, crackles): Fluids are CONTRAINDICATED — worsen pulmonary edema. Dopamine 5–20 mcg/kg/min IV infusion for hemodynamic support (Medic scope) — use cautiously.",
+      "Do NOT administer IV fluid challenge unless clearly volume-depleted AND no signs of pulmonary edema.",
+      "Furosemide (Lasix) IV per local protocol (Medic scope) — venodilatory effect begins before diuresis. Avoid if volume-depleted.",
+      "Priority transport to cardiac-capable facility. Maintain CPAP during transport. Pre-notify for advanced heart failure management.",
+    ],
+    meds:["Nitroglycerin","Furosemide (Lasix)","Dopamine","Aspirin"],
+    triggers:["crackles","hypotension"],
+  },
+  {
     id:"resp-distress",
     system:"respiratory",
     title:"Respiratory Distress",
     sub:"Oxygen, bronchodilator, CPAP, airway escalation",
     scope:"EMT",
+    patientType:"adult",
     questions:[
       ["severe","Severe distress, exhaustion, cyanosis, or altered mental status?"],
       ["wheezing","Wheezing or diminished bronchospastic lung sounds?"],
@@ -4219,7 +4298,7 @@ const PROTOCOL_DEFINITIONS = [
       "Consider CPAP for appropriate awake patients with respiratory failure and adequate BP.",
       "Reassess breath sounds, SpO2, EtCO2, and fatigue after each intervention.",
     ],
-    meds:["Albuterol","Ipratropium (Atrovent)","Epinephrine 1:1,000","Magnesium Sulfate"],
+    meds:["Albuterol","Ipratropium (Atrovent)","Epinephrine 1:1,000","Epi 1:1,000 (Neb)","Magnesium Sulfate"],
     triggers:["severe","hypotension"],
   },
   {
@@ -4228,6 +4307,7 @@ const PROTOCOL_DEFINITIONS = [
     title:"Suspected Stroke",
     sub:"Last known well, stroke scale, glucose, destination",
     scope:"EMT",
+    patientType:"adult",
     questions:[
       ["positiveScale","Positive stroke scale or new focal neuro deficit?"],
       ["lvo","Large vessel occlusion screen positive?"],
@@ -4243,6 +4323,32 @@ const PROTOCOL_DEFINITIONS = [
     ],
     meds:["Dextrose 50% (D50)","Dextrose 25% (D25)","Oral Glucose"],
     triggers:["positiveScale","lvo","timeWindow"],
+  },
+  {
+    id:"peds-stroke",
+    system:"neuro",
+    title:"Pediatric Stroke",
+    sub:"Rare but critical · focal deficit · BGL · last known well time",
+    scope:"EMT",
+    patientType:"peds",
+    questions:[
+      ["focalDeficit","Sudden focal neurological deficit — facial droop, arm drift, speech change, or one-sided weakness?"],
+      ["lowBgl","BGL low or unable to rule out glucose as cause?"],
+      ["seizure","Seizure at onset or after — possible Todd's paralysis mimic?"],
+      ["alteredMS","Sudden severe headache, altered mental status, or sudden vision change?"],
+    ],
+    steps:[
+      "Pediatric stroke is rare but occurs across all ages. THINK STROKE in any child with sudden focal neurological deficit — even with concurrent seizure (do not assume Todd's paralysis without ruling out stroke).",
+      "Establish Last Known Well (LKW) time. Thrombectomy and thrombolytic time windows apply to children — accurate LKW is critical.",
+      "BGL IMMEDIATELY — hypoglycemia is the most common stroke mimic in all ages. Treat if BGL below threshold: D25 2–4 mL/kg IV/IO (child) or D10 2 mL/kg IV/IO (neonate/infant).",
+      "Pediatric stroke signs: Sudden unilateral weakness/paralysis, facial droop, speech difficulty, gaze deviation, ataxia, sudden severe headache. Infants: seizure, AMS, sudden irritability, poor feeding.",
+      "DO NOT aggressively stimulate or handle roughly. Keep head midline, slightly elevated 30° — reduces ICP.",
+      "SICKLE CELL DISEASE + FOCAL DEFICIT: Extremely high concern for stroke — priority transport to sickle cell-capable center. Exchange transfusion required.",
+      "Other peds stroke causes: AVM/vascular malformation, congenital heart disease, arterial dissection (trauma, chiropractic), inherited coagulopathy.",
+      "Priority transport to pediatric stroke center or children's hospital. Pre-notify with pediatric stroke alert. Minimize scene time.",
+    ],
+    meds:["Dextrose 25% (D25)","Dextrose 10% (D10)"],
+    triggers:["focalDeficit","lowBgl","alteredMS"],
   },
   {
     id:"seizure",
@@ -4269,6 +4375,60 @@ const PROTOCOL_DEFINITIONS = [
     triggers:["active","airway","pregnant"],
   },
   {
+    id:"ams",
+    system:"neuro",
+    title:"Altered Mental Status (Adult)",
+    sub:"BGL first · AEIOU-TIPS · airway priority · naloxone",
+    scope:"EMT",
+    patientType:"adult",
+    questions:[
+      ["lowBgl","BGL below treatment threshold or unable to obtain?"],
+      ["opioidSigns","Miosis, RR <12, or opioid/sedative toxidrome suspected?"],
+      ["headTrauma","Head trauma, fall, or signs of head injury?"],
+      ["fever","Fever, stiff neck, or signs of infection/meningitis?"],
+      ["postictal","History of seizure disorder or recent seizure activity?"],
+    ],
+    steps:[
+      "AIRWAY IS PRIORITY — AMS patients may not protect their airway. Position lateral if no trauma suspected; suction available; monitor breathing continuously.",
+      "BGL FIRST — always. Hypoglycemia is the most immediately reversible cause of AMS. Treat if BGL below local threshold (typically <60–70 mg/dL).",
+      "AEIOU-TIPS: Alcohol/Acidosis, Epilepsy/Electrolytes, Insulin, Opioids/Overdose, Uremia, Trauma/Toxins, Infection, Psychiatric, Stroke/Shock.",
+      "Opioid toxidrome (miosis, RR <12, unresponsive): Naloxone 0.4–2 mg IV/IO/IM/IN. Titrate to adequate respirations — goal is breathing, not full awakening.",
+      "Suspected Wernicke's encephalopathy (chronic alcohol use + AMS + nystagmus/ataxia): Thiamine 100 mg IV/IM BEFORE any dextrose.",
+      "Sudden onset AMS + focal deficit: Stroke until proven otherwise — fast transport, minimize on-scene interventions.",
+      "Fever + severe headache + stiff neck + AMS: Meningitis/encephalitis concern — minimize stimulation, priority transport, do not delay.",
+      "Document serial GCS. Transport ALL AMS patients — even if improved. AMS that resolves may recur.",
+    ],
+    meds:["Naloxone (Narcan)","Dextrose 50% (D50)","Thiamine (B1)"],
+    triggers:["lowBgl","opioidSigns","headTrauma"],
+  },
+  {
+    id:"peds-ams",
+    system:"neuro",
+    title:"Pediatric Altered Mental Status",
+    sub:"BGL · ingestion · infection · trauma · AVPU scale",
+    scope:"EMT",
+    patientType:"peds",
+    questions:[
+      ["lowBgl","BGL below treatment threshold or not yet checked?"],
+      ["ingestion","Possible accidental ingestion or poisoning?"],
+      ["fever","Fever present or recent febrile illness?"],
+      ["headTrauma","Head trauma, fall, or suspected non-accidental trauma?"],
+      ["opioidSigns","Respiratory depression, miosis, or opioid/sedative toxidrome?"],
+    ],
+    steps:[
+      "AIRWAY FIRST — peds AMS patients lose airway protective reflexes rapidly. Position, suction, and support ventilation as needed.",
+      "Use AVPU (Alert/Voice/Pain/Unresponsive) or Pediatric GCS for serial neurological assessment. Document and trend any changes.",
+      "BGL FIRST — hypoglycemia is a common and rapidly reversible cause. D10 at 2 mL/kg IV/IO (neonate/infant); D25 at 2–4 mL/kg IV/IO (child).",
+      "Accidental ingestion: A leading peds emergency. Common dangerous substances: button batteries, iron, laundry pods, grandparent medications (beta-blockers, Ca-channel blockers, opioids, digoxin). Identify substance and bring to hospital.",
+      "Opioid/sedative toxidrome (slow breathing, pinpoint pupils, decreased tone): Naloxone 0.01 mg/kg IV/IO or 0.1 mg/kg IN (max 2 mg) — titrate to respiratory effort.",
+      "Fever + AMS: Consider meningitis/encephalitis (stiff neck, photophobia, petechial rash), sepsis, febrile seizure with postictal state. Priority transport.",
+      "HEAD TRAUMA and NON-ACCIDENTAL TRAUMA (NAT): Inconsistent history, atypical bruising, bilateral long-bone fractures in non-ambulatory children — mandatory reporter obligations apply.",
+      "IV/IO access. Continuous monitoring. Priority transport to pediatric-capable facility.",
+    ],
+    meds:["Naloxone (Narcan)","Dextrose 25% (D25)","Dextrose 10% (D10)"],
+    triggers:["lowBgl","ingestion","opioidSigns"],
+  },
+  {
     id:"trauma-shock",
     system:"trauma",
     title:"Trauma / Shock",
@@ -4289,8 +4449,35 @@ const PROTOCOL_DEFINITIONS = [
       "Screen for TXA if significant hemorrhage and within protocol time window.",
       "Transport to appropriate trauma center with early notification.",
     ],
-    meds:["Tranexamic Acid (TXA)","Fentanyl","Ketamine","Normal Saline (0.9% NaCl)"],
+    meds:["Tranexamic Acid (TXA)","Fentanyl","Ketamine","Normal Saline (0.9% NaCl)","Normal Saline / LR"],
     triggers:["majorBleed","shock","chestInjury"],
+  },
+  {
+    id:"peds-trauma",
+    system:"trauma",
+    title:"Pediatric Trauma",
+    sub:"Age-specific vitals · IO access · weight-based fluids · NAT awareness",
+    scope:"EMT",
+    patientType:"peds",
+    questions:[
+      ["majorBleed","Life-threatening external hemorrhage?"],
+      ["mechanism","High-energy mechanism — MVC, fall >10 ft/3× height, GSW, or assault?"],
+      ["headInjury","Suspected head injury — AMS, LOC, scalp laceration, or persistent vomiting?"],
+      ["weightKnown","Weight known? (required for weight-based fluid dosing)"],
+      ["nat","Mechanism inconsistent with developmental stage, unusual bruising, or delayed presentation?"],
+    ],
+    steps:[
+      "Primary survey — MARCH: Massive hemorrhage, Airway, Respirations, Circulation, Hypothermia/Head injury. Children compensate well, then CRASH suddenly — do not wait for hypotension to act.",
+      "AGE-APPROPRIATE VITAL THRESHOLDS: Infant (<1 yr): HR 100–160, SBP ≥60. Toddler (1–3 yr): HR 90–150, SBP ≥70. Preschool (3–5): HR 80–140, SBP ≥75. School-age (6–12): HR 70–120, SBP ≥80. Teen (>12): HR 60–100, SBP ≥90.",
+      "HEMORRHAGE CONTROL: Direct pressure, wound packing, tourniquet for extremity hemorrhage — same principles as adults. Children tolerate proportionally LESS blood loss.",
+      "VASCULAR ACCESS: IO preferred when IV difficult under critical conditions. All IO sites valid in peds — tibial, humeral, sternal (>12 yr). Provides immediate access in all ages.",
+      "FLUID RESUSCITATION: 20 mL/kg NS or LR IV/IO bolus. Reassess after each bolus. Permissive hypotension is NOT recommended in isolated pediatric TBI — maintain age-appropriate SBP to perfuse the brain.",
+      "HEAD INJURY: Peds brain injury common due to large head:body ratio. Avoid hypotension AND hypoxia — both independently worsen TBI outcomes. GCS <13 = severe TBI. Prevent secondary injury.",
+      "HYPOTHERMIA PREVENTION: Children lose heat rapidly — uncover only as needed, cover exposed areas, warm fluids if available, warm transport environment.",
+      "NON-ACCIDENTAL TRAUMA (NAT): Inconsistent mechanism, delay in seeking care, patterned bruising, bilateral long-bone fractures in non-ambulatory child — mandatory reporter obligation. Transport all peds trauma.",
+    ],
+    meds:["Normal Saline (0.9% NaCl)","Normal Saline (Trauma Resus)","Tranexamic Acid (TXA)","Fentanyl","Ketamine","Morphine"],
+    triggers:["majorBleed","headInjury","mechanism"],
   },
   {
     id:"hypoglycemia",
@@ -4298,6 +4485,7 @@ const PROTOCOL_DEFINITIONS = [
     title:"Hypoglycemia",
     sub:"BGL, mental status, oral vs IV/IO/IM therapy",
     scope:"AEMT",
+    patientType:"adult",
     questions:[
       ["lowBgl","BGL below local treatment threshold?"],
       ["canSwallow","Awake and able to swallow safely?"],
@@ -4311,7 +4499,7 @@ const PROTOCOL_DEFINITIONS = [
       "Recheck BGL and mental status after treatment.",
       "Consider other causes if mental status does not improve after glucose correction.",
     ],
-    meds:["Oral Glucose","Dextrose 50% (D50)","Dextrose 25% (D25)","Glucagon"],
+    meds:["Oral Glucose","Oral Glucose (Glutose)","Dextrose 50% (D50)","Dextrose 25% (D25)","Glucagon"],
     triggers:["lowBgl","persistent"],
   },
   {
@@ -4363,6 +4551,110 @@ const PROTOCOL_DEFINITIONS = [
     triggers:["severe","croup"],
   },
   {
+    id:"peds-rsi",
+    system:"respiratory",
+    title:"Pediatric RSI / Advanced Airway",
+    sub:"7-step RSI · weight-based paralytics · age-specific tube sizing",
+    scope:"Medic",
+    patientType:"peds",
+    questions:[
+      ["failedAirway","BVM inadequate or airway management failing?"],
+      ["apneicRisk","High apnea risk — AMS, status seizure, or respiratory failure?"],
+      ["weightKnown","Weight known? (required for weight-based dosing)"],
+      ["contraSux","Contraindications to succinylcholine? (burns >24 hr, crush, hyperkalemia, denervation injury)"],
+    ],
+    steps:[
+      "INDICATIONS: Failure to oxygenate/ventilate, inability to protect airway, anticipated deterioration. Weigh risk/benefit — BVM + OPA/NPA is a valid bridge in many cases.",
+      "7-STEP RSI: 1) Preparation (equipment, suction, crash cart), 2) Preoxygenation, 3) Pretreatment, 4) Paralysis + sedation, 5) Protection/positioning, 6) Placement, 7) Post-intubation management.",
+      "PREOXYGENATION: BVM 100% FiO₂ ×3 min if time allows. Apneic oxygenation via NC 6–8 L/min during laryngoscopy.",
+      "PRETREATMENT: Atropine (RSI pre-tx) 0.02 mg/kg IV/IO (min 0.1 mg, max 0.5 mg) for infants and children under 8 yrs — prevents vagal bradycardia from laryngoscopy.",
+      "INDUCTION: Ketamine 1.5–2 mg/kg IV/IO preferred — maintains airway reflexes, bronchodilates, hemodynamically stable. OR Midazolam 0.1–0.3 mg/kg IV/IO.",
+      "PARALYSIS: Succinylcholine 1.5–2 mg/kg IV/IO (infants up to 3 mg/kg) — onset 45–60 sec, duration 8–10 min. AVOID if burns >24 hr, crush injury, spinal cord injury, denervation, or hyperkalemia. Rocuronium 1.2 mg/kg IV/IO if succinylcholine contraindicated — onset 60–90 sec, duration 30–60 min.",
+      "TUBE SIZING: Uncuffed (age/4)+4 for age <8. Cuffed (age/4)+3.5 for age ≥2. Confirm with colorimetric CO₂ + waveform capnography. Tape at 3× tube size at lip.",
+      "POST-INTUBATION: Bilateral breath sounds, waveform capnography, SpO₂. Ongoing sedation + analgesia to maintain tube tolerance. Reassess continuously.",
+    ],
+    meds:["Succinylcholine","Rocuronium","Ketamine","Midazolam (Versed)","Atropine (RSI pre-tx)","Atropine"],
+    triggers:["failedAirway","apneicRisk"],
+  },
+  {
+    id:"peds-svt",
+    system:"cardiac",
+    title:"Pediatric Tachycardia / SVT",
+    sub:"Most common peds dysrhythmia · weight-based adenosine · cardioversion",
+    scope:"AEMT",
+    patientType:"peds",
+    questions:[
+      ["unstable","Hemodynamically UNSTABLE — poor perfusion, AMS, hypotension, or respiratory distress?"],
+      ["svt","Narrow-complex tachycardia — HR >220 bpm (infant) or >180 bpm (child), fixed rate?"],
+      ["wideComplex","Wide-complex tachycardia (QRS ≥0.09 sec for age)?"],
+      ["weightKnown","Weight known? (required for weight-based dosing)"],
+    ],
+    steps:[
+      "SVT is the most common symptomatic dysrhythmia in children. Infant SVT: HR >220 bpm, fixed rate. Child SVT: HR >180 bpm. Sinus tach varies with stimulation — SVT is fixed.",
+      "UNSTABLE SVT: Synchronized cardioversion 0.5–1 J/kg. If no conversion: 2 J/kg. Do NOT delay cardioversion for IV access.",
+      "STABLE SVT: Vagal maneuvers — ice pack/cold water to face (infant), Valsalva (older child). If no conversion: Adenosine 0.1 mg/kg IV/IO RAPID push via proximal site + rapid flush (max first dose 6 mg). Second dose: 0.2 mg/kg (max 12 mg).",
+      "WIDE-COMPLEX TACHYCARDIA: Treat as VT. Amiodarone 5 mg/kg IV/IO over 20–60 min (Medic scope) OR synchronized cardioversion 0.5–1 J/kg if unstable.",
+      "Infant signs of decompensated SVT/CHF: poor feeding, tachypnea, diaphoresis, irritability, hepatomegaly, weak pulses.",
+      "Establish IV/IO. Obtain weight. Continuous monitoring. 12-lead if available.",
+      "Priority transport with pediatric hospital pre-notification.",
+    ],
+    meds:["Adenosine","Amiodarone"],
+    triggers:["unstable","svt"],
+  },
+  {
+    id:"peds-bradycardia",
+    system:"cardiac",
+    title:"Pediatric Symptomatic Bradycardia",
+    sub:"Hypoxia is #1 cause — oxygenate FIRST · CPR if poor perfusion · weight-based epi",
+    scope:"AEMT",
+    patientType:"peds",
+    questions:[
+      ["hypoxia","Suspected hypoxia as primary cause?"],
+      ["sympt","SYMPTOMATIC — poor perfusion, AMS, or hemodynamic instability?"],
+      ["cpr","HR <60 with poor perfusion despite oxygenation — initiate CPR?"],
+      ["weightKnown","Weight known? (required for weight-based dosing)"],
+    ],
+    steps:[
+      "OXYGENATE FIRST — peds bradycardia is caused by hypoxia in the vast majority of cases. Airway + oxygen is the first and most critical intervention.",
+      "Open airway, provide high-flow oxygen or BVM ventilation. Reassess HR after 1–2 min of oxygenation before proceeding to medications.",
+      "HR <60 bpm with signs of poor perfusion DESPITE adequate oxygenation: Begin CPR. Peds bradycardia + poor perfusion = CPR indication — do not wait for drug effect.",
+      "Epinephrine 0.01 mg/kg (0.1 mL/kg of 1:10,000) IV/IO q3–5 min (max 1 mg/dose) — primary vasopressor/chronotrope for peds bradycardia.",
+      "Atropine 0.02 mg/kg IV/IO (min dose 0.1 mg, max 0.5 mg/dose, max total 1 mg) — for vagal tone, AV block, or peri-intubation bradycardia.",
+      "Transcutaneous pacing as bridge if equipment available and bradycardia not hypoxia-driven. Requires appropriately sized pediatric pads.",
+      "Reversible causes: Hypoxia (most common), hypothermia, heart block, drug/toxin effect (beta-blockers, Ca-channel blockers, digoxin, opioids).",
+      "Priority transport with continuous monitoring and pediatric hospital pre-notification.",
+    ],
+    meds:["Epinephrine 1:10,000","Atropine"],
+    triggers:["sympt","cpr"],
+  },
+  {
+    id:"peds-chest-pain",
+    system:"cardiac",
+    title:"Pediatric Chest Pain",
+    sub:"ACS rare in peds · myocarditis · exertional = red flag · MSK most common",
+    scope:"EMT",
+    patientType:"peds",
+    questions:[
+      ["exertional","Pain triggered or worsened by exertion or physical activity?"],
+      ["syncope","Syncope or near-syncope associated with the pain?"],
+      ["diaphoretic","Diaphoresis, pallor, or signs of poor perfusion?"],
+      ["fever","Fever or recent viral illness?"],
+      ["reproduced","Pain reproducible with palpation (musculoskeletal)?"],
+    ],
+    steps:[
+      "Pediatric ACS is rare but occurs in teens. Most peds chest pain is musculoskeletal (~30%), respiratory, or functional. RED FLAGS: exertional onset, associated syncope, diaphoresis, family history of sudden cardiac death.",
+      "Cardiac monitor, pulse oximetry, full vitals. 12-lead ECG if available.",
+      "EXERTIONAL + SYNCOPE + ECG CHANGES: Treat as cardiac emergency — transport to cardiac-capable facility with monitoring.",
+      "FEVER + CHEST PAIN + RECENT VIRAL ILLNESS: Consider myocarditis or pericarditis. Pleuritic (sharp, positional, worse inspiration) or pericarditic (worse lying flat, better leaning forward) pain patterns. Transport with monitoring.",
+      "SICKLE CELL DISEASE + CHEST PAIN: High concern for acute chest syndrome (ACS equivalent) — oxygen, IV access, analgesia, priority transport.",
+      "MUSCULOSKELETAL (reproducible with palpation, positional, no exertional component): Less urgent but transport for evaluation.",
+      "Aspirin 81–325 mg PO if >12 yrs, suspected cardiac cause, no contraindication — per medical direction.",
+      "Transport all peds chest pain. Many structural and electrical causes are not apparent prehospital.",
+    ],
+    meds:["Aspirin","Fentanyl","Morphine","Normal Saline (0.9% NaCl)"],
+    triggers:["exertional","syncope","diaphoretic"],
+  },
+  {
     id:"peds-febrile-seizure",
     system:"neuro",
     title:"Febrile Seizure",
@@ -4387,6 +4679,136 @@ const PROTOCOL_DEFINITIONS = [
     triggers:["active","recurrent","airway"],
   },
   {
+    id:"overdose",
+    system:"neuro",
+    title:"Opioid / Toxicological Overdose (Adult)",
+    sub:"Naloxone · airway · toxidrome identification · TCA bicarb",
+    scope:"EMT",
+    patientType:"adult",
+    questions:[
+      ["opioid","Opioid toxidrome — miosis, RR <12, unresponsive, or track marks?"],
+      ["stimulant","Stimulant toxidrome — agitation, hyperthermia, tachycardia, diaphoresis?"],
+      ["tca","TCA/antidepressant concern — wide QRS, hypotension, seizure, anticholinergic signs?"],
+      ["unknown","Substance unknown or multiple substances?"],
+    ],
+    steps:[
+      "AIRWAY AND BREATHING first. BVM ventilate immediately for inadequate rate or depth — do not wait for naloxone.",
+      "OPIOID TOXIDROME: Naloxone 0.4–2 mg IV/IO/IM/IN — titrate to adequate respirations, not awakening. Repeat q2–3 min as needed. Fentanyl/carfentanil analogs may require higher doses. Duration of naloxone shorter than many opioids — watch for re-narcotization.",
+      "STIMULANT (cocaine, methamphetamine, MDMA): Agitation, hyperthermia, hypertension, tachycardia, diaphoresis. Benzodiazepines for agitation/seizure. Cool environment. Avoid physical restraint alone (excited delirium risk — hyperthermia + restraint = death).",
+      "BENZODIAZEPINE / CNS DEPRESSANT: Supportive airway and ventilation. No prehospital reversal agent. Monitor closely for respiratory depression.",
+      "TCA OVERDOSE (amitriptyline, nortriptyline, etc.): Wide QRS >0.10 sec + hypotension + seizure = high lethality. Sodium Bicarbonate 1–2 mEq/kg IV for QRS >0.10 sec or ventricular dysrhythmia (Medic scope). Avoid flumazenil if TCA suspected.",
+      "UNKNOWN TOXIDROME: ABCs first. Identify: pupil size, skin findings (diaphoresis, flushing, dry), odors (fruity, garlic, bitter almond), pill bottles at scene. BGL check.",
+      "Activated Charcoal 1 g/kg PO (max 50 g) ONLY if: within 1 hr of ingestion, airway intact, NOT caustics/alcohols/metals/lithium/iron. Medic scope per protocol.",
+      "Poison Control: 1-800-222-1222. Transport ALL intentional overdoses regardless of clinical improvement.",
+    ],
+    meds:["Naloxone (Narcan)","Sodium Bicarbonate","Activated Charcoal","Midazolam (Versed)"],
+    triggers:["opioid","tca"],
+  },
+  {
+    id:"peds-overdose",
+    system:"neuro",
+    title:"Pediatric Overdose / Accidental Ingestion",
+    sub:"Button batteries · medications · weight-based naloxone · charcoal criteria",
+    scope:"EMT",
+    patientType:"peds",
+    questions:[
+      ["opioid","Opioid/sedative signs — respiratory depression, miosis, decreased tone?"],
+      ["battery","Suspected button battery or foreign body ingestion?"],
+      ["severeNeuro","Seizure, unresponsive, or rapidly deteriorating?"],
+      ["asymptomatic","Currently asymptomatic but confirmed ingestion?"],
+    ],
+    steps:[
+      "ALL pediatric ingestions require transport — even asymptomatic patients. Some drugs are highly toxic in small peds doses: digoxin, beta-blockers, Ca-channel blockers, TCAs, opioids.",
+      "AIRWAY AND VENTILATION first. Peds airways are small — position, suction, and support as needed.",
+      "IDENTIFY SUBSTANCE: Pill bottles, plants, household chemicals, batteries. Document estimated dose and time of ingestion. Bring evidence to hospital.",
+      "BUTTON BATTERY INGESTION: If in the esophagus (drooling, dysphagia, vomiting, refusal to eat) — EMERGENCY. Esophageal necrosis within 2 hours. Do NOT induce vomiting. Priority immediate transport.",
+      "OPIOID/SEDATIVE TOXIDROME (respiratory depression, pinpoint pupils, decreased tone): Naloxone 0.01 mg/kg IV/IO OR 0.1 mg/kg IN (max 2 mg per dose). Titrate to respiratory effort — not wakefulness.",
+      "SEIZURE FROM INGESTION: Midazolam 0.1–0.2 mg/kg IV/IO/IM/IN per protocol.",
+      "Activated Charcoal 1 g/kg PO (max 50 g) ONLY if: awake with intact airway, within 1 hr of ingestion, substance adsorbs to charcoal (NOT caustics, alcohols, iron, lithium). Medic scope per protocol.",
+      "Poison Control: 1-800-222-1222. Priority transport to pediatric-capable emergency facility.",
+    ],
+    meds:["Naloxone (Narcan)","Activated Charcoal","Midazolam (Versed)"],
+    triggers:["opioid","severeNeuro","battery"],
+  },
+  {
+    id:"behavioral",
+    system:"neuro",
+    title:"Behavioral / Psychiatric Emergency (Adult)",
+    sub:"Excited delirium · chemical restraint · scene safety",
+    scope:"Medic",
+    patientType:"adult",
+    questions:[
+      ["violent","Violent, combative, or danger to self or others?"],
+      ["excitedDelirium","Excited delirium signs — hyperthermia, superhuman strength, disrobing, exhaustion?"],
+      ["psychosis","Active psychosis, hallucinations, or paranoid delusions?"],
+      ["substanceSuspected","Suspected stimulant intoxication (cocaine, methamphetamine, bath salts, PCP)?"],
+    ],
+    steps:[
+      "SCENE SAFETY FIRST — do not enter until scene is secured. Law enforcement should be present for actively violent patients. Position yourself near an exit.",
+      "De-escalation: calm non-threatening tone, minimize stimulation, reduce personnel at bedside, give patient simple choices and space.",
+      "EXCITED DELIRIUM SYNDROME (ExDS): Hyperthermia + bizarre behavior + agitation + apparent superhuman strength + sudden quiet = HIGH lethality. Immediate chemical restraint required — do not delay.",
+      "Ketamine 4–5 mg/kg IM (Medic scope) preferred for ExDS/severe agitation — rapid onset 1–2 min, does not require patient cooperation. Monitor airway closely for laryngospasm.",
+      "Moderate agitation: Midazolam 5–10 mg IM (Medic scope) OR Haloperidol 5–10 mg IM. Avoid haloperidol alone if stimulant intoxication suspected (lowers seizure threshold).",
+      "AVOID prone restraint combined with chemical sedation — risk of positional asphyxia and sudden death. Lateral position preferred.",
+      "Post-sedation monitoring: Airway, SpO₂, RR, temperature, BGL, ECG. ExDS patients can deteriorate rapidly after apparent calm.",
+      "Transport all sedated patients on continuous monitoring. Document restraint application times, methods, and all clinical interventions.",
+    ],
+    meds:["Ketamine","Haloperidol (Haldol)","Midazolam (Versed)"],
+    triggers:["violent","excitedDelirium"],
+  },
+  {
+    id:"peds-behavioral",
+    system:"neuro",
+    title:"Pediatric Behavioral Emergency",
+    sub:"Medical cause first · de-escalation · weight-based sedation",
+    scope:"Medic",
+    patientType:"peds",
+    questions:[
+      ["violent","Violent or immediate danger to self or others?"],
+      ["medicalCause","Medical cause not yet excluded — BGL, hypoxia, head injury, ingestion?"],
+      ["autismDD","Known autism spectrum disorder or developmental disability?"],
+      ["substanceSuspected","Suspected substance use or intoxication?"],
+    ],
+    steps:[
+      "RULE OUT MEDICAL CAUSE FIRST — hypoglycemia, hypoxia, head injury, infection, and drug ingestion all present as behavioral emergencies in children. BGL and SpO₂ check mandatory.",
+      "De-escalation is first-line for all peds behavioral emergencies: calm environment, familiar person present, simple language, sensory reduction.",
+      "Autism / Developmental Disability: Sensory sensitivities and communication barriers are common — do not interpret non-verbal behavior as aggression. Use consistent calm voice, visual cues, routine.",
+      "Chemical restraint when de-escalation fails and patient is at immediate risk: Midazolam 0.1–0.2 mg/kg IM/IN/IV/IO (max 10 mg) — weight-based. Monitor airway and SpO₂ closely.",
+      "Ketamine 3–4 mg/kg IM (Medic scope) for severe agitation unresponsive to midazolam — onset 1–2 min. Airway equipment immediately available.",
+      "AVOID physical prone restraint — associated with sudden death in children. If restraint necessary, lateral position with continuous monitoring.",
+      "All sedated peds patients require continuous SpO₂, RR, and level of consciousness monitoring.",
+      "Transport with parent/guardian when possible. Document all interventions and clinical reasoning.",
+    ],
+    meds:["Midazolam (Versed)","Ketamine"],
+    triggers:["violent","medicalCause"],
+  },
+  {
+    id:"organophosphate",
+    system:"neuro",
+    title:"Organophosphate / Nerve Agent Poisoning",
+    sub:"SLUDGE · decontamination · atropine titration · benzo for seizures",
+    scope:"AEMT",
+    patientType:"both",
+    questions:[
+      ["exposure","Known or suspected organophosphate, pesticide, or nerve agent exposure?"],
+      ["sludge","SLUDGE symptoms — salivation, lacrimation, urination, defecation, GI cramps, emesis?"],
+      ["seizure","Seizure activity present?"],
+      ["miosis","Miosis (pinpoint pupils) + bradycardia + bronchospasm?"],
+    ],
+    steps:[
+      "SCENE SAFETY — organophosphate/nerve agent scenes are hazmat environments. Do NOT enter without PPE (gloves, eye protection, avoid skin contact). Secondary rescuer contamination is a real risk.",
+      "DECONTAMINATION: Remove patient from exposure. Remove all contaminated clothing. Copious water irrigation of skin and eyes for ≥15 min. Decontaminate before transport when possible.",
+      "SLUDGE/MUDDLES: Salivation, Lacrimation, Urination, Defecation, GI cramps, Emesis / Miosis, Urination, Diaphoresis, Defecation, Lacrimation, Emesis, Seizures. Any 3+ signs = treat aggressively.",
+      "ATROPINE: Adult 2–4 mg IV/IO; Peds 0.05 mg/kg IV/IO (min 0.1 mg). Repeat every 5–10 min — endpoint is DRY SECRETIONS, not tachycardia. Extremely large doses (20–100+ mg) may be required. Do NOT under-dose.",
+      "SEIZURES: Diazepam 5–10 mg IV adult (0.2 mg/kg peds), OR Midazolam 5 mg IM adult (0.1–0.2 mg/kg IM/IV/IN peds). Benzodiazepines are the ONLY effective antiseizure treatment for nerve agent seizures.",
+      "AIRWAY: Expect copious secretions, bronchospasm, laryngospasm. Suction aggressively. Atropine will reduce secretions but advanced airway may be required.",
+      "BRONCHOSPASM: Albuterol nebulizer as adjunct after atropine.",
+      "Pralidoxime (2-PAM) not available prehospital in most systems — in-hospital treatment. Contact Poison Control 1-800-222-1222. Priority transport.",
+    ],
+    meds:["Atropine (Organophosphate)","Midazolam (Versed)","Diazepam (Valium)","Albuterol"],
+    triggers:["sludge","seizure","miosis"],
+  },
+  {
     id:"peds-hypoglycemia",
     system:"metabolic",
     title:"Pediatric Hypoglycemia",
@@ -4409,6 +4831,167 @@ const PROTOCOL_DEFINITIONS = [
     ],
     meds:["Oral Glucose","Dextrose 25% (D25)","Dextrose 10% (D10)","Glucagon"],
     triggers:["lowBgl"],
+  },
+  {
+    id:"hyperglycemia-dka",
+    system:"metabolic",
+    title:"Hyperglycemia / DKA (Adult)",
+    sub:"BGL >300 · Kussmaul respirations · aggressive fluid resuscitation",
+    scope:"AEMT",
+    patientType:"adult",
+    questions:[
+      ["highBgl","BGL >300 mg/dL (or >250 with known DKA history)?"],
+      ["kussmaul","Deep, rapid labored breathing (Kussmaul respirations) or fruity/acetone breath?"],
+      ["dehydrated","Signs of dehydration — dry mucous membranes, poor skin turgor, tachycardia?"],
+      ["ams","Altered mental status, lethargy, or confusion?"],
+      ["vomiting","Nausea, vomiting, or abdominal pain?"],
+      ["severAcidosis","Signs of severe acidosis — hemodynamic instability or near-unresponsive?"],
+    ],
+    steps:[
+      "Confirm BGL. DKA: BGL typically >250–300 mg/dL with Kussmaul respirations, fruity breath, N/V, abdominal pain. Hyperglycemic Hyperosmolar State (HHS): BGL often >600, minimal ketosis, severe dehydration, neuro changes.",
+      "Establish IV/IO access × 2 large bore. Administer NS 500 mL–1 L IV bolus over 30–60 min for initial resuscitation. Reassess lung sounds and BP after each bolus.",
+      "DKA patients are severely volume depleted — fluid is the most critical prehospital intervention. Goal: restore perfusion and urine output. Typical deficit 3–6 L.",
+      "Do NOT administer insulin prehospital unless specifically authorized by protocol and online medical direction.",
+      "Potassium: DKA patients are total-body K⁺ depleted even if serum K⁺ appears elevated (acidosis shifts K⁺ extracellularly). Do NOT add K⁺ to prehospital fluids.",
+      "Sodium Bicarbonate: Medic scope — administer ONLY if pH <7.0 AND hemodynamically unstable per medical direction. Routine bicarb in DKA is NOT indicated and may worsen cerebral edema.",
+      "AMS or hemodynamic instability: priority transport. Monitor ECG — hyperkalemia (peaked T-waves, wide QRS) indicates critical K⁺ level.",
+      "Reassess mental status, BP, HR, SpO₂, and RR continuously. Transport with early hospital notification — definitive treatment requires insulin drip and electrolyte management.",
+    ],
+    meds:["Normal Saline (0.9% NaCl)","Sodium Bicarbonate"],
+    triggers:["highBgl","kussmaul","ams"],
+  },
+  {
+    id:"peds-hyperglycemia-dka",
+    system:"metabolic",
+    title:"Pediatric Hyperglycemia / DKA",
+    sub:"BGL >200 · cautious fluid resuscitation · cerebral edema risk",
+    scope:"AEMT",
+    patientType:"peds",
+    questions:[
+      ["highBgl","BGL >200 mg/dL (new onset DKA can present at lower BGL in peds)?"],
+      ["kussmaul","Deep, rapid breathing (Kussmaul) or fruity/acetone odor?"],
+      ["dehydrated","Signs of dehydration — dry mucous membranes, sunken eyes, poor skin turgor, tachycardia?"],
+      ["ams","Altered mental status, drowsiness, confusion, or headache?"],
+      ["cerebraledema","Sudden worsening neuro status, bradycardia + hypertension, or posturing after initial treatment?"],
+    ],
+    steps:[
+      "Pediatric DKA is a life-threatening emergency. BGL >200 with symptoms (Kussmaul breathing, fruity breath, N/V, dehydration) = treat as DKA until proven otherwise.",
+      "Obtain weight for dosing. Establish IV/IO access.",
+      "CAUTIOUS fluid resuscitation — cerebral edema is the leading cause of DKA death in children. Administer 10–20 mL/kg NS IV/IO over 1 hr (NOT rapid bolus as in adults).",
+      "Reassess after initial fluid. Repeat 10 mL/kg bolus ONLY if hemodynamically unstable (SBP below threshold). Avoid fluid rates >1.5–2× maintenance.",
+      "Do NOT administer insulin prehospital — risk of cerebral edema increases with rapid osmolar shifts.",
+      "Monitor closely for cerebral edema: new headache, deteriorating neuro status, bradycardia + hypertension (Cushing triad), posturing. If cerebral edema suspected — call medical direction immediately.",
+      "Maintain SpO₂ ≥94%; apply oxygen. Monitor ECG for hyperkalemia (peaked T-waves, wide QRS).",
+      "Priority transport with pediatric hospital pre-notification. DKA in children requires ICU-level care — insulin drip and hourly electrolyte monitoring.",
+    ],
+    meds:["Normal Saline (0.9% NaCl)"],
+    triggers:["highBgl","kussmaul","ams"],
+  },
+  {
+    id:"fever-sepsis",
+    system:"metabolic",
+    title:"Fever / Sepsis (Adult)",
+    sub:"qSOFA screening · fluid resuscitation · vasopressor for refractory shock",
+    scope:"AEMT",
+    patientType:"adult",
+    questions:[
+      ["fever","Fever (T >38.3°C / 101°F) or hypothermia (<36°C / 96.8°F)?"],
+      ["infectionSource","Suspected or confirmed source of infection?"],
+      ["ams","Altered mental status from baseline?"],
+      ["rr22","Respiratory rate ≥22 breaths/min?"],
+      ["sbp100","Systolic BP ≤100 mmHg?"],
+      ["shockPersist","Hypotension persists after initial fluid bolus?"],
+    ],
+    steps:[
+      "qSOFA Screening: AMS + RR ≥22 + SBP ≤100. Score ≥2 with suspected infection = HIGH concern for sepsis/organ dysfunction.",
+      "Establish IV/IO × 2 large bore. Administer 250–500 mL NS or LR IV bolus. Reassess lung sounds after each bolus — stop if crackles develop or SpO₂ drops.",
+      "Goal MAP ≥65 mmHg. Repeat boluses targeting up to 30 mL/kg total if shock persists and lungs tolerate.",
+      "Identify infection source: lungs (crackles, cough), UTI (foley, dysuria), abdomen (rigidity, surgical hx), skin/soft tissue (wound, cellulitis), CNS (neck stiffness, AMS).",
+      "Maintain SpO₂ ≥94% — apply oxygen. Prepare airway early if mental status is deteriorating.",
+      "Fever/pain management: Acetaminophen IV 1,000 mg over 15 min — Medic scope; avoid if hepatic failure. Max 4 g/24 hrs.",
+      "Refractory hypotension after adequate fluid resuscitation: Dopamine 5–20 mcg/kg/min IV infusion (Medic scope). Titrate to MAP ≥65 mmHg. Reassess HR and perfusion q3–5 min.",
+      "Early transport with hospital pre-notification — definitive care requires IV antibiotics, blood cultures, and lactate. Time to antibiotics matters.",
+    ],
+    meds:["Normal Saline (0.9% NaCl)","Acetaminophen IV (Ofirmev)","Dopamine"],
+    triggers:["sbp100","ams","shockPersist"],
+  },
+  {
+    id:"peds-fever-sepsis",
+    system:"metabolic",
+    title:"Pediatric Fever / Sepsis",
+    sub:"PAT + SIRS · weight-based fluid bolus · vasopressor for refractory shock",
+    scope:"AEMT",
+    patientType:"peds",
+    questions:[
+      ["fever","Fever (T >38°C / 100.4°F) or hypothermia (<36°C)?"],
+      ["infectionSource","Suspected source of infection?"],
+      ["appearance","Abnormal appearance — irritable, inconsolable, lethargic, or toxic-looking?"],
+      ["perfusion","Poor perfusion — mottling, cap refill >2 sec, or cool extremities?"],
+      ["sbpLow","BP below age-appropriate threshold? (SBP <70 + 2×age in yrs mmHg)"],
+      ["shockPersist","Shock signs persist after 20 mL/kg fluid bolus?"],
+    ],
+    steps:[
+      "PAT at doorway: Appearance ↓ + Circulation ↓ = high concern for septic shock. Move quickly.",
+      "Obtain weight for weight-based dosing. Establish IV/IO access.",
+      "Administer 20 mL/kg NS or LR IV/IO bolus over 5–10 min. Reassess perfusion, lung sounds, and mental status after each bolus.",
+      "Repeat bolus ×2–3 (up to 60 mL/kg total) if shock persists and lungs remain clear. Reassess between each bolus.",
+      "Age-appropriate SBP thresholds: Infant <70 mmHg, 1–10 yrs <70 + (2×age) mmHg, >10 yrs <90 mmHg.",
+      "Maintain SpO₂ ≥94% — apply oxygen. Prepare airway for any mental status decline — peds septic shock deteriorates rapidly.",
+      "Fever management: Acetaminophen IV 15 mg/kg over 15 min (max 750 mg if <50 kg) — Medic scope.",
+      "Refractory shock after fluid resuscitation: Dopamine 5–20 mcg/kg/min IV/IO infusion (Medic scope). Titrate to age-appropriate BP. Reassess q3–5 min.",
+      "Priority transport with pediatric hospital pre-notification. Septic children can decompensate suddenly — continuous monitoring.",
+    ],
+    meds:["Normal Saline (0.9% NaCl)","Acetaminophen IV (Ofirmev)","Dopamine"],
+    triggers:["perfusion","sbpLow","shockPersist"],
+  },
+  {
+    id:"hyperkalemia",
+    system:"metabolic",
+    title:"Hyperkalemia (Adult)",
+    sub:"ECG changes · calcium membrane stabilization · K⁺ shifting",
+    scope:"Medic",
+    patientType:"adult",
+    questions:[
+      ["ecgChanges","ECG changes — peaked T-waves, widened QRS, or sine-wave pattern?"],
+      ["riskFactors","Risk factors — renal failure, crush injury, burns >24 hr, or metabolic acidosis?"],
+      ["hemodynamic","Hemodynamic instability or ventricular dysrhythmia?"],
+    ],
+    steps:[
+      "ECG is the most critical prehospital tool. Progression: Peaked T-waves → PR prolongation → Wide QRS → Sine-wave pattern → Ventricular fibrillation.",
+      "CARDIAC MEMBRANE STABILIZATION (treat first — most urgent): Calcium Chloride 10% 1 g (10 mL) IV over 3–5 min. INCOMPATIBLE with sodium bicarbonate — use separate IV line. Onset 1–3 min. Does NOT lower K⁺, only stabilizes cardiac membrane.",
+      "SHIFT K⁺ INTO CELLS: Sodium Bicarbonate 1 mEq/kg IV over 5 min — effective especially in metabolic acidosis. Alkalinizes serum, shifts K⁺ intracellularly.",
+      "SHIFT K⁺ INTO CELLS: Albuterol 10–20 mg continuous nebulization — beta-2 stimulation shifts K⁺ intracellularly. Effective adjunct to IV therapy.",
+      "CRUSH SYNDROME: Aggressive NS fluid resuscitation for rhabdomyolysis. Calcium Chloride if ECG changes present.",
+      "CARDIAC ARREST with suspected hyperkalemia: Calcium Chloride + Sodium Bicarbonate + Albuterol in addition to standard ACLS. Definitive treatment requires dialysis.",
+      "Identify cause: Renal failure (most common), ACE inhibitors, K-sparing diuretics, succinylcholine (RSI), crush injury, burns, acidosis.",
+      "Dual IV access, continuous ECG monitoring, priority transport with hospital notification.",
+    ],
+    meds:["Calcium Chloride 10%","Sodium Bicarbonate","Albuterol"],
+    triggers:["ecgChanges","hemodynamic"],
+  },
+  {
+    id:"peds-hyperkalemia",
+    system:"metabolic",
+    title:"Pediatric Hyperkalemia",
+    sub:"ECG changes · weight-based calcium · crush / rhabdo",
+    scope:"Medic",
+    patientType:"peds",
+    questions:[
+      ["ecgChanges","ECG changes — peaked T-waves, wide QRS, or dysrhythmia?"],
+      ["riskFactors","Risk factors — renal failure, crush injury, rhabdomyolysis, or acidosis?"],
+      ["hemodynamic","Hemodynamic instability?"],
+    ],
+    steps:[
+      "Pediatric hyperkalemia: ECG changes identical to adults but can occur at lower absolute K⁺ levels, especially in infants. Peaked T-waves, wide QRS, sine-wave = treat immediately.",
+      "CARDIAC MEMBRANE STABILIZATION: Calcium Chloride 10% 0.2 mL/kg (20 mg/kg) IV slowly over 5–10 min (max 1 g, Medic scope). Monitor HR during infusion — bradycardia if given too fast.",
+      "SHIFT K⁺: Sodium Bicarbonate 1 mEq/kg IV over 5 min (Medic scope) — effective in metabolic acidosis context.",
+      "SHIFT K⁺: Albuterol 2.5 mg nebulized (all ages) — adjunct. Beta-2 stimulation shifts K⁺ intracellularly.",
+      "CRUSH INJURY / RHABDOMYOLYSIS: Normal saline 20 mL/kg IV/IO bolus for volume and renal protection.",
+      "Neonates at highest risk: Iatrogenic hyperkalemia from blood transfusions, renal tubular immaturity, or high K⁺ intake.",
+      "IV/IO access, continuous ECG monitoring, SpO₂. Priority transport with pediatric hospital notification.",
+    ],
+    meds:["Calcium Chloride 10%","Sodium Bicarbonate","Albuterol"],
+    triggers:["ecgChanges","hemodynamic"],
   },
 
   // ─── ASSESSMENT TOOLS ──────────────────────────────────────────────────────
@@ -4538,6 +5121,110 @@ const PROTOCOL_DEFINITIONS = [
     ],
     meds:[],
     triggers:["pulseLow","respLow","toneLow"],
+  },
+  {
+    id:"ob-emergency",
+    system:"assess",
+    title:"OB Emergency / Eclampsia",
+    sub:"Active labor · eclampsia · postpartum hemorrhage · delivery support",
+    scope:"EMT",
+    patientType:"adult",
+    questions:[
+      ["crowning","Crowning visible or delivery imminent?"],
+      ["seizure","Seizure activity in pregnant patient (≥20 weeks gestation)?"],
+      ["hemorrhage","Significant postpartum hemorrhage?"],
+      ["hypertensive","SBP ≥160 mmHg or known preeclampsia?"],
+    ],
+    steps:[
+      "ECLAMPSIA (seizure in pregnant patient ≥20 wks): Magnesium Sulfate 4–6 g IV over 15–20 min (Medic scope). Hold if RR <12 or DTRs absent — toxicity. Calcium chloride/gluconate is antidote.",
+      "SEVERE HYPERTENSION in pregnancy (SBP ≥160): Monitor and priority transport — antihypertensive management is in-hospital.",
+      "DELIVERY: Warm environment. Support infant head during crowning — do NOT pull. Gentle downward traction for anterior shoulder, upward for posterior. Suction only if meconium + non-vigorous infant.",
+      "UMBILICAL CORD: Double-clamp at 2–3 cm and 5 cm from umbilicus at 1–2 min after delivery (delayed cord clamping preferred for term infants). Cut between clamps.",
+      "POSTPARTUM HEMORRHAGE (PPH): Uterine massage. Oxytocin (Pitocin) 10–40 units in 1 L NS IV infusion AFTER placental delivery — NEVER before (risk of retained placenta and maternal death).",
+      "SHOULDER DYSTOCIA: McRoberts maneuver (extreme hip flexion into chest), suprapubic pressure applied downward. Do NOT apply fundal pressure. Document time head delivered.",
+      "NUCHAL CORD: If loose, slip over head. If tight, double-clamp and cut before completing delivery.",
+      "NEONATAL RESUSCITATION: Dry, warm, stimulate immediately. If HR <100, apneic, or gasping — begin NRP. See Neonatal Resuscitation protocol.",
+    ],
+    meds:["Magnesium Sulfate","Oxytocin (Pitocin)","Epinephrine 1:1,000"],
+    triggers:["crowning","seizure","hemorrhage"],
+  },
+  {
+    id:"neonatal-resus",
+    system:"assess",
+    title:"Neonatal Resuscitation",
+    sub:"Birth to 28 days · NRP algorithm · weight-based epinephrine",
+    scope:"AEMT",
+    patientType:"peds",
+    questions:[
+      ["termGestation","≥37 weeks gestation and amniotic fluid clear?"],
+      ["breathingCrying","Good respiratory effort and crying at birth?"],
+      ["goodTone","Good muscle tone?"],
+      ["hrBelow100","Heart rate below 100 bpm despite initial steps?"],
+    ],
+    steps:[
+      "INITIAL STEPS — the 'golden minute': Warm and dry, stimulate (rub back/flick soles), clear airway only if obstructed. Position: slight neck extension (sniffing position). Suction only if meconium + non-vigorous.",
+      "EVALUATE: Respiratory effort, heart rate, color/tone. Breathing + HR ≥100 + good tone = routine care and monitoring.",
+      "HR <100 OR inadequate breathing: Positive Pressure Ventilation (PPV) — 40–60 breaths/min at 21% FiO₂ initially. Titrate oxygen to SpO₂ targets (1 min: 60–65%, 5 min: 80–85%, 10 min: 85–95%).",
+      "PPV ×30 sec — HR still <100: Ventilation corrective steps (MR SOPA): Mask adjustment, Reposition airway, Suction, Open mouth, Pressure increase, Airway — intubate.",
+      "HR <60 after 30 sec adequate PPV: Begin chest compressions. 2-thumb encircling technique preferred. Rate 90/min + 30 breaths/min (3:1 ratio). Increase FiO₂ to 100%. IV/IO access.",
+      "HR <60 DESPITE CPR ×30 sec: Epinephrine 0.01–0.03 mg/kg IV/IO (0.1–0.3 mL/kg of 1:10,000). Via ET tube: 0.05–0.1 mg/kg (less reliable).",
+      "GLUCOSE: Neonates are highly vulnerable to hypoglycemia. Check BGL if possible. D10 at 2 mL/kg IV/IO if BGL <40 mg/dL.",
+      "MECONIUM + NON-VIGOROUS: Do NOT delay PPV for extensive suctioning. Intubate and suction below cords if HR <100 or poor tone.",
+    ],
+    meds:["Epinephrine 1:10,000","Dextrose 10% (D10)","Normal Saline (0.9% NaCl)"],
+    triggers:["hrBelow100"],
+  },
+  {
+    id:"pain-management",
+    system:"assess",
+    title:"Pain Management (Adult)",
+    sub:"Multimodal analgesia · titrate to effect · hemodynamic screen",
+    scope:"AEMT",
+    patientType:"adult",
+    questions:[
+      ["severeAcute","Severe acute pain (score ≥7/10) requiring parenteral analgesia?"],
+      ["traumaPain","Traumatic pain — injury-related?"],
+      ["hemodynamicOk","Hemodynamically stable (SBP ≥90)?"],
+      ["allergyOpioid","Known opioid or NSAID allergy?"],
+    ],
+    steps:[
+      "ASSESS: Pain 0–10 scale, character, location, radiation, onset. Document baseline and reassess after each intervention.",
+      "NON-OPIOID FIRST when appropriate: Reduces opioid requirement and side effects.",
+      "Ketorolac (Toradol) 15–30 mg IV or 30–60 mg IM (Medic scope) — for musculoskeletal, renal colic, or inflammatory pain. Avoid in renal failure, active GI bleed, or pregnancy.",
+      "Fentanyl 1 mcg/kg IV/IO or 1.5–2 mcg/kg IN (max 100 mcg/dose) — rapid onset, titratable. Repeat 0.5 mcg/kg q5 min as needed. Intranasal effective without IV access.",
+      "Morphine Sulfate 0.1 mg/kg IV/IO (max 4 mg/dose) — slower onset than fentanyl, longer duration. Screen BP/RR before each dose.",
+      "Sub-dissociative Ketamine 0.1–0.3 mg/kg IV over 10–15 min (Medic scope) — excellent for trauma, burns, opioid-tolerant patients. Warn patient of possible dissociative sensation.",
+      "SCREEN BEFORE EACH OPIOID DOSE: SBP ≥90, RR ≥12, SpO₂ acceptable. Hold if SpO₂ <94% or RR <10.",
+      "Titrate to functional relief (≤4/10), not zero. Document dose, route, and patient response to each intervention.",
+    ],
+    meds:["Fentanyl","Morphine Sulfate","Ketorolac (Toradol)","Ketamine"],
+    triggers:["severeAcute","traumaPain"],
+  },
+  {
+    id:"peds-pain",
+    system:"assess",
+    title:"Pediatric Pain Management",
+    sub:"Age-appropriate scale · weight-based dosing · multimodal",
+    scope:"AEMT",
+    patientType:"peds",
+    questions:[
+      ["severeAcute","Severe acute pain requiring pharmacological intervention?"],
+      ["weightKnown","Weight known? (required for weight-based dosing)"],
+      ["hemodynamicOk","Hemodynamically stable?"],
+      ["ageAbove2","Age ≥2 years?"],
+    ],
+    steps:[
+      "ASSESS with age-appropriate tool: FLACC (<4 yrs/non-verbal) — Face, Legs, Activity, Cry, Consolability. FACES scale (≥3 yrs). Numeric 0–10 (≥8 yrs). Document baseline.",
+      "Non-pharmacological first: positioning, ice/heat, distraction, parental presence, fracture splinting.",
+      "Fentanyl 1–1.5 mcg/kg IV/IO or 1.5–2 mcg/kg IN (max 100 mcg/dose) — rapid onset, preferred first-line opioid in peds. Repeat 0.5 mcg/kg q5 min as needed.",
+      "Morphine 0.05–0.1 mg/kg IV/IO (max 4 mg/dose, Medic scope) — moderate-severe pain when IV established. Slower onset than fentanyl.",
+      "Ketorolac (Toradol) 0.5 mg/kg IV/IO (max 15–30 mg) for age ≥2 yrs (Medic scope) — excellent for musculoskeletal, renal colic, inflammatory pain. Avoid in infants <6 months.",
+      "Sub-dissociative Ketamine 0.1–0.3 mg/kg IV over 10–15 min (Medic scope) — severe pain, trauma, or opioid failure. Warn caregiver about possible emergence reaction.",
+      "SCREEN BEFORE EACH OPIOID: SBP above age threshold, RR ≥12, SpO₂ acceptable.",
+      "Reassess pain score 5–10 min after each intervention. Document dose, weight used for calculation, route, and response.",
+    ],
+    meds:["Fentanyl","Morphine","Ketorolac (Toradol)","Ketamine"],
+    triggers:["severeAcute"],
   },
   {
     id:"revised-trauma-score",
@@ -8062,6 +8749,94 @@ function matchCcInput(text) {
   return bestScore >= 10 ? best : null;
 }
 
+function CallOverviewScreen({ ccList, patient, isDarkMode, onOpenProtocol, onOpenDrugs }) {
+  const t   = isDarkMode ? "#e2e8f0" : "#0f172a";
+  const mu  = isDarkMode ? "#8aa0c2" : "#4b5563";
+  const su  = isDarkMode ? "#060a15" : "#f4efe7";
+  const bd  = isDarkMode ? "#1a2338" : "#d1d5db";
+
+  const SYS_LABEL = { cardiac:"Cardiac", respiratory:"Respiratory", neuro:"Neuro", metabolic:"Metabolic", anaphylaxis:"Anaphylaxis", trauma:"Trauma", burns:"Burns", assess:"Assessment" };
+
+  const patientLine = [patient.age, patient.sex, patient.cc].filter(Boolean).join(" · ");
+
+  return (
+    <div style={{paddingBottom:24}}>
+
+      {/* Header */}
+      <div style={{marginBottom:20}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#38bdf8",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}}>Active Call</div>
+        <div style={{fontSize:20,fontWeight:800,color:t,marginBottom:6}}>Call Overview</div>
+        {patientLine && (
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:mu,background:isDarkMode?"#0d1120":"#e8edf5",border:`1px solid ${bd}`,borderRadius:6,padding:"5px 10px",display:"inline-block"}}>
+            {patientLine}
+          </div>
+        )}
+      </div>
+
+      {/* Subheader */}
+      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:700,color:mu,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>
+        {ccList.length} Chief Complaint{ccList.length !== 1 ? "s" : ""} — tap a protocol to open it
+      </div>
+
+      {/* CC cards */}
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        {ccList.map((cc, i) => {
+          const info  = cc.matched ? CC_DRUG_MAP[cc.matched] : null;
+          const color = info?.color || (isDarkMode ? "#4b5563" : "#9ca3af");
+          return (
+            <div key={i} style={{borderRadius:12,border:`1px solid ${color}44`,borderLeft:`4px solid ${color}`,background:isDarkMode?"#080d1a":"#ffffff",overflow:"hidden"}}>
+              {/* Card header */}
+              <div style={{padding:"12px 14px 8px"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
+                  <span style={{fontSize:15,fontWeight:800,color:t}}>{cc.matched || cc.raw}</span>
+                  {info ? (
+                    <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,fontWeight:800,padding:"2px 7px",borderRadius:4,background:`${color}20`,color,border:`1px solid ${color}44`,textTransform:"uppercase"}}>
+                      {SYS_LABEL[info.sys]||info.sys} System
+                    </span>
+                  ) : (
+                    <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,fontWeight:800,padding:"2px 7px",borderRadius:4,background:isDarkMode?"#1e293b":"#f1f5f9",color:mu,border:`1px solid ${bd}`,textTransform:"uppercase"}}>
+                      Free Text
+                    </span>
+                  )}
+                </div>
+                {info && (
+                  <>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>
+                      {info.drugs.map(d=>(
+                        <span key={d} style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,padding:"2px 8px",borderRadius:4,background:`${color}15`,color,border:`1px solid ${color}30`}}>{d}</span>
+                      ))}
+                    </div>
+                    <div style={{fontSize:10,color:mu,lineHeight:1.55}}>{info.hint}</div>
+                  </>
+                )}
+              </div>
+              {/* Action buttons */}
+              <div style={{display:"grid",gridTemplateColumns:info?"1fr 1fr":"1fr",gap:0,borderTop:`1px solid ${color}22`}}>
+                {info && (
+                  <button onClick={()=>onOpenProtocol(info.sys)}
+                    style={{padding:"11px 8px",border:"none",borderRight:`1px solid ${color}22`,background:"transparent",color,fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,cursor:"pointer",textAlign:"center",letterSpacing:"0.04em"}}>
+                    Open Protocol →
+                  </button>
+                )}
+                <button onClick={onOpenDrugs}
+                  style={{padding:"11px 8px",border:"none",background:"transparent",color:mu,fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:700,cursor:"pointer",textAlign:"center",letterSpacing:"0.04em"}}>
+                  View Drugs →
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Footer hint */}
+      <div style={{marginTop:18,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:mu,textAlign:"center",lineHeight:1.6}}>
+        Use the nav menu to switch screens at any time.<br/>
+        Tap <span style={{color:"#f59e0b",fontWeight:800}}>📋 Overview</span> in the header to return here.
+      </div>
+    </div>
+  );
+}
+
 function QuickIntakeModal({ isDarkMode, onStart, onCancel }) {
   const [age, setAge]                   = useState("");
   const [ageUnit, setAgeUnit]           = useState("yrs");
@@ -8321,7 +9096,7 @@ function ShiftHomeScreen({ authUser, isDarkMode, onNewPatient, onNavigate, callS
       <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:20}}>
         <div>
           <div style={{fontSize:11,color:mu,fontFamily:"'IBM Plex Mono',monospace",marginBottom:4}}>{timeEmoji} {dateStr}</div>
-          <div style={{fontSize:23,fontWeight:800,color:t,lineHeight:1.15}}>{greeting},<br/>{(authUser?.name||"Provider").split(" ")[0]}.</div>
+          <div style={{fontSize:23,fontWeight:800,color:t,lineHeight:1.15}}>{greeting},<br/>{(()=>{ const n=authUser?.name||""; return (!n||n.startsWith("R.O.M.A.N")) ? "Provider" : n.split(" ")[0]; })()}.</div>
         </div>
         <div style={{textAlign:"right",flexShrink:0,paddingTop:2}}>
           <div style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 10px",borderRadius:20,
@@ -8607,6 +9382,7 @@ export default function App(){
   });
   const[burnMaps,setBurnMaps]=useState({ adult:{}, peds:{} });
   const[patient,setPatient]=useState({ age:"", sex:"", cc:"" });
+  const[callCcList,setCallCcList]=useState([]);
   const[callStartTs,setCallStartTs]=useState(null);
   const[showQuickIntake,setShowQuickIntake]=useState(false);
   const[protocolInitSys,setProtocolInitSys]=useState("assess");
@@ -8875,8 +9651,11 @@ export default function App(){
       }
     }
     setShowQuickIntake(false);
-    // Route to matched protocol system if CC matched, otherwise fall back to drugs
-    if(intake.cc&&CC_DRUG_MAP[intake.cc]){
+    const incomingCcList = intake.ccList || [];
+    setCallCcList(incomingCcList);
+    if(incomingCcList.length > 1){
+      setScreen("call-overview");
+    } else if(intake.cc&&CC_DRUG_MAP[intake.cc]){
       setProtocolInitSys(CC_DRUG_MAP[intake.cc].sys);
       setScreen("protocols");
     } else {
@@ -9136,6 +9915,12 @@ export default function App(){
                 </div>
               );
             })()}
+            {callCcList.length > 1 && callStartTs && (
+              <button onClick={()=>setScreen("call-overview")}
+                style={{padding:"5px 10px",borderRadius:7,border:"1px solid #d97706",background:isDarkMode?"#1a0c04":"#fffbeb",color:"#f59e0b",fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,cursor:"pointer",letterSpacing:"0.05em",textTransform:"uppercase",whiteSpace:"nowrap"}}>
+                📋 Overview
+              </button>
+            )}
             <div style={{textAlign:"right",fontFamily:"'IBM Plex Mono',monospace"}}>
               {authUser&&<div style={{color:isDarkMode?"#14b8a6":"#0f766e",fontSize:10,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{authUser.name}</div>}
               {authUser&&(()=>{
@@ -9153,6 +9938,16 @@ export default function App(){
             </div>
           </div>
         </div>
+
+        {/* MULTI-CC RETURN BANNER */}
+        {callCcList.length > 1 && callStartTs && screen !== "call-overview" && (
+          <button onClick={()=>setScreen("call-overview")}
+            style={{width:"100%",marginBottom:10,padding:"9px 14px",borderRadius:9,border:"1px solid #d97706",background:isDarkMode?"#1a0c04":"#fffbeb",color:"#f59e0b",fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,cursor:"pointer",display:"flex",alignItems:"center",gap:8,letterSpacing:"0.04em"}}>
+            <span style={{fontSize:14}}>📋</span>
+            <span style={{flex:1}}>Return to Call Overview</span>
+            <span style={{opacity:0.7}}>{callCcList.length} CCs ←</span>
+          </button>
+        )}
 
         {/* CERT EXPIRATION WARNINGS */}
         {(()=>{
@@ -9248,6 +10043,7 @@ export default function App(){
                 <button onClick={()=>{
                   setShowEndCallModal(false);
                   setCallStartTs(null);
+                  setCallCcList([]);
                   setArrestState({startTs:null,endTs:null,endReason:null,rhythm:null,cycleStartTs:null,lastEpiTs:null,events:[],airway:null,hts:{},access:[],patientType:null});
                   setScreen("epcr");
                 }}
@@ -9307,6 +10103,17 @@ export default function App(){
           </div>
         )}
 
+        {/* CALL OVERVIEW SCREEN — multi-CC triage hub */}
+        {screen==="call-overview"&&(
+          <CallOverviewScreen
+            ccList={callCcList}
+            patient={patient}
+            isDarkMode={isDarkMode}
+            onOpenProtocol={(sys)=>{ setProtocolInitSys(sys); setScreen("protocols"); }}
+            onOpenDrugs={()=>setScreen("drugs")}
+          />
+        )}
+
         {/* PROTOCOLS SCREEN */}
         {screen==="protocols"&&(
           <ProtocolsScreen mode={mode} setMode={setMode} isDarkMode={isDarkMode} burnMaps={burnMaps} setBurnMaps={setBurnMaps} onJumpDrug={handlePillClick} findDrugLocation={findDrugLocation} wkg={wkg} wlb={wlb} setWkg={setWkg} setWlb={setWlb} authUser={authUser} initialSystem={protocolInitSys}/>
@@ -9319,6 +10126,7 @@ export default function App(){
             <VitalsLog initChecks={initChecks} reChecks={reChecks} entries={vitalsEntries} setEntries={setVitalsEntries} onClearCall={()=>{
               setAdminLog({});setInitChecks({});setReChecks({});setVitalsEntries([]);
               setPatient({age:"",sex:"",cc:""});
+              setCallCcList([]);
               setCallStartTs(null);
             }}/>
           </>
@@ -9335,6 +10143,7 @@ export default function App(){
             onClearCall={()=>{
               setAdminLog({});setInitChecks({});setReChecks({});setVitalsEntries([]);
               setPatient({age:"",sex:"",cc:""});
+              setCallCcList([]);
               setCallStartTs(null);
               setPedsWkg(0);setPedsWlb(0);setAdultWkg(0);setAdultWlb(0);
               setArrestState({startTs:null,endTs:null,endReason:null,rhythm:null,cycleStartTs:null,lastEpiTs:null,events:[],airway:null,hts:{},access:[],patientType:null});
