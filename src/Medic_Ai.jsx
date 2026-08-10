@@ -97,6 +97,18 @@ const CHK = {
   pulse:         { id:"pulse",   label:"Pulse present?",                                                type:"yesno" },
 };
 const mk = (id, ov={}) => ({ ...CHK[id], ...ov });
+
+/* Facts asked in more than one place (protocol decision points AND drug
+   pre-checks) — answering one auto-fills the other so the clinician isn't
+   asked the same clinical question twice in the same call. */
+const SHARED_FACTS = {
+  aspirinAllergy: { drugId:"aspalrg", protoId:"aspirinAllergy" }, // Aspirin pre-check <-> ACS protocol
+  pde5:           { drugId:"pde5",    protoId:"pde5" },            // Nitroglycerin pre-check <-> ACS protocol
+};
+const FACT_BY_DRUGID = Object.fromEntries(Object.entries(SHARED_FACTS).map(([f,o])=>[o.drugId,f]));
+const FACT_BY_PROTOID = Object.fromEntries(Object.entries(SHARED_FACTS).map(([f,o])=>[o.protoId,f]));
+const DRUGID_BY_FACT = Object.fromEntries(Object.entries(SHARED_FACTS).map(([f,o])=>[f,o.drugId]));
+const PROTOID_BY_FACT = Object.fromEntries(Object.entries(SHARED_FACTS).map(([f,o])=>[f,o.protoId]));
 const EMPTY_OBJ = {};
 
 const bzdChecks=(sbpMsg,rrBlock,rrWarn="RR <12 — monitor airway",spo2Msg="SpO₂ <94% — pre-oxygenate")=>[
@@ -589,7 +601,7 @@ function evalChecks(checks,vals={}){
 }
 
 /* ── Check Form ── */
-function CheckForm({checks,vals,onUpdate,label,accentColor="#60a5fa",subtitle,isDarkMode=true}){
+function CheckForm({checks,vals,onUpdate,label,accentColor="#60a5fa",subtitle,isDarkMode=true,inheritedIds}){
   const results=evalChecks(checks,vals);
   return(
     <div>
@@ -614,7 +626,10 @@ function CheckForm({checks,vals,onUpdate,label,accentColor="#60a5fa",subtitle,is
                 {r.isBlock?"✕":r.isWarn?"!":r.isOk?"✓":""}
               </div>
               <div style={{flex:1}}>
-                <div style={{color:"var(--c-text3)",fontSize:12,lineHeight:1.4}}>{r.label}</div>
+                <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                  <div style={{color:"var(--c-text3)",fontSize:12,lineHeight:1.4}}>{r.label}</div>
+                  {inheritedIds?.has(r.id)&&<span style={{fontSize:8,fontWeight:800,letterSpacing:"0.04em",textTransform:"uppercase",padding:"1px 5px",borderRadius:3,background:isDarkMode?"#0d1f3a":"#dbeafe",color:isDarkMode?"#93c5fd":"#1d4ed8",border:`1px solid ${isDarkMode?"#1e3a8a":"#93c5fd"}`,whiteSpace:"nowrap"}}>🔗 auto — tap to confirm</span>}
+                </div>
                 {(r.isBlock||r.isWarn)&&<div style={{marginTop:3,fontSize:11,fontWeight:600,color:r.isBlock?(isDarkMode?"#fca5a5":"#b91c1c"):(isDarkMode?"#fcd34d":"#92400e"),lineHeight:1.4}}>{r.isBlock?`⛔ ${r.blockMsg}`:`⚠ ${typeof r.warnMsg==="function"?r.warnMsg(r.v):r.warnMsg}`}</div>}
               </div>
             </div>
@@ -651,7 +666,7 @@ function CheckForm({checks,vals,onUpdate,label,accentColor="#60a5fa",subtitle,is
 }
 
 /* ��� DRUG CARD ��� */
-const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,onReset,initVals,onInitUpdate,reVals,onReUpdate,onClearRe,highlighted,isDarkMode=true,scopeFilter="all"}){
+const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,onReset,initVals,initExplicit=EMPTY_OBJ,onInitUpdate,reVals,onReUpdate,onClearRe,highlighted,isDarkMode=true,scopeFilter="all"}){
   const[open,setOpen]=useState(false);
   const[tab,setTab]=useState("info");
   const alarmRef=useRef({warn:false,due:false,lastDoseCount:0});
@@ -709,6 +724,8 @@ const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,
   const iWarn=iR.some(r=>r.isWarn);
   const iOk=!hasInitChecks||(iAllFill&&!iBlocked);
   const iMissing=iR.filter(r=>!r.filled).length;
+  // Checks auto-answered from a protocol decision / another drug's pre-check, not yet confirmed here directly
+  const inheritedInitIds=useMemo(()=>new Set(Object.keys(initVals).filter(id=>initExplicit[id]===undefined)),[initVals,initExplicit]);
 
   /* reassessment check eval — vitals only */
   const needsRe=hasActivity&&isDue&&!maxReached&&hasReChecks&&isMultiDose;
@@ -822,7 +839,7 @@ const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,
             {/* PRE-CHECK (initial — full questions) */}
             {tab==="precheck"&&(
               hasInitChecks
-                ?<CheckForm checks={initChecks} vals={initVals} onUpdate={(id,v)=>onInitUpdate(drug.name,id,v)} color={color} isDarkMode={isDarkMode}/>
+                ?<CheckForm checks={initChecks} vals={initVals} inheritedIds={inheritedInitIds} onUpdate={(id,v)=>onInitUpdate(drug.name,id,v)} color={color} isDarkMode={isDarkMode}/>
                 :<div style={{padding:"14px 0",textAlign:"center",color:"#2a3a55",fontSize:12}}>No pre-administration requirements for this drug.</div>
             )}
 
@@ -5557,9 +5574,23 @@ function PedsProtocolWeightGate({ wkg, wlb, setWkg, setWlb, isDarkMode }) {
   );
 }
 
-function GenericProtocolAlgorithm({ protocol, values, setValues, onBack, isDarkMode, onJumpDrug, findDrugLocation, activeCall, patientType, wkg, wlb, setWkg, setWlb }) {
-  const setAnswer = (id, value) => setValues(prev => ({ ...prev, [protocol.id]: { ...(prev[protocol.id] || {}), [id]: value } }));
-  const answers = values[protocol.id] || {};
+function GenericProtocolAlgorithm({ protocol, values, setValues, onBack, isDarkMode, onJumpDrug, findDrugLocation, activeCall, patientType, wkg, wlb, setWkg, setWlb, callFacts={}, onFactAnswered }) {
+  const setAnswer = (id, value) => {
+    setValues(prev => ({ ...prev, [protocol.id]: { ...(prev[protocol.id] || {}), [id]: value } }));
+    const factId = FACT_BY_PROTOID[id];
+    if (factId) onFactAnswered?.(factId, value === "yes" ? "Yes" : "No");
+  };
+  const storedAnswers = values[protocol.id] || {};
+  const inheritedProtoIds = new Set();
+  const factDefaults = {};
+  Object.entries(callFacts).forEach(([factId, v]) => {
+    const protoId = PROTOID_BY_FACT[factId];
+    if (protoId && storedAnswers[protoId] === undefined) {
+      factDefaults[protoId] = v === "Yes" ? "yes" : "no";
+      inheritedProtoIds.add(protoId);
+    }
+  });
+  const answers = { ...factDefaults, ...storedAnswers };
   const activeTriggers = (protocol.triggers || []).filter(id => answers[id] === "yes");
   const system = PROTOCOL_SYSTEMS.find(s => s.id === protocol.system) || PROTOCOL_SYSTEMS[0];
   const firstUnansweredIndex = (protocol.questions || []).findIndex(([id]) => !answers[id]);
@@ -5614,7 +5645,10 @@ function GenericProtocolAlgorithm({ protocol, values, setValues, onBack, isDarkM
             const isFuture = firstUnansweredIndex >= 0 && index > firstUnansweredIndex;
             return (
             <div key={id} style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,alignItems:"center",background:"var(--c-input)",border:index===firstUnansweredIndex?`1px solid ${system.color}`:"1px solid var(--c-border-sub)",borderRadius:7,padding:9,opacity:isFuture?0.48:1}}>
-              <div style={{fontSize:12,fontWeight:800,color:"var(--c-text)",lineHeight:1.35}}>{label}</div>
+              <div>
+                <div style={{fontSize:12,fontWeight:800,color:"var(--c-text)",lineHeight:1.35}}>{label}</div>
+                {inheritedProtoIds.has(id)&&<span style={{display:"inline-block",marginTop:3,fontSize:8,fontWeight:800,letterSpacing:"0.04em",textTransform:"uppercase",padding:"1px 5px",borderRadius:3,background:isDarkMode?"#0d1f3a":"#dbeafe",color:isDarkMode?"#93c5fd":"#1d4ed8",border:`1px solid ${isDarkMode?"#1e3a8a":"#93c5fd"}`}}>🔗 auto — tap to confirm</span>}
+              </div>
               <div style={{display:"flex",gap:5}}>
                 {["yes","no"].map(answer => {
                   const selected = answers[id] === answer;
@@ -6206,15 +6240,12 @@ function BurnProtocolAlgorithm({ patientType, totals, active, values, setValues,
   );
 }
 
-function ProtocolsScreen({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, onJumpDrug, findDrugLocation, wkg, wlb, setWkg, setWlb, authUser, initialSystem="assess" }) {
+function ProtocolsScreen({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, onJumpDrug, findDrugLocation, wkg, wlb, setWkg, setWlb, authUser, initialSystem="assess",
+  activeProtocol, setActiveProtocol, protocolValues, setProtocolValues, protocolEvents, setProtocolEvents,
+  protocolVitalsDraft, setProtocolVitalsDraft, protocolMedLog, setProtocolMedLog, protocolActiveMeds, setProtocolActiveMeds,
+  callFacts, onFactAnswered }) {
   const [selectedSystem, setSelectedSystem] = useState(initialSystem);
   const [sysDropOpen, setSysDropOpen] = useState(false);
-  const [activeProtocol, setActiveProtocol] = useState(null);
-  const [protocolValues, setProtocolValues] = useState({});
-  const [protocolEvents, setProtocolEvents] = useState([]);
-  const [protocolVitalsDraft, setProtocolVitalsDraft] = useState({});
-  const [protocolMedLog, setProtocolMedLog] = useState({});
-  const [protocolActiveMeds, setProtocolActiveMeds] = useState([]);
   const [protocolNow, setProtocolNow] = useState(Date.now());
   const patientType = mode === "peds" ? "peds" : "adult";
   const regions = BURN_REGIONS[patientType];
@@ -6334,6 +6365,8 @@ function ProtocolsScreen({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, onJ
         wlb={wlb}
         setWkg={setWkg}
         setWlb={setWlb}
+        callFacts={callFacts}
+        onFactAnswered={onFactAnswered}
       />
     );
   }
@@ -8749,7 +8782,7 @@ function matchCcInput(text) {
   return bestScore >= 10 ? best : null;
 }
 
-function CallOverviewScreen({ ccList, patient, isDarkMode, onOpenProtocol, onOpenDrugs }) {
+function CallOverviewScreen({ ccList, patient, isDarkMode, onOpenProtocol, onOpenDrugs, adminLog={}, onJumpDrug, onOpenMedLog }) {
   const t   = isDarkMode ? "#e2e8f0" : "#0f172a";
   const mu  = isDarkMode ? "#8aa0c2" : "#4b5563";
   const su  = isDarkMode ? "#060a15" : "#f4efe7";
@@ -8758,6 +8791,15 @@ function CallOverviewScreen({ ccList, patient, isDarkMode, onOpenProtocol, onOpe
   const SYS_LABEL = { cardiac:"Cardiac", respiratory:"Respiratory", neuro:"Neuro", metabolic:"Metabolic", anaphylaxis:"Anaphylaxis", trauma:"Trauma", burns:"Burns", assess:"Assessment" };
 
   const patientLine = [patient.age, patient.sex, patient.cc].filter(Boolean).join(" · ");
+
+  // Flatten adminLog into a chronological intervention/med timeline
+  const givenEvents = [];
+  Object.entries(adminLog).forEach(([drugName, data]) => {
+    (data.times||[]).forEach((ts, i) => {
+      givenEvents.push({ drug: drugName, ts, doseNum: i + 1, total: data.times.length });
+    });
+  });
+  givenEvents.sort((a, b) => b.ts - a.ts);
 
   return (
     <div style={{paddingBottom:24}}>
@@ -8769,6 +8811,34 @@ function CallOverviewScreen({ ccList, patient, isDarkMode, onOpenProtocol, onOpe
         {patientLine && (
           <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:mu,background:isDarkMode?"#0d1120":"#e8edf5",border:`1px solid ${bd}`,borderRadius:6,padding:"5px 10px",display:"inline-block"}}>
             {patientLine}
+          </div>
+        )}
+      </div>
+
+      {/* INTERVENTIONS / MEDS GIVEN */}
+      <div style={{marginBottom:20,background:isDarkMode?"#080d1a":"#ffffff",border:`1px solid ${bd}`,borderRadius:12,padding:"12px 14px"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:givenEvents.length?10:0}}>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#fb923c",letterSpacing:"0.08em",textTransform:"uppercase"}}>
+            💉 Interventions Given {givenEvents.length>0?`(${givenEvents.length})`:""}
+          </div>
+          {onOpenMedLog && givenEvents.length>0 && (
+            <button onClick={onOpenMedLog} style={{background:"transparent",border:"none",color:"#38bdf8",fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:700,cursor:"pointer",letterSpacing:"0.03em"}}>
+              Full Log →
+            </button>
+          )}
+        </div>
+        {givenEvents.length===0 ? (
+          <div style={{fontSize:11,color:mu,lineHeight:1.5}}>Nothing given yet this call.</div>
+        ) : (
+          <div style={{display:"flex",flexDirection:"column",gap:5}}>
+            {givenEvents.map((e,i)=>(
+              <div key={`${e.drug}-${e.ts}`} onClick={()=>onJumpDrug&&onJumpDrug(e.drug)}
+                style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderRadius:7,background:isDarkMode?"#0d1120":"#f4f7fa",border:`1px solid ${isDarkMode?"#1a2338":"#e2e8f0"}`,cursor:onJumpDrug?"pointer":"default"}}>
+                <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10.5,color:t,fontWeight:700,minWidth:64}}>{fmtTime(e.ts,false)}</span>
+                <span style={{flex:1,fontSize:12,color:t,fontWeight:600}}>{e.drug}</span>
+                <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:"#fb923c",fontWeight:700}}>#{e.doseNum}{e.total>1?`/${e.total}`:""}</span>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -9357,6 +9427,13 @@ export default function App(){
   const[adminLog,setAdminLog]=useState({});
   const[initChecks,setInitChecks]=useState({});
   const[reChecks,setReChecks]=useState({});
+  const[callFacts,setCallFacts]=useState({}); // facts shared between protocol decisions & drug pre-checks (e.g. aspirin allergy)
+  const[activeProtocol,setActiveProtocol]=useState(null); // selected protocol persists across screen nav until call ends
+  const[protocolValues,setProtocolValues]=useState({});
+  const[protocolEvents,setProtocolEvents]=useState([]);
+  const[protocolVitalsDraft,setProtocolVitalsDraft]=useState({});
+  const[protocolMedLog,setProtocolMedLog]=useState({});
+  const[protocolActiveMeds,setProtocolActiveMeds]=useState([]);
   const[tick,setTick]=useState(0);
   const[screen,setScreen]=useState("home");
   const[checkoutPlan,setCheckoutPlan]=useState({planKey:null,billing:"monthly"});
@@ -9382,7 +9459,7 @@ export default function App(){
   const[showEndCallModal,setShowEndCallModal]=useState(false);
   const[showNewCallWarning,setShowNewCallWarning]=useState(false);
   const[showSettings,setShowSettings]=useState(false);
-  const[fontSize,setFontSize]=useState(()=>localStorage.getItem("roman-font-size")||"md");
+  const[fontSize,setFontSize]=useState(()=>localStorage.getItem("roman-font-size")||"lg");
   const[soundOn,setSoundOn]=useState(()=>localStorage.getItem("roman-sound")!=="0");
   const[vibrationOn,setVibrationOn]=useState(()=>localStorage.getItem("roman-vibrate")!=="0");
   const[notifyOn,setNotifyOn]=useState(()=>localStorage.getItem("roman-notify")==="1");
@@ -9659,6 +9736,13 @@ export default function App(){
     setReChecks({});
     setVitalsEntries([]);
     setArrestState(ARREST_INIT);
+    setCallFacts({});
+    setActiveProtocol(null);
+    setProtocolValues({});
+    setProtocolEvents([]);
+    setProtocolVitalsDraft({});
+    setProtocolMedLog({});
+    setProtocolActiveMeds([]);
     setPatient({age:"",sex:"",cc:""});
     setPedsWkg(0);setPedsWlb(0);setAdultWkg(0);setAdultWlb(0);
     const ts=Date.now();
@@ -9712,7 +9796,12 @@ export default function App(){
   },[initChecks]);
 
   const handleReset=useCallback(name=>{setAdminLog(p=>{const n={...p};delete n[name];return n;});setInitChecks(p=>{const n={...p};delete n[name];return n;});setReChecks(p=>{const n={...p};delete n[name];return n;});},[]);
-  const handleInitUpdate=useCallback((dn,id,v)=>setInitChecks(p=>({...p,[dn]:{...(p[dn]||{}),[id]:v}})),[]);
+  const handleInitUpdate=useCallback((dn,id,v)=>{
+    setInitChecks(p=>({...p,[dn]:{...(p[dn]||{}),[id]:v}}));
+    const factId=FACT_BY_DRUGID[id];
+    if(factId) setCallFacts(p=>({...p,[factId]:v}));
+  },[]);
+  const handleFactAnswered=useCallback((factId,v)=>setCallFacts(p=>({...p,[factId]:v})),[]);
   const handleReUpdate=useCallback((dn,id,v)=>setReChecks(p=>({...p,[dn]:{...(p[dn]||{}),[id]:v}})),[]);
   const handleClearRe=useCallback(dn=>setReChecks(p=>{const n={...p};delete n[dn];return n;}),[]);
 
@@ -9755,6 +9844,12 @@ export default function App(){
   },[bank,activeSys,search,scope,certScopeKey]);
 
   const numInp=useCallback((v,fn,ph,max,step)=>({type:"number",value:v||"",onChange:e=>fn(Math.max(0,parseFloat(e.target.value)||0)),placeholder:ph,min:0,max,step,style:{width:58,padding:"5px 7px",background:colors.surface,border:`1px solid ${colors.border}`,borderRadius:6,color:colors.text,fontSize:13,fontFamily:"'IBM Plex Mono',monospace",textAlign:"right",outline:"none"}}),[colors]);
+  // Pre-check answers already known from elsewhere this call (protocol decisions, other drug pre-checks)
+  const drugFactDefaults=useMemo(()=>{
+    const o={};
+    Object.entries(callFacts).forEach(([factId,v])=>{const drugId=DRUGID_BY_FACT[factId];if(drugId)o[drugId]=v;});
+    return o;
+  },[callFacts]);
   const activeDrugs=useMemo(()=>Object.entries(adminLog).map(([name,log])=>({name,count:log.times.length,lastAt:log.times[log.times.length-1]})),[adminLog]);
   const totalDoses=useMemo(()=>activeDrugs.reduce((sum,d)=>sum+d.count,0),[activeDrugs]);
 
@@ -9928,7 +10023,7 @@ export default function App(){
                 </div>
               );
             })()}
-            {callCcList.length > 1 && callStartTs && (
+            {callStartTs && screen!=="call-overview" && (
               <button onClick={()=>setScreen("call-overview")}
                 style={{padding:"5px 10px",borderRadius:7,border:"1px solid #d97706",background:isDarkMode?"#1a0c04":"#fffbeb",color:"#f59e0b",fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,cursor:"pointer",letterSpacing:"0.05em",textTransform:"uppercase",whiteSpace:"nowrap"}}>
                 📋 Overview
@@ -9952,13 +10047,13 @@ export default function App(){
           </div>
         </div>
 
-        {/* MULTI-CC RETURN BANNER */}
-        {callCcList.length > 1 && callStartTs && screen !== "call-overview" && (
+        {/* RETURN TO CALL OVERVIEW BANNER */}
+        {callStartTs && screen !== "call-overview" && (
           <button onClick={()=>setScreen("call-overview")}
             style={{width:"100%",marginBottom:10,padding:"9px 14px",borderRadius:9,border:"1px solid #d97706",background:isDarkMode?"#1a0c04":"#fffbeb",color:"#f59e0b",fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,cursor:"pointer",display:"flex",alignItems:"center",gap:8,letterSpacing:"0.04em"}}>
             <span style={{fontSize:14}}>📋</span>
             <span style={{flex:1}}>Return to Call Overview</span>
-            <span style={{opacity:0.7}}>{callCcList.length} CCs ←</span>
+            <span style={{opacity:0.7}}>{callCcList.length>1?`${callCcList.length} CCs `:""}←</span>
           </button>
         )}
 
@@ -10078,14 +10173,16 @@ export default function App(){
             const em=Math.floor((elapsed%3600000)/60000);
             const es=Math.floor((elapsed%60000)/1000);
             const fmtE=eh>0?`${eh}h ${em}m`:`${em}m ${es}s`;
+            const canOpenOverview=screen!=="call-overview";
             return(
-              <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 11px",marginBottom:8,background:"#071a0e",border:"1px solid #14532d",borderRadius:7}}>
+              <div onClick={canOpenOverview?()=>setScreen("call-overview"):undefined}
+                style={{display:"flex",alignItems:"center",gap:8,padding:"7px 11px",marginBottom:8,background:"#071a0e",border:"1px solid #14532d",borderRadius:7,cursor:canOpenOverview?"pointer":"default"}}>
                 <span style={{fontSize:13,animation:"pulse 1.5s ease-in-out infinite",display:"inline-block"}}>🟢</span>
                 <div style={{flex:1}}>
                   <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,color:"#4ade80"}}>Call Active · {fmtE}</div>
-                  <div style={{fontSize:9,color:"#166534",fontFamily:"'IBM Plex Mono',monospace",marginTop:1}}>{patient.cc||"No CC"}</div>
+                  <div style={{fontSize:9,color:"#166534",fontFamily:"'IBM Plex Mono',monospace",marginTop:1}}>{patient.cc||"No CC"}{canOpenOverview?" · tap for overview":""}</div>
                 </div>
-                <button onClick={()=>setShowEndCallModal(true)} style={{flexShrink:0,height:28,padding:"0 10px",borderRadius:6,border:"1px solid #ef4444",background:"transparent",color:"#ef4444",fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,cursor:"pointer",letterSpacing:"0.04em",whiteSpace:"nowrap"}}>
+                <button onClick={e=>{e.stopPropagation();setShowEndCallModal(true);}} style={{flexShrink:0,height:28,padding:"0 10px",borderRadius:6,border:"1px solid #ef4444",background:"transparent",color:"#ef4444",fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,cursor:"pointer",letterSpacing:"0.04em",whiteSpace:"nowrap"}}>
                   End Call
                 </button>
               </div>
@@ -10125,12 +10222,23 @@ export default function App(){
             isDarkMode={isDarkMode}
             onOpenProtocol={(sys)=>{ setProtocolInitSys(sys); setScreen("protocols"); }}
             onOpenDrugs={()=>setScreen("drugs")}
+            adminLog={adminLog}
+            onJumpDrug={handlePillClick}
+            onOpenMedLog={()=>setScreen("medlog")}
           />
         )}
 
         {/* PROTOCOLS SCREEN */}
         {screen==="protocols"&&(
-          <ProtocolsScreen mode={mode} setMode={setMode} isDarkMode={isDarkMode} burnMaps={burnMaps} setBurnMaps={setBurnMaps} onJumpDrug={handlePillClick} findDrugLocation={findDrugLocation} wkg={wkg} wlb={wlb} setWkg={setWkg} setWlb={setWlb} authUser={authUser} initialSystem={protocolInitSys}/>
+          <ProtocolsScreen mode={mode} setMode={setMode} isDarkMode={isDarkMode} burnMaps={burnMaps} setBurnMaps={setBurnMaps} onJumpDrug={handlePillClick} findDrugLocation={findDrugLocation} wkg={wkg} wlb={wlb} setWkg={setWkg} setWlb={setWlb} authUser={authUser} initialSystem={protocolInitSys}
+            activeProtocol={activeProtocol} setActiveProtocol={setActiveProtocol}
+            protocolValues={protocolValues} setProtocolValues={setProtocolValues}
+            protocolEvents={protocolEvents} setProtocolEvents={setProtocolEvents}
+            protocolVitalsDraft={protocolVitalsDraft} setProtocolVitalsDraft={setProtocolVitalsDraft}
+            protocolMedLog={protocolMedLog} setProtocolMedLog={setProtocolMedLog}
+            protocolActiveMeds={protocolActiveMeds} setProtocolActiveMeds={setProtocolActiveMeds}
+            callFacts={callFacts} onFactAnswered={handleFactAnswered}
+          />
         )}
 
         {/* ARREST SCREEN + VITALS */}
@@ -10139,6 +10247,7 @@ export default function App(){
             <ArrestTracker arrestState={arrestState} setArrestState={setArrestState} tick={tick} onLogMed={handleGive} wkg={wkg} setWkg={setWkg} setWlb={setWlb} mode={mode} isDarkMode={isDarkMode} patient={patient}/>
             <VitalsLog initChecks={initChecks} reChecks={reChecks} entries={vitalsEntries} setEntries={setVitalsEntries} onClearCall={()=>{
               setAdminLog({});setInitChecks({});setReChecks({});setVitalsEntries([]);
+              setCallFacts({});setActiveProtocol(null);setProtocolValues({});setProtocolEvents([]);setProtocolVitalsDraft({});setProtocolMedLog({});setProtocolActiveMeds([]);
               setPatient({age:"",sex:"",cc:""});
               setCallCcList([]);
               setCallStartTs(null);
@@ -10156,6 +10265,7 @@ export default function App(){
           <NarrativeScreen patient={patient} setPatient={setPatient} adminLog={adminLog} vitalsEntries={vitalsEntries} wkg={wkg} wlb={wlb} mode={mode} isDarkMode={isDarkMode}
             onClearCall={()=>{
               setAdminLog({});setInitChecks({});setReChecks({});setVitalsEntries([]);
+              setCallFacts({});setActiveProtocol(null);setProtocolValues({});setProtocolEvents([]);setProtocolVitalsDraft({});setProtocolMedLog({});setProtocolActiveMeds([]);
               setPatient({age:"",sex:"",cc:""});
               setCallCcList([]);
               setCallStartTs(null);
@@ -10341,7 +10451,11 @@ export default function App(){
         {/* DRUG LIST */}
         {list.length===0
           ?<div style={{textAlign:"center",marginTop:48,color:"var(--c-text-ghost)",fontSize:13}}>No drugs match</div>
-          :list.map((d)=><DrugCard key={d.name} drug={d} wt={wkg} color={color} tick={adminLog[d.name]?tick:0} adminLog={adminLog} onGive={handleGive} onReset={handleReset} initVals={initChecks[d.name]||EMPTY_OBJ} onInitUpdate={handleInitUpdate} reVals={reChecks[d.name]||EMPTY_OBJ} onReUpdate={handleReUpdate} onClearRe={handleClearRe} highlighted={highlightDrug===d.name} isDarkMode={isDarkMode} scopeFilter={scope}/>)
+          :list.map((d)=>{
+              const explicitInitVals=initChecks[d.name]||EMPTY_OBJ;
+              const mergedInitVals=Object.keys(drugFactDefaults).length?{...drugFactDefaults,...explicitInitVals}:explicitInitVals;
+              return <DrugCard key={d.name} drug={d} wt={wkg} color={color} tick={adminLog[d.name]?tick:0} adminLog={adminLog} onGive={handleGive} onReset={handleReset} initVals={mergedInitVals} initExplicit={explicitInitVals} onInitUpdate={handleInitUpdate} reVals={reChecks[d.name]||EMPTY_OBJ} onReUpdate={handleReUpdate} onClearRe={handleClearRe} highlighted={highlightDrug===d.name} isDarkMode={isDarkMode} scopeFilter={scope}/>;
+            })
         }
 
         <div style={{marginTop:30,textAlign:"center",color:"#0e1525",fontSize:9.5,lineHeight:1.8,fontFamily:"'IBM Plex Mono',monospace"}}>Clinical reference only — follow local protocols &amp; medical direction</div>
