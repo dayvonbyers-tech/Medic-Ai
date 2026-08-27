@@ -982,6 +982,7 @@ const EMPTY_VITALS = {
   skin:'', pupils_l_sz:'', pupils_l_rx:'', pupils_r_sz:'', pupils_r_rx:'',
   notes:''
 };
+const VITAL_SYNC_FIELDS = ['sbp','dbp','hr','rr','spo2','bgl','pain','temp','etco2'];
 
 const GCS_E = [{v:'',l:'—'},{v:1,l:'1 – None'},{v:2,l:'2 – To pain'},{v:3,l:'3 – To voice'},{v:4,l:'4 – Spontaneous'}];
 const GCS_V = [{v:'',l:'—'},{v:1,l:'1 – None'},{v:2,l:'2 – Sounds'},{v:3,l:'3 – Words'},{v:4,l:'4 – Confused'},{v:5,l:'5 – Oriented'}];
@@ -1767,6 +1768,10 @@ const ARREST_EVENT_COLORS = {
   access_iv:     { bg:"#0a1a28", fg:"#60a5fa", icon:"💧", label:"IV Access" },
   access_io:     { bg:"#1a0a28", fg:"#c084fc", icon:"🦴", label:"IO Access" },
   access_fail:   { bg:"#2a0808", fg:"#fca5a5", icon:"✕", label:"Access Attempt Failed" },
+  pause_start:   { bg:"#2a0808", fg:"#fca5a5", icon:"Ⅱ", label:"CPR Paused" },
+  pause_end:     { bg:"#0d1f3a", fg:"#93c5fd", icon:"▶", label:"CPR Resumed" },
+  etco2:         { bg:"#082f49", fg:"#67e8f9", icon:"〰", label:"ETCO₂" },
+  rearrest:      { bg:"#7f1d1d", fg:"#fecaca", icon:"↻", label:"Re-arrest" },
   cpr_resume:    { bg:"#0d1f3a", fg:"#60a5fa", icon:"↻", label:"CPR Resumed" },
   cause:         { bg:"#1a0e28", fg:"#c084fc", icon:"✓", label:"Cause Addressed" },
   rosc:          { bg:"#14532d", fg:"#4ade80", icon:"♥", label:"ROSC" },
@@ -1796,6 +1801,8 @@ function arrestBeep(type) {
       // 2-min CPR cycle end — 4 short beeps
       beep(1320, 0, 0.1); beep(1320, 0.14, 0.1);
       beep(1320, 0.28, 0.1); beep(1320, 0.42, 0.16);
+    } else if (type === "vent") {
+      beep(720, 0, 0.08);
     }
   } catch(e){}
 }
@@ -1821,6 +1828,10 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
   const [confirmReset, setConfirmReset] = useState(false);
   const [now, setNow] = useState(0);
   const [cloudSaveStatus, setCloudSaveStatus] = useState(null); // null | "saving" | "saved" | "error"
+  const [pauseStartTs, setPauseStartTs] = useState(null);
+  const [etco2Input, setEtco2Input] = useState("");
+  const [ventilationOn, setVentilationOn] = useState(false);
+  const [roscChecks, setRoscChecks] = useState({bp:false,spo2:false,etco2:false,ecg:false,bgl:false,temp:false,airway:false,transport:false});
 
   useEffect(() => {
     setNow(Date.now());
@@ -1834,6 +1845,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
   // Determine which drug menu to use based on patient type
   const isPeds = patientType === "infant" || patientType === "child";
   const DRUG_MENU = isPeds ? PEDS_ARREST_DRUG_MENU : ARREST_DRUG_MENU;
+  const advancedAirway = ["iGel","King LT","ET Tube"].includes(airway);
 
   // Age-adjusted CPR ratio
   const cprRatio = !isPeds ? "30:2 (adult)" : "15:2 two-rescuer · 30:2 solo";
@@ -1850,6 +1862,15 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
   const epiWarn = active && epiSecs != null && epiSecs >= 180 && epiSecs < 300;
   const epiDue = active && epiSecs != null && epiSecs >= 300;
   const epiWindowOpen = active && epiSecs != null && epiSecs >= 180;
+  const pauseSecs = pauseStartTs ? Math.floor((now-pauseStartTs)/1000) : 0;
+  const pauseEvents=events.filter(e=>e.type==="pause_end"&&e.durationMs);
+  const totalPauseMs=pauseEvents.reduce((sum,e)=>sum+e.durationMs,0)+(pauseStartTs?Math.max(0,now-pauseStartTs):0);
+  const longestPauseMs=Math.max(0,...pauseEvents.map(e=>e.durationMs||0),pauseStartTs?Math.max(0,now-pauseStartTs):0);
+  const compressionFraction=totalSecs>0?Math.max(0,Math.min(100,((totalSecs*1000-totalPauseMs)/(totalSecs*1000))*100)):100;
+  const etco2Readings=events.filter(e=>e.type==="etco2"&&Number.isFinite(e.value));
+  const currentEtco2=etco2Readings[0]?.value??null;
+  const priorEtco2=etco2Readings[1]?.value??null;
+  const etco2Trend=currentEtco2!=null&&priorEtco2!=null?(currentEtco2>priorEtco2?"↑":currentEtco2<priorEtco2?"↓":"→"):"";
 
   // Dose counters — single pass
   const _counts={epi:0,shock:0,amio:0,lido:0};
@@ -1879,6 +1900,13 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
     }
   },[active,epiWarn,epiDue,cycleEnded,cycleStartTs]);
 
+  useEffect(()=>{
+    if(!active||!advancedAirway||!ventilationOn) return;
+    arrestBeep("vent");
+    const interval=setInterval(()=>arrestBeep("vent"),isPeds?2500:6000);
+    return()=>clearInterval(interval);
+  },[active,advancedAirway,ventilationOn,isPeds]);
+
   // Helpers
   const addEvent = useCallback((type, detail = "", extra = {}) => {
     const ts = Date.now();
@@ -1887,6 +1915,28 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
     return ev;
   }, []);
 
+  const startPause=useCallback((reason="Manual pause")=>{
+    if(pauseStartTs||!active) return;
+    const ts=Date.now();
+    setPauseStartTs(ts);
+    addEvent("pause_start",reason,{reason});
+  },[pauseStartTs,active,addEvent]);
+
+  const endPause=useCallback(()=>{
+    if(!pauseStartTs) return;
+    const ts=Date.now();
+    const durationMs=Math.max(0,ts-pauseStartTs);
+    addEvent("pause_end",`CPR resumed after ${(durationMs/1000).toFixed(1)} sec`,{durationMs});
+    setPauseStartTs(null);
+  },[pauseStartTs,addEvent]);
+
+  const recordEtco2=()=>{
+    const value=Number(etco2Input);
+    if(!Number.isFinite(value)||value<0||value>150) return;
+    addEvent("etco2",`${value} mmHg`,{value});
+    setEtco2Input("");
+  };
+
   const startArrest = (type = "adult") => {
     const ts = Date.now();
     setArrestState({
@@ -1894,15 +1944,17 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
       rhythm: null, cycleStartTs: ts, lastEpiTs: null,
       events: [{
         id: ts, ts, type: "start",
-        detail: `${type === "adult" ? "Adult" : type === "infant" ? "Infant (<1yr)" : "Child (1–8yr)"} arrest · CPR begun${type !== "adult" ? " · PALS protocol" : " · ACLS protocol"}`
+        detail: `${type === "adult" ? "Adult" : type === "infant" ? "Infant (<1yr)" : "Child (1yr to puberty)"} arrest · CPR begun${type !== "adult" ? " · PALS protocol" : " · ACLS protocol"}`
       }],
       airway: null, hts: {}, access: [],
       patientType: type
     });
     alarmRef.current = { epiWarn: false, epiDue: false, cycleEnd: false, lastCycleStart: ts };
+    setPauseStartTs(null);setVentilationOn(false);setEtco2Input("");setRoscChecks({bp:false,spo2:false,etco2:false,ecg:false,bgl:false,temp:false,airway:false,transport:false});
   };
 
   const recordRhythm = (r) => {
+    endPause();
     const type = r === "VF/pVT" ? "rhythm_vf" : r === "PEA" ? "rhythm_pea" : "rhythm_asys";
     setArrestState(s => ({
       ...s,
@@ -2043,6 +2095,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
   };
 
   const endArrest = (reason) => {
+    if(pauseStartTs) endPause();
     const ts = Date.now();
     const type = reason === "ROSC" ? "rosc" : "terminate";
     setArrestState(s => {
@@ -2076,6 +2129,15 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
       return { ...s, endTs: ts, endReason: reason, events: finalEvents };
     });
     setConfirmEnd(false);
+    setVentilationOn(false);
+  };
+
+  const resumeForRearrest=()=>{
+    const ts=Date.now();
+    setArrestState(s=>({...s,endTs:null,endReason:null,rhythm:null,cycleStartTs:ts,lastEpiTs:null,events:[{id:ts,ts,type:"rearrest",detail:"Re-arrest — CPR resumed"},...s.events]}));
+    setPauseStartTs(null);
+    setVentilationOn(false);
+    alarmRef.current={epiWarn:false,epiDue:false,cycleEnd:false,lastCycleStart:ts};
   };
 
   const resetArrest = () => {
@@ -2085,6 +2147,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
       events:[], airway:null, hts:{}, access:[], patientType:null
     });
     alarmRef.current = { epiWarn: false, epiDue: false, cycleEnd: false, lastCycleStart: null };
+    setPauseStartTs(null);setVentilationOn(false);setEtco2Input("");setRoscChecks({bp:false,spo2:false,etco2:false,ecg:false,bgl:false,temp:false,airway:false,transport:false});
     setConfirmReset(false);
   };
 
@@ -2281,6 +2344,21 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
           <SumStat label={airway ? "Airway" : "—"} value={airway || "—"} color="#86efac" />
         </div>
 
+        {endReason==="ROSC"&&(
+          <div style={{background:ac("#071a0e","#ecfdf5"),border:`1px solid ${ac("#14532d","#16a34a")}`,borderRadius:8,padding:"11px 12px",marginBottom:10}}>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,color:ac("#4ade80","#15803d"),letterSpacing:"0.07em",textTransform:"uppercase",marginBottom:8}}>Post-ROSC priorities</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:9}}>
+              {[["bp","Blood pressure"],["spo2","SpO₂ / oxygen"],["etco2","ETCO₂"],["ecg","12-lead ECG"],["bgl","Blood glucose"],["temp","Temperature"],["airway","Airway / ventilation"],["transport","Transport plan"]].map(([key,label])=><button key={key} onClick={()=>setRoscChecks(p=>({...p,[key]:!p[key]}))} style={{padding:"7px 8px",borderRadius:6,border:`1px solid ${roscChecks[key]?"#16a34a":"var(--c-border-sub)"}`,background:roscChecks[key]?ac("#052e16","#dcfce7"):"var(--c-input)",color:roscChecks[key]?ac("#86efac","#166534"):"var(--c-text3)",fontSize:10.5,fontWeight:700,cursor:"pointer",textAlign:"left"}}>{roscChecks[key]?"✓ ":"○ "}{label}</button>)}
+            </div>
+            <button onClick={resumeForRearrest} style={{width:"100%",padding:"10px",borderRadius:7,border:"1px solid #ef4444",background:ac("#2a0808","#fee2e2"),color:ac("#fca5a5","#b91c1c"),fontFamily:"'IBM Plex Mono',monospace",fontSize:10.5,fontWeight:800,cursor:"pointer"}}>↻ Re-arrest — Resume CPR</button>
+          </div>
+        )}
+
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:10}}>
+          <SumStat label="Compression Fraction" value={`${compressionFraction.toFixed(0)}%`} color={compressionFraction>=80?"#4ade80":"#f59e0b"}/>
+          <SumStat label="Longest Pause" value={`${(longestPauseMs/1000).toFixed(1)}s`} color={longestPauseMs<=10_000?"#4ade80":"#ef4444"}/>
+        </div>
+
         <ArrestEventLog events={events} onDelete={deleteEvent} />
 
         {confirmReset ? (
@@ -2321,7 +2399,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
           <span style={{ fontSize:16 }}>{patientType === "infant" ? "👶" : "🧒"}</span>
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color: ac("#c084fc","#7c3aed"), fontWeight:700, letterSpacing:"0.06em", textTransform:"uppercase" }}>
-              {patientType === "infant" ? "Infant (<1 yr) · PALS" : "Child (1–8 yr) · PALS"}
+              {patientType === "infant" ? "Infant (<1 yr) · PALS 2025" : "Child (1 yr to puberty) · PALS 2025"}
             </div>
             <div style={{ fontSize:10, color: ac("#8aa0c2","#6d28d9"), marginTop:1 }}>
               CPR: {cprDepth} depth · {cprRatio}
@@ -2354,7 +2432,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
         isPeds={isPeds} wkg={wkg} patientType={patientType}
         onGiveEpi={() => recordMed("epi")}
         onShock={() => setShowShockMenu(true)}
-        onRhythmCheck={() => setShowRhythmMenu(true)}
+        onRhythmCheck={() => {startPause("Rhythm/pulse check");setShowRhythmMenu(true);}}
         isDarkMode={isDarkMode}
       />
 
@@ -2375,6 +2453,25 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
           pulse={cycleEnded}
           labelColor={subTxt}
         />
+      </div>
+
+      {/* CPR QUALITY + PHYSIOLOGY */}
+      <div style={{background:"var(--c-surface)",border:`1px solid ${pauseStartTs?"#ef4444":"var(--c-border-sub)"}`,borderRadius:8,padding:"9px 10px",marginBottom:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:8}}>
+          <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:pauseStartTs?"#ef4444":"#22d3ee",letterSpacing:"0.08em",textTransform:"uppercase"}}>{patientType === "infant" ? "Infant CPR Quality" : patientType === "child" ? "Child CPR Quality" : "CPR Quality"}</span>
+          <span style={{marginLeft:"auto",fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:compressionFraction>=80?"#4ade80":"#f59e0b"}}>CCF ~{compressionFraction.toFixed(0)}%</span>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:7}}>
+          <button onClick={()=>pauseStartTs?endPause():startPause("Manual CPR pause")} style={{padding:"9px 7px",borderRadius:7,border:`1px solid ${pauseStartTs?"#ef4444":"#3b82f6"}`,background:pauseStartTs?ac("#7f1d1d","#fee2e2"):ac("#0d1f3a","#dbeafe"),color:pauseStartTs?ac("#fff","#b91c1c"):ac("#93c5fd","#1d4ed8"),fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,cursor:"pointer"}}>{pauseStartTs?`▶ Resume · ${pauseSecs}s`:"Ⅱ Pause CPR"}</button>
+          <button disabled={!advancedAirway} onClick={()=>advancedAirway&&setVentilationOn(v=>!v)} style={{padding:"9px 7px",borderRadius:7,border:`1px solid ${ventilationOn?"#22c55e":"var(--c-border-sub)"}`,background:ventilationOn?ac("#052e16","#dcfce7"):"var(--c-input)",color:ventilationOn?ac("#86efac","#166534"):"var(--c-text4)",fontFamily:"'IBM Plex Mono',monospace",fontSize:9.5,fontWeight:800,cursor:advancedAirway?"pointer":"not-allowed",opacity:advancedAirway?1:0.55}}>🫁 {ventilationOn?`${patientType === "infant" ? "Infant" : patientType === "child" ? "Child" : "Adult"} · ${isPeds?"q2.5s":"q6s"}`:advancedAirway?"Start Vent Pacer":"Adv airway needed"}</button>
+        </div>
+        <div style={{display:"flex",gap:6,alignItems:"stretch"}}>
+          <input type="number" value={etco2Input} onChange={e=>setEtco2Input(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")recordEtco2();}} placeholder="ETCO₂ mmHg" min="0" max="150" style={{width:105,padding:"7px 8px",borderRadius:6,border:"1px solid var(--c-border-sub)",background:"var(--c-input)",color:"var(--c-text)",fontSize:11,fontFamily:"'IBM Plex Mono',monospace",outline:"none"}}/>
+          <button onClick={recordEtco2} style={{padding:"7px 10px",borderRadius:6,border:"1px solid #0891b2",background:ac("#083344","#cffafe"),color:ac("#67e8f9","#0e7490"),fontSize:9.5,fontWeight:800,cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace"}}>Log</button>
+          <div style={{flex:1,borderRadius:6,background:"var(--c-input)",border:"1px solid var(--c-border-sub)",padding:"5px 8px",textAlign:"center"}}><div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:13,fontWeight:800,color:etco2Trend==="↑"?"#4ade80":etco2Trend==="↓"?"#f59e0b":"#67e8f9"}}>{currentEtco2??"—"} {etco2Trend}</div><div style={{fontSize:8,color:"var(--c-text4)",textTransform:"uppercase"}}>ETCO₂ trend</div></div>
+        </div>
+        {currentEtco2!=null&&currentEtco2<10&&<div style={{marginTop:6,color:"#f59e0b",fontSize:9.5,fontWeight:700}}>Low ETCO₂ — reassess compression quality and ventilation. Do not use ETCO₂ alone to terminate.</div>}
+        {currentEtco2!=null&&priorEtco2!=null&&currentEtco2-priorEtco2>=10&&<div style={{marginTop:6,color:"#4ade80",fontSize:9.5,fontWeight:700}}>Sudden ETCO₂ rise — assess for possible ROSC without prolonging interruption.</div>}
       </div>
 
       {/* Epi timer strip */}
@@ -2448,7 +2545,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
         <ActionBtn
           icon="🔍" label="Rhythm Check"
           sub={rhythm ? `Last: ${rhythm}` : "Set algorithm branch"}
-          onClick={() => setShowRhythmMenu(true)}
+          onClick={() => {startPause("Rhythm/pulse check");setShowRhythmMenu(true);}}
           bg={ac("#0d1f3a","#dbeafe")} bd={ac("#1e3a8a","#2563eb")} fg={ac("#93c5fd","#1d4ed8")} big
           subColor={subTxt}
         />
@@ -2520,7 +2617,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
         >
           <span style={{ fontSize:14 }}>💊</span>
           <span style={{ flex:1, textAlign:"left", fontFamily:"'IBM Plex Mono',monospace", fontSize:11, fontWeight:700, color: isPeds ? "#c084fc" : "#93c5fd", letterSpacing:"0.05em" }}>
-            {isPeds ? `All Peds Arrest Drugs · PALS 2020` : `All Arrest Drugs · AHA Protocols`}
+            {isPeds ? `All Peds Arrest Drugs · PALS 2025` : `All Arrest Drugs · AHA Protocols`}
           </span>
           <span style={{ fontSize:10, color:"var(--c-text4)", fontFamily:"'IBM Plex Mono',monospace" }}>
             {DRUG_MENU.arrest.length + DRUG_MENU.peri.length + DRUG_MENU.postROSC.length}
@@ -2833,7 +2930,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
 
       {/* MODALS */}
       {showRhythmMenu && (
-        <ArrestModal title="Rhythm Check" onClose={() => setShowRhythmMenu(false)}>
+        <ArrestModal title="Rhythm Check" onClose={() => {setShowRhythmMenu(false);endPause();}}>
           <ModalBtn
             icon="⚡" label="VF / pVT"
             sub="Shockable — deliver shock → CPR"
@@ -3613,6 +3710,38 @@ const CC_DRUG_MAP = {
   "Fever / Sepsis":                  { sys:"metabolic",    color:"#f97316", drugs:["Normal Saline (0.9% NaCl)","Acetaminophen IV (Ofirmev)"],                hint:"30 mL/kg IV fluid if hypotensive. Temp >38.5°C + hypotension → sepsis protocol." },
 };
 const CC_OPTIONS = Object.keys(CC_DRUG_MAP);
+// Preserved for a future ePCR-integrated release. Keep disabled until that
+// workflow is ready; the implementation below remains intact for reactivation.
+const AI_NARRATIVE_ENABLED = false;
+const AI_NARRATIVE_PAUSED = true;
+
+// Protocols relevant to each intake complaint. During an active call these are
+// combined across every selected complaint, keeping the working screens focused.
+const CC_PROTOCOL_MAP = {
+  "Chest Pain / ACS":["acs","peds-chest-pain"],
+  "Cardiac Arrest":["__arrest"],
+  "Symptomatic Bradycardia":["bradycardia","peds-bradycardia"],
+  "Palpitations / SVT":["tachycardia-svt","peds-svt"],
+  "Syncope":["acs"],
+  "Shortness of Breath":["resp-distress","peds-resp","heart-failure"],
+  "Asthma / Bronchospasm":["resp-distress","peds-resp"],
+  "COPD Exacerbation":["resp-distress"],
+  "Altered Mental Status":["ams","peds-ams"],
+  "Seizure":["seizure","peds-febrile-seizure"],
+  "Stroke / CVA":["stroke","peds-stroke","cpss","befast-lvo"],
+  "Diabetic Emergency / Hypoglycemia":["hypoglycemia","peds-hypoglycemia","hyperglycemia-dka","peds-hyperglycemia-dka"],
+  "Allergic Reaction / Anaphylaxis":["anaphylaxis"],
+  "Opioid Overdose":["overdose","peds-overdose"],
+  "Overdose / Poisoning":["overdose","peds-overdose","organophosphate"],
+  "Trauma / Injury":["trauma-shock","peds-trauma","revised-trauma-score"],
+  "Burns":["burns"],
+  "Hemorrhage / Bleeding":["trauma-shock","peds-trauma"],
+  "Pain (General)":["pain-management","peds-pain"],
+  "Abdominal Pain":["pain-management","peds-pain"],
+  "OB Emergency":["ob-emergency","neonatal-resus"],
+  "Behavioral / Psychiatric Emergency":["behavioral","peds-behavioral"],
+  "Fever / Sepsis":["fever-sepsis","peds-fever-sepsis","sepsis-screen"],
+};
 
 function AiDisclaimerModal({ isDarkMode, onAccept, onCancel }) {
   const [ack, setAck] = useState(false);
@@ -4000,13 +4129,18 @@ function NarrativeScreen({ patient, setPatient, adminLog, vitalsEntries, wkg, wl
           <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:"#a855f7",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em"}}>AI Narrative</span>
           <span style={{marginLeft:"auto",fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:isDarkMode?"#3a2a5a":"#9ca3af"}}>Powered by Claude</span>
         </div>
-        {!aiNarrative&&!aiLoading&&(
+        {AI_NARRATIVE_PAUSED&&(
+          <div style={{border:`1px solid ${isDarkMode?"#4c1d95":"#c4b5fd"}`,background:isDarkMode?"#160b2b":"#f5f3ff",borderRadius:8,padding:"12px 14px",color:isDarkMode?"#c4b5fd":"#5b21b6",fontSize:12,fontWeight:700,lineHeight:1.5}}>
+            Narrative generation is temporarily paused. Medication and vital records remain available for manual documentation.
+          </div>
+        )}
+        {!AI_NARRATIVE_PAUSED&&!aiNarrative&&!aiLoading&&(
           <button onClick={startNarrativeFlow}
             style={{width:"100%",height:48,borderRadius:8,border:"1px solid #7c3aed",background:"linear-gradient(135deg,#581c87,#4c1d95)",color:"#e9d5ff",fontFamily:"'DM Sans',sans-serif",fontWeight:800,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
             <span style={{fontSize:16}}>✨</span> Generate AI Narrative
           </button>
         )}
-        {aiLoading&&(
+        {!AI_NARRATIVE_PAUSED&&aiLoading&&(
           <div style={{textAlign:"center",padding:"20px 0",color:"#a855f7",fontFamily:"'IBM Plex Mono',monospace",fontSize:11}}>
             Generating narrative…
           </div>
@@ -5465,7 +5599,7 @@ function ProtocolMedTimer({ name, activeCall, isDarkMode }) {
   );
 }
 
-function ActiveCallWorkspace({ protocolTitle, events, vitalsDraft, setVitalsDraft, onLogEvent, onClear, onLogMed, now, isDarkMode, medLog={}, activeMeds=[] }) {
+function ActiveCallWorkspace({ protocolTitle, events, vitalsDraft, setVitalsDraft, onVitalsChange, onLogEvent, onClear, onLogMed, now, isDarkMode, medLog={}, activeMeds=[] }) {
   const vitalsFields = [
     ["bp","BP","118/76"],
     ["hr","HR","88"],
@@ -5506,7 +5640,7 @@ function ActiveCallWorkspace({ protocolTitle, events, vitalsDraft, setVitalsDraf
         {vitalsFields.map(([id,label,ph]) => (
           <label key={id} style={{display:"flex",flexDirection:"column",gap:3}}>
             <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:"var(--c-text4)",letterSpacing:"0.08em"}}>{label}</span>
-            <input value={vitalsDraft[id] || ""} onChange={e=>setVitalsDraft(prev=>({ ...prev, [id]:e.target.value }))} placeholder={ph} style={{width:"100%",background:"var(--c-input)",border:"1px solid var(--c-border-sub)",borderRadius:5,padding:"6px 5px",color:"var(--c-text)",fontSize:11,outline:"none"}}/>
+            <input value={vitalsDraft[id] || ""} onChange={e=>setVitalsDraft(prev=>{const next={...prev,[id]:e.target.value};onVitalsChange?.(next);return next;})} placeholder={ph} style={{width:"100%",background:"var(--c-input)",border:"1px solid var(--c-border-sub)",borderRadius:5,padding:"6px 5px",color:"var(--c-text)",fontSize:11,outline:"none"}}/>
           </label>
         ))}
       </div>
@@ -5574,6 +5708,74 @@ function PedsProtocolWeightGate({ wkg, wlb, setWkg, setWlb, isDarkMode }) {
   );
 }
 
+const PROTOCOL_INTERVENTION_DEFS = {
+  oxygen:{label:"Supplemental O₂",icon:"💨",note:"Record delivery method and flow rate.",fields:[
+    {id:"method",label:"Delivery method",type:"select",options:["Nasal cannula","Simple mask","Non-rebreather","Blow-by","Tracheostomy mask","Other"]},
+    {id:"flow",label:"Flow",placeholder:"e.g. 4 L/min"},
+  ]},
+  bvm:{label:"BVM Ventilation",icon:"🫁",note:"Record assisted ventilation details.",fields:[
+    {id:"rate",label:"Ventilation rate",placeholder:"e.g. 10/min"},
+    {id:"oxygen",label:"O₂ flow",placeholder:"e.g. 15 L/min"},
+  ]},
+  cpap:{label:"CPAP",icon:"◉",note:"Record applied pressure and oxygen setting.",fields:[
+    {id:"pressure",label:"Pressure",placeholder:"e.g. 5 cm H₂O"},
+    {id:"oxygen",label:"O₂ / FiO₂",placeholder:"e.g. 15 L/min"},
+  ]},
+  suction:{label:"Suction",icon:"↯",note:"Record route and duration.",fields:[
+    {id:"route",label:"Route",type:"select",options:["Oropharyngeal","Nasopharyngeal","Endotracheal","Tracheostomy","Other"]},
+    {id:"duration",label:"Duration",placeholder:"e.g. 10 sec"},
+  ]},
+  adjunct:{label:"Airway Adjunct",icon:"▱",note:"Record adjunct type and size.",fields:[
+    {id:"type",label:"Type",type:"select",options:["OPA","NPA","i-gel","King LT","ET tube","Other"]},
+    {id:"size",label:"Size",placeholder:"e.g. size 4"},
+  ]},
+};
+
+function protocolInterventionKeys(protocol){
+  if(protocol.system==="respiratory") return ["oxygen","bvm","cpap","suction","adjunct"];
+  if(protocol.id==="heart-failure") return ["oxygen","cpap","bvm"];
+  if(["anaphylaxis","seizure","peds-febrile-seizure","overdose","peds-overdose","organophosphate","neonatal-resus"].includes(protocol.id)) return ["oxygen","bvm","suction","adjunct"];
+  return [];
+}
+
+function InterventionShortcuts({protocol,onLogEvent,isDarkMode}){
+  const keys=protocolInterventionKeys(protocol);
+  const [openKey,setOpenKey]=React.useState(null);
+  const [drafts,setDrafts]=React.useState({});
+  React.useEffect(()=>{setOpenKey(null);setDrafts({});},[protocol.id]);
+  if(!keys.length) return null;
+  const update=(key,id,value)=>setDrafts(p=>({...p,[key]:{...(p[key]||{}),[id]:value}}));
+  const record=key=>{
+    const def=PROTOCOL_INTERVENTION_DEFS[key];
+    const draft=drafts[key]||{};
+    const detail=def.fields.map(field=>draft[field.id]?`${field.label}: ${draft[field.id]}`:null).filter(Boolean).join(" · ");
+    onLogEvent?.("Intervention",`${def.label}${detail?` — ${detail}`:""} · ${protocol.title}`);
+    setOpenKey(null);
+    setDrafts(p=>({...p,[key]:{}}));
+  };
+  return <div style={{background:"var(--c-surface)",border:"1px solid #0891b2",borderRadius:8,padding:10}}>
+    <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:isDarkMode?"#67e8f9":"#0e7490",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:7}}>Intervention shortcuts</div>
+    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+      {keys.map(key=>{
+        const def=PROTOCOL_INTERVENTION_DEFS[key];
+        const open=openKey===key;
+        const draft=drafts[key]||{};
+        const oxygenReady=key!=="oxygen"||(draft.method&&draft.flow);
+        return <div key={key} style={{border:`1px solid ${open?"#06b6d4":"var(--c-border-sub)"}`,background:open?(isDarkMode?"#083344":"#ecfeff"):"var(--c-input)",borderRadius:7,overflow:"hidden"}}>
+          <button onClick={()=>setOpenKey(open?null:key)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"9px 10px",border:"none",background:"transparent",color:"var(--c-text)",cursor:"pointer",textAlign:"left"}}>
+            <span style={{fontSize:16}}>{def.icon}</span><span style={{flex:1}}><span style={{display:"block",fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,color:isDarkMode?"#67e8f9":"#0e7490",textTransform:"uppercase"}}>Record — {def.label}</span><span style={{display:"block",fontSize:10.5,color:"var(--c-text4)",marginTop:2}}>{def.note}</span></span><span style={{fontSize:10,color:"var(--c-text4)"}}>{open?"▲":"▼"}</span>
+          </button>
+          {open&&<div style={{padding:"0 10px 10px",display:"grid",gap:7}}>
+            {def.fields.map(field=><label key={field.id} style={{display:"grid",gap:3}}><span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:"var(--c-text4)",textTransform:"uppercase"}}>{field.label}</span>{field.type==="select"?<select value={draft[field.id]||""} onChange={e=>update(key,field.id,e.target.value)} style={{width:"100%",padding:"8px",borderRadius:6,border:"1px solid var(--c-border-sub)",background:"var(--c-input)",color:"var(--c-text)",fontSize:11}}><option value="">Select…</option>{field.options.map(option=><option key={option}>{option}</option>)}</select>:<input value={draft[field.id]||""} onChange={e=>update(key,field.id,e.target.value)} placeholder={field.placeholder} style={{width:"100%",boxSizing:"border-box",padding:"8px",borderRadius:6,border:"1px solid var(--c-border-sub)",background:"var(--c-input)",color:"var(--c-text)",fontSize:11}}/>}</label>)}
+            {key==="oxygen"&&!oxygenReady&&<div style={{fontSize:9.5,color:"#f59e0b",fontWeight:700}}>Delivery method and flow are required.</div>}
+            <button disabled={!oxygenReady} onClick={()=>record(key)} style={{padding:"9px",borderRadius:6,border:`1px solid ${oxygenReady?"#0891b2":"var(--c-border-sub)"}`,background:oxygenReady?(isDarkMode?"#164e63":"#cffafe"):"var(--c-input)",color:oxygenReady?(isDarkMode?"#a5f3fc":"#155e75"):"var(--c-text-ghost)",fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,cursor:oxygenReady?"pointer":"not-allowed"}}>Log Intervention</button>
+          </div>}
+        </div>;
+      })}
+    </div>
+  </div>;
+}
+
 function GenericProtocolAlgorithm({ protocol, values, setValues, onBack, isDarkMode, onJumpDrug, findDrugLocation, activeCall, patientType, wkg, wlb, setWkg, setWlb, callFacts={}, onFactAnswered }) {
   const setAnswer = (id, value) => {
     setValues(prev => ({ ...prev, [protocol.id]: { ...(prev[protocol.id] || {}), [id]: value } }));
@@ -5596,7 +5798,20 @@ function GenericProtocolAlgorithm({ protocol, values, setValues, onBack, isDarkM
   const firstUnansweredIndex = (protocol.questions || []).findIndex(([id]) => !answers[id]);
   const nextQuestion = firstUnansweredIndex >= 0 ? protocol.questions[firstUnansweredIndex] : null;
   const stopRule = (PROTOCOL_STOP_RULES[protocol.id] || []).find(rule => matchesAnswers(answers, rule.when));
-  const medRules = PROTOCOL_MED_RULES[protocol.id] || [];
+  // Keep conditional safety rules where they exist, then fill in every remaining
+  // medication declared by the protocol so the shortcut panel is never silently
+  // incomplete when a protocol has not received bespoke rules yet.
+  const medRules = React.useMemo(() => {
+    const specificRules = PROTOCOL_MED_RULES[protocol.id] || [];
+    const ruledMeds = new Set(specificRules.map(rule => rule.med));
+    const fallbackRules = (protocol.meds || [])
+      .filter(med => !ruledMeds.has(med))
+      .map(med => ({
+        med,
+        note:"Open the medication card to verify indication, scope, contraindications, and dose per local protocol.",
+      }));
+    return [...specificRules, ...fallbackRules];
+  }, [protocol.id, protocol.meds]);
   const medState = rule => {
     if(rule.blockedBy && Object.entries(rule.blockedBy).some(([id, value]) => answers[id] === value)) return "blocked";
     if(rule.when && !matchesAnswers(answers, rule.when)) return "pending";
@@ -5706,6 +5921,11 @@ function GenericProtocolAlgorithm({ protocol, values, setValues, onBack, isDarkM
       <div style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:10}}>
         <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"var(--c-text4)",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:7}}>Medication shortcuts</div>
         <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {medRules.length===0&&(
+            <div style={{background:"var(--c-input)",border:"1px solid var(--c-border-sub)",borderRadius:6,padding:"9px 10px",color:"var(--c-text4)",fontSize:11,lineHeight:1.4}}>
+              Assessment-only protocol — no medication is indicated directly by this tool. Treat identified conditions through the appropriate clinical protocol.
+            </div>
+          )}
           {medRules.map((rule, index) => {
             const state = medState(rule);
             const isConsider = state === "consider";
@@ -5744,11 +5964,14 @@ function GenericProtocolAlgorithm({ protocol, values, setValues, onBack, isDarkM
         </div>
       </div>
 
+      <InterventionShortcuts protocol={protocol} onLogEvent={activeCall?.onLogEvent} isDarkMode={isDarkMode}/>
+
       <ActiveCallWorkspace
         protocolTitle={protocol.title}
         events={activeCall.events}
         vitalsDraft={activeCall.vitalsDraft}
         setVitalsDraft={activeCall.setVitalsDraft}
+        onVitalsChange={activeCall.onVitalsChange}
         onLogEvent={activeCall.onLogEvent}
         onClear={activeCall.onClear}
         onLogMed={activeCall.onLogMed}
@@ -6224,6 +6447,7 @@ function BurnProtocolAlgorithm({ patientType, totals, active, values, setValues,
         events={activeCall.events}
         vitalsDraft={activeCall.vitalsDraft}
         setVitalsDraft={activeCall.setVitalsDraft}
+        onVitalsChange={activeCall.onVitalsChange}
         onLogEvent={activeCall.onLogEvent}
         onClear={activeCall.onClear}
         onLogMed={activeCall.onLogMed}
@@ -6240,7 +6464,7 @@ function BurnProtocolAlgorithm({ patientType, totals, active, values, setValues,
   );
 }
 
-function ProtocolsScreen({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, onJumpDrug, findDrugLocation, wkg, wlb, setWkg, setWlb, authUser, initialSystem="assess",
+function ProtocolsScreen({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, onJumpDrug, findDrugLocation, wkg, wlb, setWkg, setWlb, authUser, initialSystem="assess", allowedProtocolIds=null, onVitalsChange,
   activeProtocol, setActiveProtocol, protocolValues, setProtocolValues, protocolEvents, setProtocolEvents,
   protocolVitalsDraft, setProtocolVitalsDraft, protocolMedLog, setProtocolMedLog, protocolActiveMeds, setProtocolActiveMeds,
   callFacts, onFactAnswered }) {
@@ -6254,8 +6478,31 @@ function ProtocolsScreen({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, onJ
   const modeFilter = p => patientType === "adult"
     ? (!p.patientType || p.patientType === "adult" || p.patientType === "both")
     : (p.patientType === "peds" || p.patientType === "both");
-  const availableProtocols = PROTOCOL_DEFINITIONS.filter(p => p.system === selectedSystem && modeFilter(p));
-  const currentProtocol = PROTOCOL_DEFINITIONS.find(protocol => protocol.id === activeProtocol);
+  const protocolAllowed = p => !allowedProtocolIds || allowedProtocolIds.includes(p.id);
+  const availableProtocols = PROTOCOL_DEFINITIONS.filter(p => p.system === selectedSystem && modeFilter(p) && protocolAllowed(p));
+  const currentProtocol = PROTOCOL_DEFINITIONS.find(protocol => protocol.id === activeProtocol && protocolAllowed(protocol));
+  const selectedCallProtocols = Array.isArray(allowedProtocolIds)
+    ? PROTOCOL_DEFINITIONS.filter(p=>allowedProtocolIds.includes(p.id)&&modeFilter(p))
+    : [];
+  const callProtocolSwitcher = Array.isArray(allowedProtocolIds) ? (
+    <div style={{background:"var(--c-surface)",border:"1px solid #a855f7",borderRadius:10,padding:10,marginBottom:10}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:8}}>
+        <div>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:isDarkMode?"#c084fc":"#7e22ce",letterSpacing:"0.09em",textTransform:"uppercase"}}>Selected Call Protocols</div>
+          <div style={{fontSize:10,color:"var(--c-text4)",marginTop:2}}>Switch without returning to the full protocol library</div>
+        </div>
+        <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:isDarkMode?"#d8b4fe":"#6b21a8",background:isDarkMode?"#2e1065":"#f3e8ff",border:"1px solid #a855f7",borderRadius:12,padding:"3px 7px",whiteSpace:"nowrap"}}>{selectedCallProtocols.length} selected</span>
+      </div>
+      {selectedCallProtocols.length>0?(
+        <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:2,scrollbarWidth:"none"}}>
+          {selectedCallProtocols.map(protocol=>{
+            const selected=activeProtocol===protocol.id;
+            return <button key={protocol.id} onClick={()=>setActiveProtocol(protocol.id)} style={{flexShrink:0,maxWidth:220,padding:"8px 10px",borderRadius:7,border:`1px solid ${selected?"#a855f7":"var(--c-border-sub)"}`,background:selected?(isDarkMode?"#2e1065":"#f3e8ff"):"var(--c-input)",color:selected?(isDarkMode?"#e9d5ff":"#6b21a8"):"var(--c-text3)",fontFamily:"'IBM Plex Mono',monospace",fontSize:9.5,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{selected?"● ":""}{protocol.title}</button>;
+          })}
+        </div>
+      ):<div style={{padding:"10px",borderRadius:7,background:"var(--c-input)",color:"var(--c-text4)",fontSize:11}}>No matching protocol is attached to the selected complaint.</div>}
+    </div>
+  ) : null;
   const totals = useMemo(() => {
     const byDegree = { 1:0, 2:0, 3:0 };
     const burnMap = burnMaps[patientType] || {};
@@ -6309,6 +6556,7 @@ function ProtocolsScreen({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, onJ
     events: protocolEvents,
     vitalsDraft: protocolVitalsDraft,
     setVitalsDraft: setProtocolVitalsDraft,
+    onVitalsChange,
     onLogEvent: logProtocolEvent,
     onSelectMed: selectProtocolMed,
     onLogMed: logProtocolMed,
@@ -6324,11 +6572,11 @@ function ProtocolsScreen({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, onJ
   };
 
   if(currentProtocol?.special === "apgar") {
-    return <ApgarAlgorithm onBack={()=>setActiveProtocol(null)} isDarkMode={isDarkMode}/>;
+    return <>{callProtocolSwitcher}<ApgarAlgorithm onBack={()=>setActiveProtocol(null)} isDarkMode={isDarkMode}/></>;
   }
 
   if(currentProtocol?.special === "burns") {
-    return (
+    return (<>{callProtocolSwitcher}
       <BurnProtocolAlgorithm
         patientType={patientType}
         totals={totals}
@@ -6345,12 +6593,12 @@ function ProtocolsScreen({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, onJ
         wlb={wlb}
         setWkg={setWkg}
         setWlb={setWlb}
-      />
+      /></>
     );
   }
 
   if(currentProtocol) {
-    return (
+    return (<>{callProtocolSwitcher}
       <GenericProtocolAlgorithm
         protocol={currentProtocol}
         values={protocolValues}
@@ -6367,9 +6615,18 @@ function ProtocolsScreen({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, onJ
         setWlb={setWlb}
         callFacts={callFacts}
         onFactAnswered={onFactAnswered}
-      />
+      /></>
     );
   }
+
+  if(Array.isArray(allowedProtocolIds)) return (
+    <section style={{display:"flex",flexDirection:"column",gap:10}}>
+      {callProtocolSwitcher}
+      <div style={{background:"var(--c-input)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:10,color:"var(--c-text4)",fontSize:10.5,lineHeight:1.45}}>
+        Choose one of the protocols selected from this call's chief complaints. Use the switcher above to move between them at any time.
+      </div>
+    </section>
+  );
 
   return (
     <section style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -6394,13 +6651,14 @@ function ProtocolsScreen({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, onJ
           onClick={()=>setSysDropOpen(v=>!v)}
           style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderRadius:10,border:`1px solid ${sysColor(selectedSystemInfo)}`,background:sysColor(selectedSystemInfo)+"22",color:sysColor(selectedSystemInfo),fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,cursor:"pointer",letterSpacing:"0.06em",boxSizing:"border-box"}}
         >
-          <span>{selectedSystemInfo.label} · {PROTOCOL_DEFINITIONS.filter(p=>p.system===selectedSystem&&modeFilter(p)).length} protocols</span>
+          <span>{selectedSystemInfo.label} · {PROTOCOL_DEFINITIONS.filter(p=>p.system===selectedSystem&&modeFilter(p)&&protocolAllowed(p)).length} protocols</span>
           <span style={{fontSize:9,opacity:0.7}}>{sysDropOpen?"▲":"▼"}</span>
         </button>
         {sysDropOpen&&(
           <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,right:0,zIndex:99,background:"var(--c-nav)",border:"1px solid var(--c-border-sub)",borderRadius:10,padding:4,display:"grid",gap:3,boxShadow:"0 8px 24px rgba(0,0,0,0.25)"}}>
             {PROTOCOL_SYSTEMS.map(system=>{
-              const count=PROTOCOL_DEFINITIONS.filter(p=>p.system===system.id&&modeFilter(p)).length;
+              const count=PROTOCOL_DEFINITIONS.filter(p=>p.system===system.id&&modeFilter(p)&&protocolAllowed(p)).length;
+              if(allowedProtocolIds && count===0) return null;
               const active=selectedSystem===system.id;
               return(
                 <button key={system.id} onClick={()=>{setSelectedSystem(system.id);setSysDropOpen(false);}} style={{padding:"11px 14px",borderRadius:8,border:active?`1px solid ${sysColor(system)}`:"none",background:active?sysColor(system)+"22":"transparent",color:active?sysColor(system):"var(--c-text4)",fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -8266,6 +8524,8 @@ const PHARM_DATA = [
     indications:["Cardiac arrest (VF, pVT, PEA, asystole)","Severe anaphylaxis — adjunct (second-line after IM epi)"],
     contras:["Pulse present — do NOT use this concentration in non-arrest patients"],
     se:["Tachyarrhythmias post-ROSC","Severe hypertension","Increased myocardial O₂ demand","Tissue necrosis if extravasation"],
+    interactions:["Beta-blockers may blunt the pressor response","MAOIs and tricyclic antidepressants potentiate pressor effect — arrhythmia risk","Halogenated anesthetics increase myocardial irritability and arrhythmia risk","Additive tachycardia/hypertension with other sympathomimetics"],
+    onset:"Immediate (IV/IO)", peak:"1–2 min", duration:"5–10 min",
     notes:"Arrest dose: 1 mg IV/IO q3–5 min. Flush with 20 mL NS, elevate limb. Never confuse 1:10,000 with 1:1,000 concentration.", col:"#f87171", bg:"#2a0808" },
 
   { name:"Epinephrine 1:1,000", aka:"Adrenaline — IM/Anaphylaxis Dose", cat:"Cardiac", cls:"Catecholamine / Bronchodilator",
@@ -8273,6 +8533,8 @@ const PHARM_DATA = [
     indications:["Anaphylaxis / severe allergic reaction","Severe asthma refractory to albuterol (subcutaneous)"],
     contras:["No absolute contraindications in anaphylaxis — benefit always outweighs risk","Caution: known coronary artery disease"],
     se:["Palpitations / tachycardia","Anxiety / tremor","Transient hypertension","Headache"],
+    interactions:["Beta-blockers may blunt bronchodilation and blood pressure response","MAOIs/TCAs potentiate pressor effects","Additive cardiac stimulation with other sympathomimetics"],
+    onset:"5–10 min (IM)", peak:"20 min", duration:"1–4 h",
     notes:"Adult: 0.3–0.5 mg IM anterolateral thigh. Peds: 0.01 mg/kg IM (max 0.3 mg). Repeat q5–15 min. Thigh preferred — faster absorption than deltoid.", col:"#f87171", bg:"#2a0808" },
 
   { name:"Adenosine", aka:"Adenocard", cat:"Cardiac", cls:"Antiarrhythmic (Class V — Purinergic)",
@@ -8280,6 +8542,8 @@ const PHARM_DATA = [
     indications:["Narrow-complex SVT (PSVT, reentrant)","Diagnostic for wide-complex tachycardia of uncertain origin"],
     contras:["2nd or 3rd degree AV block","Sick sinus syndrome without pacemaker","WPW with atrial flutter/fib (may accelerate accessory pathway)","Known hypersensitivity"],
     se:["Transient asystole (seconds — warn patient)","Chest pressure / flushing","Bronchospasm (caution in severe asthma/COPD)","Brief hypotension"],
+    interactions:["Dipyridamole potentiates and prolongs effect — reduce dose","Theophylline/caffeine antagonize effect — may need a higher dose","Carbamazepine increases risk of high-grade heart block"],
+    onset:"10–20 sec", peak:"N/A — extremely short-acting", duration:"<10 sec (plasma half-life)",
     notes:"Rapid IV push at antecubital fossa or above, followed immediately by 20 mL NS flush. First dose: 6 mg. 2nd/3rd: 12 mg. Half-life <10 seconds.", col:"#60a5fa", bg:"#0d1f3a" },
 
   { name:"Atropine", aka:"Atropine Sulfate", cat:"Cardiac", cls:"Anticholinergic / Parasympatholytic",
@@ -8287,13 +8551,17 @@ const PHARM_DATA = [
     indications:["Symptomatic bradycardia (hypotension, AMS, syncope, ischemic chest pain)","Organophosphate / nerve agent poisoning","Bradycardia during RSI (peds)"],
     contras:["High-degree AV block Type II or complete — atropine may paradoxically worsen","Tachycardia","Acute angle-closure glaucoma"],
     se:["Tachycardia","Dry mouth and skin","Urinary retention","Blurred vision","Hyperthermia","AMS / delirium in elderly"],
-    notes:"Bradycardia: 0.5 mg IV q3–5 min (max 3 mg). Doses <0.5 mg may paradoxically slow heart rate. Consider transcutaneous pacing if no response.", col:"#60a5fa", bg:"#0d1f3a" },
+    interactions:["Additive anticholinergic effects with antihistamines, TCAs, phenothiazines","May antagonize cholinergic agents (e.g., physostigmine)","Can mask signs of developing digoxin toxicity"],
+    onset:"Immediate–2 min (IV)", peak:"2–4 min", duration:"30–60 min (cardiac effect); hours (peripheral anticholinergic effects)",
+    notes:"Bradycardia: 0.5 mg IV q3–5 min (max 3 mg). Doses <0.5 mg may paradoxically slow heart rate. Consider transcutaneous pacing if no response. Organophosphate dosing is far higher (2–4 mg, titrated to drying of secretions) — see the live dosing card for the indication in use.", col:"#60a5fa", bg:"#0d1f3a" },
 
   { name:"Amiodarone", aka:"Cordarone, Nexterone", cat:"Cardiac", cls:"Antiarrhythmic (Class III)",
     moa:"Prolongs action potential duration and refractory period in atrial and ventricular tissue. Blocks Na⁺, K⁺, Ca²⁺ channels. Broadest antiarrhythmic spectrum (Classes I–IV properties).",
     indications:["VF/pVT refractory to defibrillation","Stable wide-complex tachycardia","Atrial fibrillation with rapid ventricular rate"],
     contras:["Bradycardia / AV block without pacemaker","Cardiogenic shock","Known hypersensitivity to amiodarone or iodine"],
     se:["Hypotension (especially IV bolus)","Bradycardia","QT prolongation / Torsades","Phlebitis at IV site","Long-term: thyroid, pulmonary, hepatic toxicity"],
+    interactions:["Increases digoxin levels — risk of digoxin toxicity","Additive QT prolongation with other Class Ia/III antiarrhythmics and some antibiotics","Potentiates warfarin's anticoagulant effect","Additive bradycardia/AV block with beta-blockers and calcium channel blockers"],
+    onset:"Minutes (IV, arrest dosing)", peak:"15 min–several hours (highly variable, tissue redistribution)", duration:"Days–weeks (very long tissue half-life)",
     notes:"Cardiac arrest: 300 mg IV/IO push; repeat 150 mg for refractory VF. Stable VT/AF: 150 mg IV over 10 min. Infuse slowly to reduce hypotension.", col:"#60a5fa", bg:"#0d1f3a" },
 
   { name:"Lidocaine", aka:"Xylocaine", cat:"Cardiac", cls:"Antiarrhythmic (Class Ib) / Local Anesthetic",
@@ -8301,13 +8569,17 @@ const PHARM_DATA = [
     indications:["VF/pVT (alternative to amiodarone in cardiac arrest)","Stable VT refractory to other measures","IO administration to reduce procedural pain"],
     contras:["Adams-Stokes syndrome without pacemaker","Severe SA or AV node dysfunction","Known hypersensitivity to amide-type local anesthetics"],
     se:["CNS toxicity: tinnitus, perioral numbness, seizures, AMS","Cardiovascular depression at high doses","Bradycardia"],
-    notes:"Arrest: 1–1.5 mg/kg IV/IO push; repeat 0.5–0.75 mg/kg q5–10 min (max 3 mg/kg). Pre-IO: 40–50 mg IO to reduce intraosseous pain.", col:"#60a5fa", bg:"#0d1f3a" },
+    interactions:["Beta-blockers and cimetidine reduce lidocaine clearance — toxicity risk","Additive cardiac depression with other antiarrhythmics","Additive CNS depression with other amide local anesthetics"],
+    onset:"45–90 sec (IV)", peak:"1–2 min", duration:"10–20 min",
+    notes:"Arrest: 1–1.5 mg/kg IV/IO push; repeat 0.5–0.75 mg/kg q5–10 min (max 3 mg/kg). Pre-IO: 40–50 mg IO to reduce intraosseous pain. Not currently stocked in the pediatric drug bank — confirm agency formulary before assuming peds availability.", col:"#60a5fa", bg:"#0d1f3a" },
 
   { name:"Aspirin", aka:"ASA, Acetylsalicylic Acid", cat:"Cardiac", cls:"Antiplatelet / NSAID",
     moa:"Irreversibly inhibits COX-1 and COX-2 → reduces thromboxane A₂ synthesis → inhibits platelet aggregation. Effect lasts the platelet's entire lifespan (7–10 days) since platelets cannot synthesize new COX.",
     indications:["Suspected ACS / STEMI (first-line, early administration)","Chest pain of probable cardiac origin"],
     contras:["Active GI bleed or peptic ulcer","Known ASA or NSAID hypersensitivity","Full 324 mg dose already taken today","Children with viral illness (Reye syndrome risk)"],
     se:["GI upset / nausea","Tinnitus (toxicity)","Bronchospasm in ASA-sensitive asthma","Increased bleeding"],
+    interactions:["Increased bleeding risk with anticoagulants (warfarin, heparin, DOACs)","Additive GI toxicity with other NSAIDs or corticosteroids","May blunt the effect of ACE inhibitors and diuretics","Displaces other protein-bound drugs (e.g., methotrexate) — toxicity risk"],
+    onset:"15–30 min (chewed)", peak:"30–40 min", duration:"Platelet effect lasts 7–10 days (life of the platelet)",
     notes:"324 mg (four 81 mg tabs) chewed — not swallowed whole — for fastest buccal absorption. Reduce dose if prior aspirin taken today.", col:"#f87171", bg:"#2a0808" },
 
   { name:"Nitroglycerin", aka:"Nitrostat, NTG", cat:"Cardiac", cls:"Organic Nitrate / Vasodilator",
@@ -8315,6 +8587,8 @@ const PHARM_DATA = [
     indications:["Ischemic chest pain / ACS","Acute cardiogenic pulmonary edema (Medic level, with adequate SBP)","Hypertensive urgency"],
     contras:["SBP <100 mmHg","PDE-5 inhibitor use within 48 h (sildenafil, tadalafil, vardenafil) — severe hypotension risk","Suspected RVI (preload-dependent)","Severe aortic stenosis"],
     se:["Hypotension (can be profound)","Reflex tachycardia","Headache","Dizziness / syncope"],
+    interactions:["PDE-5 inhibitors — severe, potentially fatal hypotension","Additive hypotension with other vasodilators, alcohol, antihypertensives","High-dose IV nitro may blunt heparin's anticoagulant effect"],
+    onset:"1–3 min (SL)", peak:"5 min", duration:"20–30 min",
     notes:"0.4 mg SL q3–5 min, max 3 doses. Check SBP before each dose. Burning/tingling under tongue confirms potency. Do not swallow — sublingual absorption only.", col:"#f87171", bg:"#2a0808" },
 
   { name:"Dopamine", aka:"Intropin", cat:"Cardiac", cls:"Catecholamine / Vasoactive Infusion",
@@ -8322,6 +8596,8 @@ const PHARM_DATA = [
     indications:["Symptomatic hypotension unresponsive to fluid resuscitation","Cardiogenic shock","Post-ROSC hypotension with bradycardia"],
     contras:["Uncorrected hypovolemia (give fluids first)","Pheochromocytoma","VF/VT","Known hypersensitivity"],
     se:["Tachycardia and arrhythmias","Tissue necrosis if extravasation","Nausea / vomiting","Increased myocardial O₂ demand"],
+    interactions:["MAOIs markedly potentiate the pressor effect — reduce dose significantly","Beta-blockers antagonize beta effects","Phenytoin (IV) may cause hypotension/bradycardia in a patient on dopamine","Additive arrhythmia risk with halogenated anesthetics"],
+    onset:"1–2 min (IV infusion)", peak:"5–10 min to steady state", duration:"<10 min after infusion stopped",
     notes:"5–20 mcg/kg/min IV infusion titrated to SBP >90. Weight-based calculation required. Central line preferred — extravasation causes serious tissue injury.", col:"#60a5fa", bg:"#0d1f3a" },
 
   // RESPIRATORY
@@ -8330,6 +8606,8 @@ const PHARM_DATA = [
     indications:["Acute asthma exacerbation","COPD exacerbation with bronchospasm","Anaphylaxis bronchospasm component","Suspected hyperkalemia (β-2 shifts K⁺ intracellularly — temporizing)"],
     contras:["Known hypersensitivity to albuterol or levalbuterol","Tachyarrhythmias (relative — benefit usually outweighs risk in bronchospasm)"],
     se:["Tachycardia (most common)","Tremor / anxiety","Hypokalemia (continuous high doses)","Paradoxical bronchospasm (rare)"],
+    interactions:["Additive tachycardia with other sympathomimetics (including nebulized epi)","Beta-blockers (especially non-selective) antagonize bronchodilation","Increased arrhythmia risk with digoxin (hypokalemia-mediated)","MAOIs/TCAs may potentiate cardiovascular effects"],
+    onset:"5–15 min (nebulized)", peak:"30–60 min", duration:"3–6 h",
     notes:"Nebulizer: 2.5 mg in 3 mL NS over 8–10 min. Continuous neb for severe attacks. MDI via spacer: 4–8 puffs equivalent to one neb treatment.", col:"#86efac", bg:"#071a0e" },
 
   { name:"Ipratropium", aka:"Atrovent", cat:"Respiratory", cls:"Short-Acting Muscarinic Antagonist (SAMA)",
@@ -8337,6 +8615,8 @@ const PHARM_DATA = [
     indications:["COPD exacerbation (first-line bronchodilator)","Moderate-severe asthma combined with albuterol"],
     contras:["Hypersensitivity to ipratropium, atropine, or solanaceous alkaloids","Peanut/soy allergy (MDI formulation)"],
     se:["Dry mouth","Headache","Blurred vision if contacts eyes","Urinary retention (less common than systemic atropine)"],
+    interactions:["Additive anticholinergic effect with other anticholinergics (e.g., atropine)","Minimal systemic absorption limits most drug-drug interactions","Combined with other bronchodilators for a deliberate additive effect"],
+    onset:"15 min (nebulized)", peak:"1–2 h", duration:"4–6 h",
     notes:"0.5 mg via nebulizer combined with albuterol (DuoNeb). Minimal systemic absorption — acts locally. Onset 15 min, peak effect 1–2 h.", col:"#86efac", bg:"#071a0e" },
 
   { name:"Methylprednisolone", aka:"Solu-Medrol", cat:"Respiratory", cls:"Corticosteroid / Anti-inflammatory",
@@ -8344,6 +8624,8 @@ const PHARM_DATA = [
     indications:["Moderate-severe asthma exacerbation","COPD exacerbation","Anaphylaxis (second-line adjunct after epinephrine)","Spinal cord injury (per medical direction — NASCIS protocol, controversial)"],
     contras:["Systemic fungal infection","Active untreated tuberculosis (relative)"],
     se:["Hyperglycemia","Hypertension","Fluid retention","Immunosuppression","GI upset"],
+    interactions:["Additive hyperglycemia with dextrose administration or other steroids","May increase GI bleed risk combined with NSAIDs","Can reduce the effectiveness of some anticoagulants"],
+    onset:"1–2 h (anti-inflammatory effect)", peak:"4–6 h", duration:"12–36 h (biologic half-life)",
     notes:"Asthma/COPD: 125 mg IV. Anaphylaxis: 125 mg IV. NOT a first-line acute bronchodilator — onset too slow. Bridges patient to definitive care.", col:"#86efac", bg:"#071a0e" },
 
   // ANALGESICS
@@ -8352,6 +8634,8 @@ const PHARM_DATA = [
     indications:["Moderate-severe acute pain (trauma, burns, ischemia, fractures)","Procedural analgesia","RSI (blunts laryngoscopy hemodynamic response)"],
     contras:["Severe respiratory depression RR <10","Known hypersensitivity","Caution: hypotension, concurrent CNS depressants"],
     se:["Respiratory depression (dose-dependent, most dangerous effect)","Chest wall rigidity (wooden chest) at high IV doses","Nausea / vomiting","Bradycardia","Hypotension"],
+    interactions:["Profound additive CNS/respiratory depression with benzodiazepines, alcohol, other sedatives","MAOIs — risk of severe, unpredictable reaction; avoid if possible","CYP3A4 inhibitors increase fentanyl levels and prolong effect"],
+    onset:"1–2 min (IV)", peak:"3–5 min", duration:"30–60 min",
     notes:"Adult: 1–2 mcg/kg IV (25–100 mcg). Intranasal: 2 mcg/kg via atomizer. 100× more potent than morphine. Preferred in hemodynamic instability. Reversed by naloxone.", col:"#fb923c", bg:"#1a0500" },
 
   { name:"Morphine Sulfate", aka:"MS Contin, Roxanol", cat:"Analgesic", cls:"Opioid Analgesic (μ-Opioid Agonist)",
@@ -8359,13 +8643,17 @@ const PHARM_DATA = [
     indications:["Moderate-severe pain (ACS, renal colic, major trauma)","Acute cardiogenic pulmonary edema — adjunct (reduces anxiety and preload)"],
     contras:["SBP <90","RR <10","Known hypersensitivity","Caution in COPD/asthma (histamine release may worsen bronchospasm)"],
     se:["Respiratory depression","Hypotension (histamine-mediated vasodilation)","Nausea / vomiting","Pruritis","Urinary retention"],
-    notes:"0.1 mg/kg IV (typical adult: 2–4 mg, titrated q5–10 min). Avoid in hemodynamic instability — use fentanyl instead. Reversed by naloxone.", col:"#fb923c", bg:"#1a0500" },
+    interactions:["Profound additive CNS/respiratory depression with benzodiazepines, alcohol, other sedatives","MAOIs may cause severe, unpredictable reactions","Additive hypotension with vasodilators and antihypertensives"],
+    onset:"5–10 min (IV)", peak:"20 min", duration:"3–5 h",
+    notes:"0.1 mg/kg IV (typical adult: 2–4 mg, titrated q5–10 min). Avoid in hemodynamic instability — use fentanyl instead. Reversed by naloxone. Pediatric dosing card lists this drug simply as \"Morphine.\"", col:"#fb923c", bg:"#1a0500" },
 
   { name:"Ketamine", aka:"Ketalar", cat:"Analgesic", cls:"Dissociative Anesthetic / NMDA Antagonist",
     moa:"Antagonizes NMDA glutamate receptors → dissociation, analgesia, amnesia. Stimulates sympathetic nervous system — maintains BP/HR. Preserves protective airway reflexes and spontaneous respirations at procedural doses.",
     indications:["Procedural sedation (dislocation, wound care)","Sub-dissociative analgesia","RSI induction (especially hemodynamically unstable patients)","Excited delirium / severe agitation","Status asthmaticus refractory to standard treatment"],
     contras:["Active psychosis or schizophrenia (emergence reactions can be severe)","Uncontrolled hypertension (relative)","Use caution: suspected elevated ICP (previous restriction largely abandoned — evidence evolving)"],
     se:["Emergence reactions (hallucinations, dysphoria — adult > peds)","Hypertension and tachycardia","Hypersalivation","Laryngospasm (rare)","Transient apnea at high IV doses"],
+    interactions:["Additive CNS depression with benzodiazepines, opioids, alcohol","Theophylline may lower seizure threshold when combined","May exaggerate effects of other sympathomimetics","Benzodiazepine premedication reduces emergence reaction incidence"],
+    onset:"30 sec (IV) · 3–4 min (IM)", peak:"1 min (IV)", duration:"10–20 min (IV) · 15–30 min (IM)",
     notes:"Sedation: 1–2 mg/kg IV or 4–6 mg/kg IM. Analgesia: 0.1–0.3 mg/kg IV slow push. Benzodiazepine premedication reduces emergence reactions.", col:"#fb923c", bg:"#1a0500" },
 
   { name:"Ketorolac", aka:"Toradol", cat:"Analgesic", cls:"NSAID / Non-Opioid Analgesic",
@@ -8373,7 +8661,9 @@ const PHARM_DATA = [
     indications:["Moderate pain (renal colic, musculoskeletal, headache)","Opioid-sparing strategy","Non-opioid alternative when respiratory depression risk is high"],
     contras:["Renal impairment","Active or recent GI bleed / peptic ulcer","Known NSAID or ASA hypersensitivity","Pregnancy 3rd trimester","Volume depletion / hemorrhagic shock"],
     se:["GI upset and ulceration","Renal impairment with prolonged use","Platelet inhibition / increased bleeding risk","Hypersensitivity reaction"],
-    notes:"15–30 mg IV; 30–60 mg IM. Onset 30 min. Short-term only (≤5 days). Avoid in dehydrated patients — NSAIDs reduce renal perfusion.", col:"#fb923c", bg:"#1a0500" },
+    interactions:["Increased bleeding risk with anticoagulants, other NSAIDs, aspirin","Additive nephrotoxicity with ACE inhibitors, diuretics, other nephrotoxic drugs","May reduce the effectiveness of antihypertensives"],
+    onset:"10 min (IV) · 30 min (IM)", peak:"1–2 h", duration:"4–6 h",
+    notes:"15–30 mg IV; 30–60 mg IM. Onset 30 min. Short-term only (≤5 days). Avoid in dehydrated patients — NSAIDs reduce renal perfusion. Not currently stocked in the pediatric drug bank.", col:"#fb923c", bg:"#1a0500" },
 
   // SEDATION
   { name:"Midazolam", aka:"Versed", cat:"Sedation", cls:"Short-Acting Benzodiazepine",
@@ -8381,6 +8671,8 @@ const PHARM_DATA = [
     indications:["Active seizures / status epilepticus","Procedural sedation","Excited delirium (chemical restraint)","RSI adjunct","Acute severe anxiety"],
     contras:["SBP <90","RR <8 — hold, significant respiratory depression present","No airway management capability available","Known hypersensitivity"],
     se:["Respiratory depression (profound with opioid combination)","Hypotension","Paradoxical agitation (children, elderly)","Anterograde amnesia"],
+    interactions:["Profound additive CNS/respiratory depression with opioids, alcohol, other sedatives — leading cause of respiratory arrest in combination sedation","CYP3A4 inhibitors (some antifungals, antibiotics) prolong effect","Reversed by flumazenil"],
+    onset:"1–3 min (IV) · 5–10 min (IM/IN)", peak:"3–5 min (IV)", duration:"30–80 min",
     notes:"Seizures: 5–10 mg IM, 0.1 mg/kg IV/IO, or 5 mg intranasal. IN route works without IV access — fastest field option. Reversed by flumazenil.", col:"#c084fc", bg:"#1a0e28" },
 
   { name:"Lorazepam", aka:"Ativan", cat:"Sedation", cls:"Intermediate-Acting Benzodiazepine",
@@ -8388,6 +8680,8 @@ const PHARM_DATA = [
     indications:["Status epilepticus","Acute severe anxiety / agitation","Alcohol withdrawal seizures","Procedural sedation"],
     contras:["SBP <90","RR <8","Acute angle-closure glaucoma","Known hypersensitivity"],
     se:["Respiratory depression","Hypotension","Prolonged sedation","Paradoxical agitation"],
+    interactions:["Profound additive CNS/respiratory depression with opioids, alcohol, other sedatives","Additive hypotension with other CNS depressants","Reversed by flumazenil"],
+    onset:"1–5 min (IV)", peak:"10–20 min", duration:"6–12 h",
     notes:"Seizures: 2–4 mg IV/IM. May repeat once after 5–10 min. Duration 6–12 h. Some formulations require refrigeration — check agency policy.", col:"#c084fc", bg:"#1a0e28" },
 
   { name:"Haloperidol", aka:"Haldol", cat:"Sedation", cls:"Typical Antipsychotic (D2 Antagonist / Butyrophenone)",
@@ -8395,7 +8689,9 @@ const PHARM_DATA = [
     indications:["Excited delirium","Acute psychosis / severe agitation","Nausea and vomiting refractory to other antiemetics"],
     contras:["Parkinson's disease (dopamine blockade worsens motor symptoms)","Known QT prolongation or concurrent QT-prolonging meds","Known hypersensitivity"],
     se:["QT prolongation / Torsades de Pointes (major risk)","Extrapyramidal symptoms: acute dystonia, akathisia","Neuroleptic malignant syndrome (rare)","Hypotension"],
-    notes:"Agitation: 5–10 mg IM (adult). Often combined with midazolam ± diphenhydramine (DRD protocol). Stimulant toxicity: caution — may unmask arrhythmias.", col:"#c084fc", bg:"#1a0e28" },
+    interactions:["Additive QT prolongation with other QT-prolonging drugs (many antiarrhythmics, some antibiotics, ondansetron)","Additive CNS depression with sedatives/opioids","Epinephrine may cause paradoxical hypotension (unmasked beta effect from alpha-blockade)"],
+    onset:"15–30 min (IM)", peak:"20–40 min", duration:"4–6 h (behavioral effect); much longer elimination half-life",
+    notes:"Agitation: 5–10 mg IM (adult). Often combined with midazolam ± diphenhydramine (DRD protocol). Stimulant toxicity: caution — may unmask arrhythmias. Not currently stocked in the pediatric drug bank.", col:"#c084fc", bg:"#1a0e28" },
 
   // ANTIDOTES
   { name:"Naloxone", aka:"Narcan, Evzio, Kloxxado", cat:"Antidote", cls:"Opioid Antagonist",
@@ -8403,6 +8699,8 @@ const PHARM_DATA = [
     indications:["Opioid overdose (triad: respiratory depression, AMS, miosis)","Reversal of iatrogenic opioid respiratory depression","Empiric therapy in unexplained AMS"],
     contras:["Known hypersensitivity (rare)","Caution in opioid-dependent patients — precipitates acute withdrawal (agitation, hypertensive emergency, pulmonary edema)"],
     se:["Acute opioid withdrawal (N/V, diaphoresis, hypertension, agitation)","Re-narcotization when naloxone wears off (half-life shorter than most opioids)","Pulmonary edema (rare)"],
+    interactions:["Precipitates acute withdrawal in opioid-dependent patients — its main clinically relevant interaction","Effect duration is shorter than most opioids — re-sedation risk if a long-acting opioid is on board"],
+    onset:"2–5 min (IV) · 3–5 min (IM/IN)", peak:"5–15 min", duration:"30–90 min",
     notes:"Titrate to respirations, NOT consciousness. Adult: 0.4–2 mg IV/IO/IM; 4 mg IN per nostril. May repeat q2–3 min. Half-life 30–90 min — re-dosing often needed. Monitor closely.", col:"#fb923c", bg:"#1a0500" },
 
   { name:"Diphenhydramine", aka:"Benadryl", cat:"Antidote", cls:"H1 Antihistamine / Anticholinergic",
@@ -8410,6 +8708,8 @@ const PHARM_DATA = [
     indications:["Mild-moderate allergic reaction (urticaria, pruritus)","Anaphylaxis adjunct — H1 blockade after epinephrine","Extrapyramidal reactions from antipsychotics (acute dystonia)","Nausea / motion sickness"],
     contras:["Acute angle-closure glaucoma","Benign prostatic hypertrophy (urinary retention)","MAO inhibitor use","Neonates"],
     se:["Sedation (potentiates all CNS depressants)","Dry mouth, urinary retention, constipation","Tachycardia","Paradoxical excitation in young children"],
+    interactions:["Additive CNS depression with alcohol, opioids, sedatives","Additive anticholinergic effects with atropine, TCAs, phenothiazines","MAOIs may prolong or intensify anticholinergic effects"],
+    onset:"15–30 min (IV/IM)", peak:"1–4 h", duration:"4–6 h",
     notes:"25–50 mg IV/IM (adult). NOT first-line for anaphylaxis — epinephrine always first. Useful for urticaria and extrapyramidal reactions.", col:"#fb923c", bg:"#1a0500" },
 
   // METABOLIC
@@ -8418,41 +8718,53 @@ const PHARM_DATA = [
     indications:["Symptomatic hypoglycemia (BGL <60–70 with symptoms)","AMS of unknown etiology — empiric therapy","Suspected hypoglycemia without IV access (use glucagon)"],
     contras:["Confirmed hyperglycemia","Suspected CVA (large glucose load may worsen ischemic injury — controversial)","Caution: Wernicke's encephalopathy (give thiamine first)"],
     se:["Hyperglycemia","Phlebitis and tissue necrosis if extravasation (hypertonic — caustic)","Hypokalemia at high doses"],
-    notes:"Adult: D50W 25 g (50 mL) IV push. Peds: D10W 5 mL/kg or D25W 2 mL/kg. D10W preferred in peds to reduce osmolality. Confirm IV patency — extravasation causes serious injury. Recheck BGL at 10 min.", col:"#fde68a", bg:"#1a1200" },
+    interactions:["In alcoholics/malnourished patients, give thiamine first — dextrose alone can precipitate acute Wernicke's encephalopathy","No significant drug-drug interactions beyond the thiamine-timing issue"],
+    onset:"1–3 min (IV)", peak:"Immediate glucose rise", duration:"Variable — depends on the underlying cause of hypoglycemia",
+    notes:"Adult: D50W 25 g (50 mL) IV push. Peds: D25W 2 mL/kg or D10W 5 mL/kg (neonates). Concentration used varies by weight/age — check the live dosing card. Confirm IV patency — extravasation causes serious injury. Recheck BGL at 5–10 min.", col:"#fde68a", bg:"#1a1200" },
 
   { name:"Glucagon", aka:"GlucaGen", cat:"Metabolic", cls:"Pancreatic Hormone / Hyperglycemic Agent",
     moa:"Activates hepatic glucagon receptors → stimulates glycogenolysis and gluconeogenesis → raises blood glucose. Also positive inotrope/chronotrope via non-adrenergic cAMP pathway — useful in beta-blocker overdose.",
     indications:["Hypoglycemia without IV/IO access","Beta-blocker overdose refractory to standard treatment","Calcium channel blocker overdose (adjunct)"],
     contras:["Pheochromocytoma (may trigger catecholamine release)","Known hypersensitivity","Chronic alcoholism / starvation (depleted glycogen — reduced efficacy)"],
     se:["Nausea / vomiting (reposition to prevent aspiration)","Tachycardia","Hyperglycemia"],
-    notes:"1 mg IM/SQ (peds: 0.5 mg or 0.02 mg/kg). Onset 10–15 min IM. Ineffective in glycogen-depleted states. Once conscious, give oral glucose.", col:"#fde68a", bg:"#1a1200" },
+    interactions:["Directly antagonizes insulin's hypoglycemic effect (its intended use)","Reduced effect in chronic alcoholism/malnutrition due to depleted glycogen stores","In beta-blocker overdose, bypasses beta-receptor blockade via a separate cAMP pathway"],
+    onset:"5–20 min (IM)", peak:"30 min", duration:"60–90 min",
+    notes:"1 mg IM/SQ (peds: 0.5 mg <20 kg or 1 mg ≥20 kg). Onset 10–15 min IM. Ineffective in glycogen-depleted states. Once conscious, give oral glucose.", col:"#fde68a", bg:"#1a1200" },
 
   { name:"Magnesium Sulfate", aka:"MgSO₄, Mag", cat:"Metabolic", cls:"Electrolyte / Anticonvulsant / Antiarrhythmic",
     moa:"Replaces magnesium deficit; competes with calcium at vascular smooth muscle → vasodilation; blocks NMDA receptors; inhibits neuromuscular junction; slows SA/AV node conduction.",
     indications:["Eclampsia and severe pre-eclampsia (drug of choice)","Torsades de Pointes","Refractory VF/pVT with suspected hypomagnesemia","Severe asthma / status asthmaticus","Preterm labor — tocolytic"],
     contras:["Significant renal failure (accumulation risk)","Heart block without pacemaker","Myasthenia gravis"],
     se:["Hypotension","Respiratory depression and arrest (toxicity)","Loss of deep tendon reflexes (early toxicity warning)","Facial flushing and warmth","Cardiac arrest at very high serum levels"],
-    notes:"Eclampsia: 4–6 g IV over 15–20 min SLOWLY. Torsades: 1–2 g IV over 5–20 min. Monitor DTRs as toxicity marker. Antidote: calcium gluconate 1 g IV. Peds: 25–50 mg/kg IV (max 2 g).", col:"#fde68a", bg:"#1a1200" },
+    interactions:["Additive CNS/respiratory depression with other CNS depressants, opioids","Potentiates neuromuscular blocking agents (paralytics) — prolonged paralysis","Additive hypotension with calcium channel blockers","Antidote for toxicity is calcium gluconate"],
+    onset:"Immediate–a few min (IV)", peak:"During infusion", duration:"30 min after infusion stopped",
+    notes:"Eclampsia: 4–6 g IV over 15–20 min SLOWLY. Torsades: 1–2 g IV over 5–20 min. Monitor DTRs as toxicity marker. Antidote: calcium gluconate 1 g IV. Peds: 25–75 mg/kg IV depending on indication (see live dosing card).", col:"#fde68a", bg:"#1a1200" },
 
   { name:"Ondansetron", aka:"Zofran", cat:"Metabolic", cls:"5-HT3 Serotonin Antagonist / Antiemetic",
     moa:"Selectively blocks 5-HT3 serotonin receptors in the chemoreceptor trigger zone (CTZ) and peripheral vagal nerve terminals → interrupts vomiting reflex pathway.",
     indications:["Nausea and vomiting (opioid-induced, GI, head trauma, vertigo)","Post-procedure nausea","Gastroenteritis"],
     contras:["Known hypersensitivity","Concurrent QT-prolonging medications","Caution: congenital long QT syndrome"],
     se:["Headache","QT prolongation (dose-dependent)","Constipation","Dizziness"],
-    notes:"4 mg IV/IM or ODT. Peds: 0.1 mg/kg IV (max 4 mg). Does NOT cause sedation — neurological assessment remains valid.", col:"#fde68a", bg:"#1a1200" },
+    interactions:["Additive QT prolongation with other QT-prolonging drugs (haloperidol, some antiarrhythmics)","Rare serotonin syndrome risk with SSRIs/SNRIs/MAOIs","Tramadol may reduce ondansetron's antiemetic efficacy"],
+    onset:"10–15 min (IV)", peak:"30 min", duration:"4–8 h",
+    notes:"4 mg IV/IM or ODT. Peds: 0.1 mg/kg IV (max 4 mg). Does NOT cause sedation — neurological assessment remains valid. Not currently on the live dosing cards in this app — reference only until added.", col:"#fde68a", bg:"#1a1200" },
 
   { name:"Sodium Bicarbonate", aka:"NaHCO₃, Bicarb", cat:"Metabolic", cls:"Buffer / Alkalinizing Agent",
     moa:"Provides bicarbonate ions → buffers excess hydrogen ions → raises blood pH. In TCA overdose, alkalinization increases protein binding of TCAs → reduces free toxic drug and narrows QRS.",
     indications:["TCA overdose with wide QRS or arrhythmia","Severe metabolic acidosis pH <7.1 (per medical direction)","Hyperkalemia — temporizing (shifts K⁺ intracellularly)","Cardiac arrest with prolonged downtime (per medical direction)"],
     contras:["Inadequate ventilation (produces CO₂ — worsens respiratory acidosis)","Metabolic alkalosis","Hypocalcemia"],
     se:["Hypernatremia","Hypokalemia","Paradoxical intracellular acidosis","Metabolic alkalosis overshoot","Precipitates with calcium-containing solutions"],
-    notes:"1 mEq/kg IV bolus (adult: typically 50–100 mEq). NEVER mix in same line as calcium — immediate precipitation. TCA: target arterial pH 7.45–7.55.", col:"#fde68a", bg:"#1a1200" },
+    interactions:["Precipitates immediately if mixed with calcium salts or epinephrine in the same line","Alkalinizes urine, which can alter excretion of other acidic/basic drugs","Additive hypernatremia with other sodium-containing fluids"],
+    onset:"2–10 min (IV)", peak:"15–30 min", duration:"1–2 h",
+    notes:"1 mEq/kg IV bolus (adult: typically 50–100 mEq). NEVER mix in same line as calcium — immediate precipitation. TCA: give until QRS narrows.", col:"#fde68a", bg:"#1a1200" },
 
   { name:"Calcium Chloride", aka:"CaCl₂", cat:"Metabolic", cls:"Electrolyte / Cardiac Membrane Stabilizer",
     moa:"Raises ionized calcium → antagonizes hyperkalemia and calcium channel blocker effects on cardiac membrane potential. Restores membrane resting potential without reversing channel blockade directly.",
     indications:["Hyperkalemia with cardiac manifestations (peaked T waves, wide QRS)","Calcium channel blocker overdose","Magnesium toxicity (antidote)","Fluoride poisoning"],
     contras:["Digoxin toxicity (may cause fatal arrhythmia)","Hypercalcemia","Do NOT infuse with sodium bicarbonate in same line (precipitates)"],
     se:["Bradycardia with rapid infusion","Severe tissue necrosis if extravasation","Hypercalcemia","Hypotension at high rates"],
+    interactions:["Precipitates immediately if mixed with sodium bicarbonate in the same line","Potentiates digoxin toxicity — avoid in known digoxin toxicity","Antagonizes calcium channel blockers (the basis for its use in CCB overdose)"],
+    onset:"Immediate–a few min (IV)", peak:"During infusion", duration:"20–30 min",
     notes:"1 g (10 mL of 10% solution) IV slowly over 2–5 min. Contains 3× more elemental calcium than calcium gluconate. Central line preferred — very irritating to peripheral veins.", col:"#fde68a", bg:"#1a1200" },
 
   // OB
@@ -8461,8 +8773,48 @@ const PHARM_DATA = [
     indications:["Postpartum hemorrhage after placenta delivery","Uterine atony unresponsive to uterine massage"],
     contras:["Placenta NOT yet delivered — risk of fetal distress","Cardiovascular disease (vasodilatory hypotension)","Antepartum use in field (relative)"],
     se:["Hypotension (rapid IV push — NEVER give as bolus)","Uterine tetany / hyperstimulation","Water intoxication (prolonged infusion)","Nausea"],
+    interactions:["Additive hypotension with other vasodilators/antihypertensives","Prolonged use with other uterotonics may cause uterine hyperstimulation","Vasopressor effects may be potentiated by other sympathomimetics"],
+    onset:"1 min (IV) · 3–5 min (IM)", peak:"During infusion (IV) · 30–60 min (IM)", duration:"1 h",
     notes:"10–20 units IM OR 10–40 units in 1 L NS as IV infusion. NEVER rapid IV bolus. Confirm placenta delivered before administering.", col:"#f9a8d4", bg:"#1a0515" },
 ];
+
+/* Bridges the pharmacology reference card to the live adult/peds dosing banks so
+   "Dosage and Administration" is always pulled fresh, never retyped — the two
+   naming schemes don't match 1:1 (e.g. "Ipratropium" here vs "Ipratropium (Atrovent)"
+   in the dosing bank), so mismatches are listed explicitly rather than guessed. */
+const PHARM_DOSE_ALIASES = {
+  "Ipratropium": ["Ipratropium (Atrovent)"],
+  "Morphine Sulfate": ["Morphine Sulfate", "Morphine"],
+  "Ketorolac": ["Ketorolac (Toradol)"],
+  "Midazolam": ["Midazolam (Versed)"],
+  "Lorazepam": ["Lorazepam (Ativan)"],
+  "Haloperidol": ["Haloperidol (Haldol)"],
+  "Naloxone": ["Naloxone (Narcan)"],
+  "Diphenhydramine": ["Diphenhydramine (Benadryl)", "Diphenhydramine"],
+  "Dextrose": ["Dextrose 50% (D50)", "Dextrose 25% (D25)", "Dextrose 10% (D10)"],
+  "Calcium Chloride": ["Calcium Chloride 10%"],
+  "Oxytocin": ["Oxytocin (Pitocin)"],
+  "Atropine": ["Atropine", "Atropine (Organophosphate)", "Atropine (RSI pre-tx)"],
+};
+
+function getDoseEntries(pharmName){
+  const targetNames = PHARM_DOSE_ALIASES[pharmName] || [pharmName];
+  const collect = bank => {
+    const seen = new Set();
+    const out = [];
+    Object.values(bank).forEach(list => {
+      list.forEach(d => {
+        if(!targetNames.includes(d.name)) return;
+        const key = d.name + "|" + d.dose;
+        if(seen.has(key)) return;
+        seen.add(key);
+        out.push({ name:d.name, sub:d.sub, dose:d.dose, route:d.route });
+      });
+    });
+    return out;
+  };
+  return { adult: collect(ADULT), peds: collect(PEDS) };
+}
 
 const MED_TERMS = [
   { term:"ACS", cat:"Cardiovascular", def:"Acute Coronary Syndrome — umbrella term for sudden reduction in coronary blood flow: unstable angina, NSTEMI, and STEMI. All require immediate ASA and time-sensitive treatment." },
@@ -8527,6 +8879,32 @@ const MED_TERMS = [
   { term:"Tidal Volume", cat:"Respiratory", def:"Volume of air moved per breath. Normal adult: ~500 mL (6–8 mL/kg IBW). BVM target: ~6 mL/kg to avoid overinflation and gastric distension. Avoid over-ventilation — worsens cardiac output in arrest." },
 ];
 
+const DOCX_REFERENCE_GROUPS = {
+  Cardiovascular:"Abciximab (ReoPro)|Atenolol (Tenormin)|Bumetanide (Bumex)|Captopril (Capoten)|Clevidipine (Cleviprex)|Clopidogrel (Plavix)|Dabigatran (Pradaxa)|Digoxin (Lanoxin)|Diltiazem (Cardizem)|Dobutamine (Dobutrex)|Edrophonium (Tensilon)|Enalaprilat (Vasotec)|Enoxaparin (Lovenox)|Epinephrine 1:100,000 (Push-dose epinephrine)|Eptifibatide (Integrilin)|Esmolol (Brevibloc)|Heparin|Hydralazine (Apresoline)|Inamrinone (Inocor)|Isoproterenol (Isuprel)|Labetalol (Normodyne)|Metoprolol (Lopressor)|Milrinone (Primacor)|Nesiritide (Natrecor)|Nicardipine (Cardene)|Nifedipine (Procardia)|Nitroglycerin infusion (Tridil)|Nitroglycerin paste (Nitro-Bid)|Nitroglycerin spray|Norepinephrine (Levophed)|Phenylephrine (Neo-Synephrine)|Prasugrel (Effient)|Procainamide (Pronestyl)|Propranolol (Inderal)|Reteplase (Retavase)|Rivaroxaban (Xarelto)|Sodium nitroprusside (Nipride)|Sotalol (Betapace)|Streptokinase (Streptase)|Tenecteplase (TNKase)|Ticagrelor (Brilinta)|Tirofiban (Aggrastat)|Vasopressin (Pitressin)|Verapamil (Isoptin)",
+  Respiratory:"Aminophylline|Etomidate (Amidate)|Heliox|Hydrocortisone (Solu-Cortef)|Isoetharine (Bronkosol)|Levalbuterol (Xopenex)|Metaproterenol (Alupent)|Propofol (Diprivan)|Racemic epinephrine|Terbutaline (Brethine)|Vecuronium (Norcuron)",
+  "Fluids / Blood":"Albumin|Cryoprecipitate|Dextran|Fresh frozen plasma (FFP)|Hetastarch (Hespan)|Hypertonic saline (3%)|Packed red blood cells (pRBC)|Plasma protein fraction|Polygeline|Vitamin K|Whole blood|Dextrose 5% in water (D5W)",
+  "Allergy / GI":"Cimetidine (Tagamet)|Dimenhydrinate (Dramamine)|Dolasetron (Anzemet)|Famotidine (Pepcid)|Glycopyrrolate (Robinul)|Metoclopramide (Reglan)|Prochlorperazine (Compazine)|Promethazine (Phenergan)|Ranitidine (Zantac)|Trimethobenzamide (Tigan)",
+  "Metabolic / Endocrine":"Insulin (Humulin / Novolin)",
+  Neurological:"Fosphenytoin (Cerebyx)|Levetiracetam (Keppra)|Mannitol (Osmitrol)|Phenobarbital (Luminal)|Phenytoin (Dilantin)",
+  Toxicology:"Activated charcoal|Amyl nitrite|Digoxin immune Fab (DigiFab)|Fomepizole|Flumazenil (Romazicon)|Hydroxocobalamin (Cyanokit)|Idarucizumab (Praxbind)|Ipecac|Pralidoxime (2-PAM)|Sodium nitrite|Sodium thiosulfate",
+  Behavioral:"Chlorpromazine (Thorazine)|Droperidol (Inapsine)|Hydroxyzine (Vistaril)|Olanzapine (Zyprexa)|Ziprasidone (Geodon)",
+  "Pain / Sedation":"Atracurium (Tracrium)|Butorphanol (Stadol)|Dexmedetomidine (Precedex)|Hydromorphone (Dilaudid)|Ibuprofen (Motrin)|Meperidine (Demerol)|Nalbuphine (Nubain)|Nitrous oxide (Nitronox)|Physostigmine (Antilirium)|Prothrombin complex concentrate (Kcentra)",
+  "Antibiotics":"Cefazolin (Ancef)|Ceftriaxone (Rocephin)",
+};
+const DOCX_REFERENCE_DATA = Object.entries(DOCX_REFERENCE_GROUPS).flatMap(([cat,names])=>names.split("|").map(name=>({name,cat})));
+const REFERENCE_GROUP_NOTES = {
+  Cardiovascular:"Recognition reference for cardiovascular, hemodynamic, antiplatelet, anticoagulant, or thrombolytic therapy.",
+  Respiratory:"Recognition reference for airway, ventilation, bronchodilator, induction, sedation, or neuromuscular-blocking therapy.",
+  "Fluids / Blood":"Recognition reference for volume replacement, electrolyte, colloid, or blood-product therapy.",
+  "Allergy / GI":"Recognition reference for antihistamine, acid-suppression, antiemetic, or gastrointestinal therapy.",
+  "Metabolic / Endocrine":"Recognition reference for metabolic or endocrine therapy.",
+  Neurological:"Recognition reference for seizure, cerebral edema, or neurological therapy.",
+  Toxicology:"Recognition reference for toxicologic treatment, antidotes, or reversal agents.",
+  Behavioral:"Recognition reference for behavioral-emergency or antipsychotic therapy.",
+  "Pain / Sedation":"Recognition reference for analgesia, sedation, reversal, or procedural support.",
+  Antibiotics:"Recognition reference for antimicrobial therapy.",
+};
+
 function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
   const t   = isDarkMode ? "#e2e8f0" : "#0f172a";
   const mu  = isDarkMode ? "#8aa0c2" : "#4b5563";
@@ -8538,10 +8916,13 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
   const [q, setQ]                = React.useState("");
   const [catFilter, setCatFilter]= React.useState("All");
   const [expanded, setExpanded]  = React.useState(null);
+  const [drugTier,setDrugTier]   = React.useState("active");
 
   const isGuest = authUser?.role === "Guest";
 
-  const PHARM_CATS = ["All","Cardiac","Respiratory","Analgesic","Sedation","Antidote","Metabolic","OB"];
+  const PHARM_CATS = drugTier==="active"
+    ? ["All","Cardiac","Respiratory","Analgesic","Sedation","Antidote","Metabolic","OB"]
+    : ["All",...Object.keys(DOCX_REFERENCE_GROUPS)];
   const TERM_CATS  = ["All","Cardiovascular","Respiratory","Neurological","Assessment","Pharmacology","Vitals"];
   const cats = tab === "pharm" ? PHARM_CATS : TERM_CATS;
 
@@ -8553,7 +8934,11 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
   };
 
   const filteredPharm = React.useMemo(() => {
-    let list = PHARM_DATA;
+    let list = PHARM_DATA.filter(drug=>{
+      const doses=getDoseEntries(drug.name);
+      const live=doses.adult.length>0||doses.peds.length>0;
+      return drugTier==="active"?live:!live;
+    });
     if(catFilter !== "All") list = list.filter(d => d.cat === catFilter);
     if(q.trim()) {
       const lq = q.toLowerCase();
@@ -8566,7 +8951,19 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
       );
     }
     return list;
-  }, [q, catFilter]);
+  }, [q, catFilter, drugTier]);
+
+  const filteredDocReferences=React.useMemo(()=>{
+    if(drugTier!=="reference") return [];
+    const detailedNames=new Set(PHARM_DATA.map(drug=>drug.name.toLowerCase()));
+    let list=DOCX_REFERENCE_DATA.filter(drug=>!detailedNames.has(drug.name.toLowerCase()));
+    if(catFilter!=="All") list=list.filter(drug=>drug.cat===catFilter);
+    if(q.trim()){
+      const lq=q.toLowerCase();
+      list=list.filter(drug=>drug.name.toLowerCase().includes(lq)||drug.cat.toLowerCase().includes(lq));
+    }
+    return list;
+  },[q,catFilter,drugTier]);
 
   const filteredTerms = React.useMemo(() => {
     let list = MED_TERMS;
@@ -8603,7 +9000,7 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
 
       {/* Tab Toggle */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",background:"var(--c-nav)",border:`1px solid ${bd}`,borderRadius:10,padding:3,gap:3,marginBottom:12,opacity:isGuest?0.35:1,pointerEvents:isGuest?"none":"auto"}}>
-        {[["pharm","💊 Pharmacology"],["terms","📖 Med Terms"]].map(([k,l])=>(
+        {[["pharm","💊 Drug Reference"],["terms","📖 Med Terms"]].map(([k,l])=>(
           <button key={k} onClick={()=>{setTab(k);setCatFilter("All");setExpanded(null);setQ("");}}
             style={{padding:"9px 0",borderRadius:8,border:"none",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:700,letterSpacing:"0.04em",
               background:tab===k?(isDarkMode?"#1a2338":"#d1d5db"):"transparent",
@@ -8614,6 +9011,14 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
       </div>
 
       <div style={{opacity:isGuest?0.35:1,pointerEvents:isGuest?"none":"auto"}}>
+        {tab==="pharm"&&(
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,background:"var(--c-nav)",border:`1px solid ${bd}`,borderRadius:9,padding:3,marginBottom:10}}>
+            {[["active","Active Treatment"],["reference","Reference Only"]].map(([key,label])=>{
+              const selected=drugTier===key;
+              return <button key={key} onClick={()=>{setDrugTier(key);setCatFilter("All");setExpanded(null);setQ("");}} style={{padding:"8px 5px",borderRadius:7,border:selected?`1px solid ${key==="active"?"#22c55e":"#38bdf8"}`:"1px solid transparent",background:selected?(key==="active"?(isDarkMode?"#052e16":"#dcfce7"):(isDarkMode?"#082f49":"#e0f2fe")):"transparent",color:selected?(key==="active"?(isDarkMode?"#86efac":"#166534"):(isDarkMode?"#7dd3fc":"#075985")):mu,fontFamily:"'IBM Plex Mono',monospace",fontSize:9.5,fontWeight:800,cursor:"pointer"}}>{label}</button>;
+            })}
+          </div>
+        )}
         {/* Search */}
         <div style={{position:"relative",marginBottom:10}}>
           <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,pointerEvents:"none",color:mu}}>🔍</span>
@@ -8642,12 +9047,13 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
 
         {/* PHARMACOLOGY CARDS */}
         {tab==="pharm"&&(
-          filteredPharm.length===0
+          filteredPharm.length===0&&filteredDocReferences.length===0
           ? <div style={{textAlign:"center",color:mu,fontSize:12,padding:"36px 0",fontFamily:"'IBM Plex Mono',monospace"}}>No results for "{q}"</div>
           : filteredPharm.map(drug=>{
               const key=`ph-${drug.name}`;
               const isOpen=expanded===key;
               const cc=CAT_COLORS[drug.cat]||"#60a5fa";
+              const doseEntries=isOpen?getDoseEntries(drug.name):null;
               return(
                 <div key={key} style={{marginBottom:7,borderRadius:11,border:`1px solid ${isOpen?cc:bd}`,overflow:"hidden",transition:"border-color 0.15s"}}>
                   <button onClick={()=>setExpanded(isOpen?null:key)} style={{width:"100%",background:isOpen?drug.bg:su,padding:"13px 14px",display:"flex",alignItems:"center",gap:10,border:"none",cursor:"pointer",textAlign:"left",transition:"background 0.15s"}}>
@@ -8656,6 +9062,7 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
                       <div style={{fontSize:9.5,color:mu,fontFamily:"'IBM Plex Mono',monospace",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{drug.aka}</div>
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                      <span style={{background:drugTier==="active"?(isDarkMode?"#052e16":"#dcfce7"):(isDarkMode?"#082f49":"#e0f2fe"),border:`1px solid ${drugTier==="active"?"#22c55e":"#38bdf8"}`,color:drugTier==="active"?(isDarkMode?"#86efac":"#166534"):(isDarkMode?"#7dd3fc":"#075985"),borderRadius:5,padding:"2px 6px",fontFamily:"'IBM Plex Mono',monospace",fontSize:7.5,fontWeight:800,whiteSpace:"nowrap"}}>{drugTier==="active"?"ACTIVE":"REFERENCE"}</span>
                       <span style={{background:isDarkMode?"#0d1120":"#f1f5f9",border:`1px solid ${cc}`,color:cc,borderRadius:5,padding:"2px 7px",fontFamily:"'IBM Plex Mono',monospace",fontSize:8,fontWeight:800}}>{drug.cat}</span>
                       <span style={{color:mu,fontSize:10}}>{isOpen?"▲":"▼"}</span>
                     </div>
@@ -8691,6 +9098,66 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
                       <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:"#fdba74",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Side Effects</div>
                       <div style={{fontSize:12,color:mu,lineHeight:1.6,marginBottom:14}}>{drug.se.join(" · ")}</div>
 
+                      {drug.interactions&&drug.interactions.length>0&&(
+                        <>
+                          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:"#facc15",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Drug Interactions</div>
+                          <div style={{marginBottom:14}}>
+                            {drug.interactions.map((it,j)=>(
+                              <div key={j} style={{fontSize:12,color:t,lineHeight:1.6,paddingLeft:14,position:"relative"}}>
+                                <span style={{position:"absolute",left:2,color:"#facc15",fontSize:10}}>⇄</span>{it}
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+
+                      {(drug.onset||drug.peak||drug.duration)&&(
+                        <>
+                          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:mu,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Duration of Action</div>
+                          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:14}}>
+                            {[["Onset",drug.onset],["Peak Effect",drug.peak],["Duration",drug.duration]].map(([l,v])=>(
+                              <div key={l} style={{background:"#00000025",borderRadius:6,padding:"6px 8px"}}>
+                                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:7.5,color:mu,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}}>{l}</div>
+                                <div style={{fontSize:10.5,color:t,lineHeight:1.35}}>{v||"—"}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+
+                      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:"#93c5fd",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Dosage &amp; Administration</div>
+                      <div style={{marginBottom:14}}>
+                        {(!doseEntries||(doseEntries.adult.length===0&&doseEntries.peds.length===0))?(
+                          <div style={{fontSize:11.5,color:mu,fontStyle:"italic"}}>Not currently on a live dosing card in this app — reference only.</div>
+                        ):(
+                          <>
+                            {doseEntries.adult.length>0&&(
+                              <div style={{marginBottom:doseEntries.peds.length>0?8:0}}>
+                                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,fontWeight:800,color:"#93c5fd",marginBottom:3}}>ADULT</div>
+                                {doseEntries.adult.map((d,j)=>(
+                                  <div key={j} style={{fontSize:11.5,color:t,lineHeight:1.55,marginBottom:2}}>
+                                    {doseEntries.adult.length>1&&<span style={{color:mu}}>{d.sub}: </span>}{d.dose}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {doseEntries.peds.length>0&&(
+                              <div>
+                                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,fontWeight:800,color:"#93c5fd",marginBottom:3}}>PEDIATRIC</div>
+                                {doseEntries.peds.map((d,j)=>(
+                                  <div key={j} style={{fontSize:11.5,color:t,lineHeight:1.55,marginBottom:2}}>
+                                    {doseEntries.peds.length>1&&<span style={{color:mu}}>{d.sub}: </span>}{d.dose}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {doseEntries.adult.length>0&&doseEntries.peds.length===0&&(
+                              <div style={{fontSize:10.5,color:mu,fontStyle:"italic",marginTop:4}}>No pediatric dosing card for this drug.</div>
+                            )}
+                          </>
+                        )}
+                      </div>
+
                       <div style={{background:"#ffffff0d",borderRadius:9,padding:"11px 13px",border:`1px solid ${cc}35`}}>
                         <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:cc,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>⚕ EMS Clinical Notes</div>
                         <div style={{fontSize:12,color:t,lineHeight:1.65}}>{drug.notes}</div>
@@ -8701,6 +9168,27 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
               );
             })
         )}
+
+        {tab==="pharm"&&drugTier==="reference"&&filteredDocReferences.map(drug=>{
+          const key=`doc-ref-${drug.cat}-${drug.name}`;
+          const isOpen=expanded===key;
+          const cc=CAT_COLORS[drug.cat]||"#38bdf8";
+          return <div key={key} style={{marginBottom:7,borderRadius:11,border:`1px solid ${isOpen?cc:bd}`,overflow:"hidden"}}>
+            <button onClick={()=>setExpanded(isOpen?null:key)} style={{width:"100%",background:isOpen?(isDarkMode?"#082f49":"#e0f2fe"):su,padding:"12px 14px",display:"flex",alignItems:"center",gap:9,border:"none",cursor:"pointer",textAlign:"left"}}>
+              <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:700,color:isOpen?cc:t,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{drug.name}</div><div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:mu,marginTop:2}}>{drug.cat}</div></div>
+              <span style={{border:"1px solid #38bdf8",color:isDarkMode?"#7dd3fc":"#075985",background:isDarkMode?"#082f49":"#e0f2fe",borderRadius:5,padding:"2px 6px",fontFamily:"'IBM Plex Mono',monospace",fontSize:7.5,fontWeight:800,whiteSpace:"nowrap"}}>REFERENCE ONLY</span>
+              <span style={{color:mu,fontSize:10}}>{isOpen?"▲":"▼"}</span>
+            </button>
+            {isOpen&&<div style={{padding:"12px 14px 14px",background:isDarkMode?"#061724":"#f0f9ff",borderTop:"1px solid #38bdf833"}}>
+              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:"#38bdf8",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Recognition purpose</div>
+              <div style={{fontSize:12,color:t,lineHeight:1.6,marginBottom:12}}>{REFERENCE_GROUP_NOTES[drug.cat]}</div>
+              <div style={{background:isDarkMode?"#0d1120":"#ffffff",border:"1px solid #f59e0b",borderRadius:8,padding:"10px 11px"}}>
+                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:"#f59e0b",textTransform:"uppercase",marginBottom:4}}>No administration workflow</div>
+                <div style={{fontSize:11.5,color:mu,lineHeight:1.55}}>This study-list entry is not connected to a live app protocol, dose calculator, safety gate, administer button, or timer. Verify the medication against current state and local medical-director protocols before operational use.</div>
+              </div>
+            </div>}
+          </div>;
+        })}
 
         {/* MEDICAL TERMS */}
         {tab==="terms"&&(
@@ -8782,7 +9270,23 @@ function matchCcInput(text) {
   return bestScore >= 10 ? best : null;
 }
 
-function CallOverviewScreen({ ccList, patient, isDarkMode, onOpenProtocol, onOpenDrugs, adminLog={}, onJumpDrug, onOpenMedLog }) {
+function getCcSuggestions(text, limit=5) {
+  const q=text.trim().toLowerCase();
+  if(!q) return CC_OPTIONS.slice(0,limit);
+  return CC_OPTIONS.map(cc=>{
+    const label=cc.toLowerCase();
+    let score=label.startsWith(q)?100:label.includes(q)?70:0;
+    (CC_KEYWORDS[cc]||[]).forEach(keyword=>{
+      const kw=keyword.toLowerCase();
+      if(kw.startsWith(q)) score=Math.max(score,80);
+      else if(kw.includes(q)||q.includes(kw)) score=Math.max(score,55);
+    });
+    q.split(/\s+/).filter(word=>word.length>1).forEach(word=>{if(label.includes(word)) score+=8;});
+    return {cc,score};
+  }).filter(item=>item.score>0).sort((a,b)=>b.score-a.score||a.cc.localeCompare(b.cc)).slice(0,limit).map(item=>item.cc);
+}
+
+function CallOverviewScreen({ ccList, patient, isDarkMode, onOpenProtocol, onOpenDrugs, onEditContext, adminLog={}, protocolEvents=[], onJumpDrug, onOpenMedLog }) {
   const t   = isDarkMode ? "#e2e8f0" : "#0f172a";
   const mu  = isDarkMode ? "#8aa0c2" : "#4b5563";
   const su  = isDarkMode ? "#060a15" : "#f4efe7";
@@ -8790,7 +9294,11 @@ function CallOverviewScreen({ ccList, patient, isDarkMode, onOpenProtocol, onOpe
 
   const SYS_LABEL = { cardiac:"Cardiac", respiratory:"Respiratory", neuro:"Neuro", metabolic:"Metabolic", anaphylaxis:"Anaphylaxis", trauma:"Trauma", burns:"Burns", assess:"Assessment" };
 
-  const patientLine = [patient.age, patient.sex, patient.cc].filter(Boolean).join(" · ");
+  const demographicsLine = [patient.age, patient.sex].filter(Boolean).join(" · ");
+  const selectedComplaints = [...new Set(
+    (ccList||[]).map(cc=>cc.matched||cc.raw).filter(Boolean)
+  )];
+  if(!selectedComplaints.length&&patient.cc) selectedComplaints.push(patient.cc);
 
   // Flatten adminLog into a chronological intervention/med timeline
   const givenEvents = [];
@@ -8800,6 +9308,11 @@ function CallOverviewScreen({ ccList, patient, isDarkMode, onOpenProtocol, onOpe
     });
   });
   givenEvents.sort((a, b) => b.ts - a.ts);
+  const interventionEvents=(protocolEvents||[]).filter(event=>event.type==="Intervention").map(event=>({kind:"intervention",label:event.detail,ts:event.ts}));
+  const overviewEvents=[
+    ...givenEvents.map(event=>({...event,kind:"medication",label:event.drug})),
+    ...interventionEvents,
+  ].sort((a,b)=>b.ts-a.ts);
 
   return (
     <div style={{paddingBottom:24}}>
@@ -8808,18 +9321,20 @@ function CallOverviewScreen({ ccList, patient, isDarkMode, onOpenProtocol, onOpe
       <div style={{marginBottom:20}}>
         <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#38bdf8",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}}>Active Call</div>
         <div style={{fontSize:20,fontWeight:800,color:t,marginBottom:6}}>Call Overview</div>
-        {patientLine && (
-          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:mu,background:isDarkMode?"#0d1120":"#e8edf5",border:`1px solid ${bd}`,borderRadius:6,padding:"5px 10px",display:"inline-block"}}>
-            {patientLine}
+        {(demographicsLine||selectedComplaints.length>0)&&(
+          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+            {demographicsLine&&<div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:mu,background:isDarkMode?"#0d1120":"#e8edf5",border:`1px solid ${bd}`,borderRadius:6,padding:"5px 10px"}}>{demographicsLine}</div>}
+            {selectedComplaints.map((complaint,index)=><div key={`${complaint}-${index}`} style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9.5,color:isDarkMode?"#7dd3fc":"#075985",background:isDarkMode?"#082f49":"#e0f2fe",border:"1px solid #0ea5e9",borderRadius:6,padding:"5px 9px",maxWidth:"100%",overflowWrap:"anywhere"}}>{complaint}</div>)}
           </div>
         )}
+        {onEditContext&&<button onClick={onEditContext} style={{display:"block",marginTop:8,padding:"6px 9px",borderRadius:7,border:"1px solid #0ea5e9",background:"transparent",color:"#0284c7",fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,cursor:"pointer"}}>Update Call Context</button>}
       </div>
 
       {/* INTERVENTIONS / MEDS GIVEN */}
       <div style={{marginBottom:20,background:isDarkMode?"#080d1a":"#ffffff",border:`1px solid ${bd}`,borderRadius:12,padding:"12px 14px"}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:givenEvents.length?10:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:overviewEvents.length?10:0}}>
           <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#fb923c",letterSpacing:"0.08em",textTransform:"uppercase"}}>
-            💉 Interventions Given {givenEvents.length>0?`(${givenEvents.length})`:""}
+            💉 Interventions Given {overviewEvents.length>0?`(${overviewEvents.length})`:""}
           </div>
           {onOpenMedLog && givenEvents.length>0 && (
             <button onClick={onOpenMedLog} style={{background:"transparent",border:"none",color:"#38bdf8",fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:700,cursor:"pointer",letterSpacing:"0.03em"}}>
@@ -8827,16 +9342,16 @@ function CallOverviewScreen({ ccList, patient, isDarkMode, onOpenProtocol, onOpe
             </button>
           )}
         </div>
-        {givenEvents.length===0 ? (
+        {overviewEvents.length===0 ? (
           <div style={{fontSize:11,color:mu,lineHeight:1.5}}>Nothing given yet this call.</div>
         ) : (
           <div style={{display:"flex",flexDirection:"column",gap:5}}>
-            {givenEvents.map((e,i)=>(
-              <div key={`${e.drug}-${e.ts}`} onClick={()=>onJumpDrug&&onJumpDrug(e.drug)}
-                style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderRadius:7,background:isDarkMode?"#0d1120":"#f4f7fa",border:`1px solid ${isDarkMode?"#1a2338":"#e2e8f0"}`,cursor:onJumpDrug?"pointer":"default"}}>
+            {overviewEvents.map((e,i)=>(
+              <div key={`${e.kind}-${e.label}-${e.ts}`} onClick={()=>e.kind==="medication"&&onJumpDrug&&onJumpDrug(e.drug)}
+                style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderRadius:7,background:isDarkMode?"#0d1120":"#f4f7fa",border:`1px solid ${isDarkMode?"#1a2338":"#e2e8f0"}`,cursor:e.kind==="medication"&&onJumpDrug?"pointer":"default"}}>
                 <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10.5,color:t,fontWeight:700,minWidth:64}}>{fmtTime(e.ts,false)}</span>
-                <span style={{flex:1,fontSize:12,color:t,fontWeight:600}}>{e.drug}</span>
-                <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:"#fb923c",fontWeight:700}}>#{e.doseNum}{e.total>1?`/${e.total}`:""}</span>
+                <span style={{flex:1,fontSize:12,color:t,fontWeight:600}}>{e.label}</span>
+                <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:e.kind==="medication"?"#fb923c":"#22d3ee",fontWeight:700}}>{e.kind==="medication"?`#${e.doseNum}${e.total>1?`/${e.total}`:""}`:"LOGGED"}</span>
               </div>
             ))}
           </div>
@@ -8845,20 +9360,27 @@ function CallOverviewScreen({ ccList, patient, isDarkMode, onOpenProtocol, onOpe
 
       {/* Subheader */}
       <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:700,color:mu,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>
-        {ccList.length} Chief Complaint{ccList.length !== 1 ? "s" : ""} — tap a protocol to open it
+        {ccList.length?`${ccList.length} Chief Complaint${ccList.length!==1?"s":""} — tap a protocol to open it`:"Chief complaint not entered"}
       </div>
+
+      {ccList.length===0&&(
+        <div style={{background:isDarkMode?"#0d1120":"#ffffff",border:`1px solid ${bd}`,borderRadius:10,padding:"12px 14px",marginBottom:12,color:mu,fontSize:11.5,lineHeight:1.5}}>
+          Continue with Drugs, Protocols, Assessments, or the Arrest tracker. Add clinical details when they become available—nothing is blocked.
+        </div>
+      )}
 
       {/* CC cards */}
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
         {ccList.map((cc, i) => {
-          const info  = cc.matched ? CC_DRUG_MAP[cc.matched] : null;
+          const resolvedCc = cc.matched || matchCcInput(cc.raw||"");
+          const info  = resolvedCc ? CC_DRUG_MAP[resolvedCc] : null;
           const color = info?.color || (isDarkMode ? "#4b5563" : "#9ca3af");
           return (
             <div key={i} style={{borderRadius:12,border:`1px solid ${color}44`,borderLeft:`4px solid ${color}`,background:isDarkMode?"#080d1a":"#ffffff",overflow:"hidden"}}>
               {/* Card header */}
               <div style={{padding:"12px 14px 8px"}}>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
-                  <span style={{fontSize:15,fontWeight:800,color:t}}>{cc.matched || cc.raw}</span>
+                  <span style={{fontSize:15,fontWeight:800,color:t}}>{resolvedCc || cc.raw}</span>
                   {info ? (
                     <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,fontWeight:800,padding:"2px 7px",borderRadius:4,background:`${color}20`,color,border:`1px solid ${color}44`,textTransform:"uppercase"}}>
                       {SYS_LABEL[info.sys]||info.sys} System
@@ -8883,12 +9405,12 @@ function CallOverviewScreen({ ccList, patient, isDarkMode, onOpenProtocol, onOpe
               {/* Action buttons */}
               <div style={{display:"grid",gridTemplateColumns:info?"1fr 1fr":"1fr",gap:0,borderTop:`1px solid ${color}22`}}>
                 {info && (
-                  <button onClick={()=>onOpenProtocol(info.sys)}
+                  <button onClick={()=>onOpenProtocol(info.sys,resolvedCc)}
                     style={{padding:"11px 8px",border:"none",borderRight:`1px solid ${color}22`,background:"transparent",color,fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,cursor:"pointer",textAlign:"center",letterSpacing:"0.04em"}}>
                     Open Protocol →
                   </button>
                 )}
-                <button onClick={onOpenDrugs}
+                <button onClick={()=>onOpenDrugs(info?.sys)}
                   style={{padding:"11px 8px",border:"none",background:"transparent",color:mu,fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:700,cursor:"pointer",textAlign:"center",letterSpacing:"0.04em"}}>
                   View Drugs →
                 </button>
@@ -8907,14 +9429,16 @@ function CallOverviewScreen({ ccList, patient, isDarkMode, onOpenProtocol, onOpe
   );
 }
 
-function QuickIntakeModal({ isDarkMode, onStart, onCancel, defaultAgeUnit="yrs" }) {
-  const [age, setAge]                   = useState("");
-  const [ageUnit, setAgeUnit]           = useState(defaultAgeUnit);
-  const [sex, setSex]                   = useState("");
+function QuickIntakeModal({ isDarkMode, onStart, onCancel, defaultAgeUnit="yrs", initialData=null }) {
+  const isUpdate=!!initialData;
+  const [age, setAge]                   = useState(initialData?.age?String(initialData.age).match(/\d+/)?.[0]||"":"");
+  const [ageUnit, setAgeUnit]           = useState(String(initialData?.age||"").includes("mos")?"mos":defaultAgeUnit);
+  const [sex, setSex]                   = useState(initialData?.sex||"");
   const [weightLb, setWeightLb]         = useState("");
   const [ccInput, setCcInput]           = useState("");
   const [ccInputMatch, setCcInputMatch] = useState(null);
-  const [ccList, setCcList]             = useState([]); // [{raw, matched}]
+  const [ccList, setCcList]             = useState(initialData?.ccList||[]); // [{raw, matched}]
+  const [ccFocused, setCcFocused]       = useState(false);
 
   const t   = isDarkMode ? "#e2e8f0" : "#0f172a";
   const mu  = isDarkMode ? "#8aa0c2" : "#4b5563";
@@ -8937,27 +9461,33 @@ function QuickIntakeModal({ isDarkMode, onStart, onCancel, defaultAgeUnit="yrs" 
     if (!raw) return;
     const label = (ccInputMatch || raw).toLowerCase();
     if (ccList.some(c => (c.matched || c.raw).toLowerCase() === label)) {
-      setCcInput(""); setCcInputMatch(null); return;
+      setCcInput(""); setCcInputMatch(null); setCcFocused(false); return;
     }
     setCcList(p => [...p, { raw, matched: ccInputMatch }]);
-    setCcInput(""); setCcInputMatch(null);
+    setCcInput(""); setCcInputMatch(null); setCcFocused(false);
   };
 
   const removeCc = (i) => setCcList(p => p.filter((_,idx) => idx !== i));
+  const selectCcSuggestion = cc => {
+    if(!ccList.some(item=>(item.matched||item.raw).toLowerCase()===cc.toLowerCase())) {
+      setCcList(p=>[...p,{raw:cc,matched:cc}]);
+    }
+    setCcInput("");
+    setCcInputMatch(null);
+    setCcFocused(false);
+  };
 
-  const canStart = ccList.length > 0 || ccInput.trim().length > 0;
-
-  const handleStart = () => {
-    if (!canStart) return;
+  const handleStart = (phase="enroute") => {
     let finalList = [...ccList];
     if (ccInput.trim()) finalList = [...finalList, { raw: ccInput.trim(), matched: ccInputMatch }];
     const firstMatched = finalList.find(c => c.matched)?.matched || null;
     const ccDisplay = finalList.map(c => c.matched || c.raw).join(" / ");
-    onStart({ age: age.trim(), ageUnit, sex, cc: firstMatched || ccDisplay, hpi: ccDisplay, weightLb: wLb, weightKg: wKg, ccList: finalList });
+    onStart({ age: age.trim(), ageUnit, sex, cc: firstMatched || ccDisplay, hpi: ccDisplay, weightLb: wLb, weightKg: wKg, ccList: finalList, phase });
   };
 
   const SYS_LABEL = { cardiac:"Cardiac", respiratory:"Respiratory", neuro:"Neuro", metabolic:"Metabolic", anaphylaxis:"Anaphylaxis", trauma:"Trauma", burns:"Burns", assess:"Assessment" };
   const inputMatchInfo = ccInputMatch ? CC_DRUG_MAP[ccInputMatch] : null;
+  const ccSuggestions = getCcSuggestions(ccInput).filter(cc=>!ccList.some(item=>(item.matched||item.raw).toLowerCase()===cc.toLowerCase()));
 
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.78)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:9999}}>
@@ -8966,8 +9496,9 @@ function QuickIntakeModal({ isDarkMode, onStart, onCancel, defaultAgeUnit="yrs" 
         {/* Header */}
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18}}>
           <div>
-            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#38bdf8",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:3}}>New Patient Encounter</div>
-            <div style={{fontSize:19,fontWeight:800,color:t}}>Quick Intake</div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#38bdf8",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:3}}>Treatment Companion</div>
+            <div style={{fontSize:19,fontWeight:800,color:t}}>{isUpdate?"Update Call Context":"Start Call"}</div>
+            <div style={{fontSize:10.5,color:mu,marginTop:3}}>{isUpdate?"Add or correct details without interrupting treatment.":"Everything is optional — start with what dispatch provided."}</div>
           </div>
           <button onClick={onCancel} style={{background:"transparent",border:"none",color:mu,fontSize:22,cursor:"pointer",lineHeight:1,padding:"2px 6px"}}>✕</button>
         </div>
@@ -8975,7 +9506,7 @@ function QuickIntakeModal({ isDarkMode, onStart, onCancel, defaultAgeUnit="yrs" 
         {/* Age + Sex row */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
           <div>
-            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:700,color:mu,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Age</div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:700,color:mu,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Age · optional</div>
             <div style={{display:"flex",gap:6}}>
               <input type="number" value={age} onChange={e=>setAge(e.target.value)} placeholder="e.g. 6" min={0} max={999}
                 style={{flex:1,padding:"10px 10px",borderRadius:9,border:`1px solid ${isPeds?"#38bdf8":bd}`,background:inp,color:t,fontSize:15,fontFamily:"'DM Sans',sans-serif",boxSizing:"border-box",outline:"none",minWidth:0}}/>
@@ -8990,7 +9521,7 @@ function QuickIntakeModal({ isDarkMode, onStart, onCancel, defaultAgeUnit="yrs" 
             </div>
           </div>
           <div>
-            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:700,color:mu,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Sex</div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:700,color:mu,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Sex · optional</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5}}>
               {[["M","M"],["F","F"],["?","Unk"]].map(([v,l])=>(
                 <button key={v} onClick={()=>setSex(p=>p===v?"":v)}
@@ -9032,21 +9563,40 @@ function QuickIntakeModal({ isDarkMode, onStart, onCancel, defaultAgeUnit="yrs" 
         {/* Chief Complaints — multi-add */}
         <div style={{marginBottom:12}}>
           <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:700,color:mu,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6,display:"flex",alignItems:"center",gap:8}}>
-            <span>Chief Complaint(s) <span style={{color:"#ef4444"}}>*</span></span>
+            <span>Dispatch complaint(s) · optional</span>
             {ccList.length > 0 && (
               <span style={{color:"#4ade80",fontWeight:800}}>{ccList.length} added</span>
             )}
           </div>
           {/* Input + Add */}
-          <div style={{display:"flex",gap:8}}>
-            <input
-              value={ccInput}
-              onChange={e=>handleCcInputChange(e.target.value)}
-              onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault(); addCc(); } }}
-              placeholder="Type complaint and press Enter or tap + Add…"
-              autoFocus
-              style={{flex:1,padding:"10px 12px",borderRadius:9,border:`1px solid ${inputMatchInfo?inputMatchInfo.color:bd}`,background:inp,color:t,fontSize:13,fontFamily:"'DM Sans',sans-serif",boxSizing:"border-box",outline:"none",transition:"border-color 0.18s",minWidth:0}}
-            />
+          <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+            <div style={{position:"relative",flex:1,minWidth:0}}>
+              <input
+                value={ccInput}
+                onChange={e=>{handleCcInputChange(e.target.value);setCcFocused(true);}}
+                onFocus={()=>setCcFocused(true)}
+                onClick={()=>setCcFocused(true)}
+                onBlur={()=>setTimeout(()=>setCcFocused(false),120)}
+                onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();if(ccSuggestions[0])selectCcSuggestion(ccSuggestions[0]);else addCc();}if(e.key==="Escape")setCcFocused(false);}}
+                placeholder="Search or enter a chief complaint…"
+                autoFocus
+                role="combobox"
+                aria-expanded={ccFocused&&ccSuggestions.length>0}
+                style={{width:"100%",padding:"10px 34px 10px 12px",borderRadius:9,border:`1px solid ${inputMatchInfo?inputMatchInfo.color:bd}`,background:inp,color:t,fontSize:13,fontFamily:"'DM Sans',sans-serif",boxSizing:"border-box",outline:"none",transition:"border-color 0.18s",minWidth:0}}
+              />
+              <span style={{position:"absolute",right:12,top:12,color:mu,fontSize:10,pointerEvents:"none"}}>▼</span>
+              {ccFocused&&ccSuggestions.length>0&&(
+                <div style={{position:"absolute",top:"calc(100% + 5px)",left:0,right:0,zIndex:20,background:su,border:`1px solid ${bd}`,borderRadius:10,padding:4,boxShadow:"0 12px 30px rgba(0,0,0,.28)",maxHeight:230,overflowY:"auto"}}>
+                  {ccSuggestions.map(cc=>{const info=CC_DRUG_MAP[cc];return(
+                    <button key={cc} onMouseDown={e=>e.preventDefault()} onClick={()=>selectCcSuggestion(cc)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"9px 10px",border:"none",borderRadius:7,background:"transparent",color:t,cursor:"pointer",textAlign:"left",fontFamily:"'DM Sans',sans-serif"}}>
+                      <span style={{width:7,height:7,borderRadius:"50%",background:info.color,flexShrink:0}}/>
+                      <span style={{flex:1,fontSize:12,fontWeight:700}}>{cc}</span>
+                      <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:info.color,textTransform:"uppercase"}}>{SYS_LABEL[info.sys]||info.sys}</span>
+                    </button>
+                  );})}
+                </div>
+              )}
+            </div>
             <button onClick={addCc} disabled={!ccInput.trim()}
               style={{padding:"10px 14px",borderRadius:9,border:`1px solid ${ccInput.trim()?"#38bdf8":bd}`,background:ccInput.trim()?(isDarkMode?"#0c2a3e":"#dbeafe"):"transparent",color:ccInput.trim()?"#38bdf8":mu,fontWeight:700,fontSize:12,cursor:ccInput.trim()?"pointer":"not-allowed",fontFamily:"'IBM Plex Mono',monospace",whiteSpace:"nowrap",flexShrink:0}}>
               + Add
@@ -9107,10 +9657,12 @@ function QuickIntakeModal({ isDarkMode, onStart, onCancel, defaultAgeUnit="yrs" 
           </div>
         )}
 
-        <button onClick={handleStart} disabled={!canStart}
-          style={{width:"100%",height:52,borderRadius:12,border:"none",background:canStart?"linear-gradient(135deg,#0369a1,#0ea5e9)":"#1a2338",color:canStart?"#fff":(isDarkMode?"#374151":"#9ca3af"),fontWeight:800,fontSize:16,cursor:canStart?"pointer":"not-allowed",fontFamily:"'DM Sans',sans-serif",marginTop:4,letterSpacing:"0.02em",transition:"all 0.18s"}}>
-          🚑  Start Call →
-        </button>
+        {isUpdate?(
+          <button onClick={()=>handleStart(initialData?.phase||"onscene")} style={{width:"100%",height:52,borderRadius:12,border:"none",background:"linear-gradient(135deg,#047857,#10b981)",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginTop:4}}>Save Call Context</button>
+        ):(<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:4}}>
+          <button onClick={()=>handleStart("enroute")} style={{height:52,borderRadius:12,border:"1px solid #0284c7",background:isDarkMode?"#082f49":"#e0f2fe",color:isDarkMode?"#7dd3fc":"#075985",fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🚑 Start En Route</button>
+          <button onClick={()=>handleStart("onscene")} style={{height:52,borderRadius:12,border:"none",background:"linear-gradient(135deg,#047857,#10b981)",color:"#fff",fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🟢 Start On Scene</button>
+        </div>)}
       </div>
     </div>
   );
@@ -9138,8 +9690,8 @@ function ShiftHomeScreen({ authUser, isDarkMode, onNewPatient, onNavigate, callS
     { label:"Assess",     icon:"🩺", s:"assessments", color:"#22d3ee" },
     { label:"Arrest",     icon:"❤", s:"arrest",      color:"#f87171" },
     { label:"Med Log",    icon:"⏱", s:"medlog",      color:"#fb923c" },
-    { label:"Narrative",  icon:"✨", s:"epcr",        color:"#a78bfa" },
-    { label:"Reference",  icon:"📚", s:"ref",         color:"#38bdf8" },
+    ...(AI_NARRATIVE_ENABLED?[{ label:"Narrative",icon:"✨",s:"epcr",color:"#a78bfa" }]:[]),
+    { label:"Drug Ref",   icon:"📚", s:"ref",         color:"#38bdf8" },
   ];
 
   const SPOTLIGHTS = [
@@ -9193,15 +9745,9 @@ function ShiftHomeScreen({ authUser, isDarkMode, onNewPatient, onNavigate, callS
               {patient.cc||"No CC"}{patient.age?` · ${patient.age}yo`:""}{patient.sex?` ${patient.sex}`:""}
             </div>
           </div>
-          <button onClick={()=>onNavigate("epcr")} style={{padding:"7px 11px",borderRadius:8,border:"1px solid #14532d",background:"transparent",color:"#4ade80",fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap"}}>Narrative →</button>
+          {AI_NARRATIVE_ENABLED&&<button onClick={()=>onNavigate("epcr")} style={{padding:"7px 11px",borderRadius:8,border:"1px solid #14532d",background:"transparent",color:"#4ade80",fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap"}}>Narrative →</button>}
         </div>
       )}
-
-      {/* New Patient CTA */}
-      <button onClick={onNewPatient}
-        style={{width:"100%",height:62,borderRadius:14,border:"none",background:"linear-gradient(135deg,#0369a1,#0ea5e9)",color:"#fff",fontWeight:800,fontSize:17,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginBottom:24,display:"flex",alignItems:"center",justifyContent:"center",gap:10,boxShadow:"0 6px 20px rgba(14,165,233,.35)",letterSpacing:"0.02em",transition:"all 0.18s"}}>
-        <span style={{fontSize:22}}>🚑</span>New Patient
-      </button>
 
       {/* Tools — horizontal scroll row */}
       <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:mu,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>Tools</div>
@@ -9242,6 +9788,12 @@ function ShiftHomeScreen({ authUser, isDarkMode, onNewPatient, onNavigate, callS
         )}
       </div>
 
+      {/* New Patient CTA */}
+      <button onClick={onNewPatient}
+        style={{width:"100%",height:62,borderRadius:14,border:"none",background:"linear-gradient(135deg,#0369a1,#0ea5e9)",color:"#fff",fontWeight:800,fontSize:17,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginBottom:24,display:"flex",alignItems:"center",justifyContent:"center",gap:10,boxShadow:"0 6px 20px rgba(14,165,233,.35)",letterSpacing:"0.02em",transition:"all 0.18s"}}>
+        <span style={{fontSize:22}}>🚑</span>New Patient
+      </button>
+
 
     </div>
   );
@@ -9261,7 +9813,7 @@ function WelcomeScreen({ isDarkMode, authUser, onContinue }) {
     ["Live Pre-Check",     "Vital sign screening with automatic block/warn triggers run before each dose is given."],
     ["Medication Log",     "Timestamped administration log auto-captured with every dose given during the call."],
     ["Protocol Companion", "Cardiac, trauma, OB, and pediatric protocol guides with embedded clinical cues."],
-    ["AI Narrative",       "Auto-populated PCR narrative generated from your live call data — review, edit, copy, and paste into your agency ePCR."],
+    ...(AI_NARRATIVE_ENABLED?[["AI Narrative","Auto-populated PCR narrative generated from your live call data — review, edit, copy, and paste into your agency ePCR."]]:[]),
   ];
 
   return (
@@ -9452,7 +10004,9 @@ export default function App(){
   const[patient,setPatient]=useState({ age:"", sex:"", cc:"" });
   const[callCcList,setCallCcList]=useState([]);
   const[callStartTs,setCallStartTs]=useState(null);
+  const[callPhase,setCallPhase]=useState(null); // "enroute" | "onscene"
   const[showQuickIntake,setShowQuickIntake]=useState(false);
+  const[showContextEditor,setShowContextEditor]=useState(false);
   const[protocolInitSys,setProtocolInitSys]=useState("assess");
   const[showTour,setShowTour]=useState(false);
   const[tourStep,setTourStep]=useState(0);
@@ -9711,7 +10265,7 @@ export default function App(){
       if(elapsed>=180000&&!soundedRef.current[key]){soundedRef.current[key]=true;SOUNDS.epiDue();}
     }
     // Drug redose sounds
-    Object.entries(adminLog).forEach(([name,log])=>{
+    if(callStartTs) Object.entries(adminLog).forEach(([name,log])=>{
       const times=log?.times||[];if(!times.length)return;
       const lastAt=times[times.length-1];
       let redoseMins=null;
@@ -9747,6 +10301,7 @@ export default function App(){
     setPedsWkg(0);setPedsWlb(0);setAdultWkg(0);setAdultWlb(0);
     const ts=Date.now();
     setCallStartTs(ts);
+    setCallPhase(intake.phase||"enroute");
     if(intake.age||intake.sex||intake.cc){
       const displayAge=intake.age?(intake.ageUnit==="mos"?`${intake.age} mos`:intake.age):"";
       setPatient(p=>({...p,age:displayAge,sex:intake.sex||"",cc:intake.cc||intake.hpi||""}));
@@ -9768,6 +10323,8 @@ export default function App(){
     setCallCcList(incomingCcList);
     if(incomingCcList.length > 1){
       setScreen("call-overview");
+    } else if(intake.cc==="Cardiac Arrest"){
+      setScreen("arrest");
     } else if(intake.cc&&CC_DRUG_MAP[intake.cc]){
       setProtocolInitSys(CC_DRUG_MAP[intake.cc].sys);
       setScreen("protocols");
@@ -9796,13 +10353,39 @@ export default function App(){
   },[initChecks]);
 
   const handleReset=useCallback(name=>{setAdminLog(p=>{const n={...p};delete n[name];return n;});setInitChecks(p=>{const n={...p};delete n[name];return n;});setReChecks(p=>{const n={...p};delete n[name];return n;});},[]);
+  const syncPrecheckVital=useCallback((id,v,drugName)=>{
+    if(!VITAL_SYNC_FIELDS.includes(id)) return;
+    setVitalsEntries(prev=>{
+      const withoutDraft=prev.filter(entry=>!entry.precheckSync);
+      const prior=prev.find(entry=>entry.precheckSync)||{};
+      const next={...EMPTY_VITALS,...prior,[id]:v,gcsTotal:null,ts:Date.now(),precheckSync:true,drugName};
+      const hasValues=VITAL_SYNC_FIELDS.some(field=>next[field]!==''&&next[field]!=null);
+      return hasValues?[...withoutDraft,next]:withoutDraft;
+    });
+  },[]);
+  const handleProtocolVitalsChange=useCallback(draft=>{
+    const normalized={hr:draft.hr||'',rr:draft.rr||'',spo2:draft.spo2||'',bgl:draft.bgl||''};
+    const bp=String(draft.bp||'').match(/^\s*(\d{2,3})\s*[\/]\s*(\d{2,3})\s*$/);
+    if(bp){normalized.sbp=bp[1];normalized.dbp=bp[2];}
+    setVitalsEntries(prev=>{
+      const withoutDraft=prev.filter(entry=>!entry.protocolSync);
+      const prior=prev.find(entry=>entry.protocolSync)||{};
+      const next={...EMPTY_VITALS,...prior,...normalized,gcsTotal:null,ts:Date.now(),protocolSync:true};
+      const hasValues=VITAL_SYNC_FIELDS.some(field=>next[field]!==''&&next[field]!=null);
+      return hasValues?[...withoutDraft,next]:withoutDraft;
+    });
+  },[]);
   const handleInitUpdate=useCallback((dn,id,v)=>{
     setInitChecks(p=>({...p,[dn]:{...(p[dn]||{}),[id]:v}}));
+    syncPrecheckVital(id,v,dn);
     const factId=FACT_BY_DRUGID[id];
     if(factId) setCallFacts(p=>({...p,[factId]:v}));
-  },[]);
+  },[syncPrecheckVital]);
   const handleFactAnswered=useCallback((factId,v)=>setCallFacts(p=>({...p,[factId]:v})),[]);
-  const handleReUpdate=useCallback((dn,id,v)=>setReChecks(p=>({...p,[dn]:{...(p[dn]||{}),[id]:v}})),[]);
+  const handleReUpdate=useCallback((dn,id,v)=>{
+    setReChecks(p=>({...p,[dn]:{...(p[dn]||{}),[id]:v}}));
+    syncPrecheckVital(id,v,dn);
+  },[syncPrecheckVital]);
   const handleClearRe=useCallback(dn=>setReChecks(p=>{const n={...p};delete n[dn];return n;}),[]);
 
   const systems=mode==="adult"?A_SYS:P_SYS;
@@ -9815,7 +10398,7 @@ export default function App(){
   const setWlb=mode==="adult"?setAdultWlb:setPedsWlb;
   const sysInfo=systems.find(s=>s.k===activeSys)||systems[0];
   const color=isDarkMode?sysInfo.c:sysInfo.lc;
-  const activeCount=Object.keys(adminLog).length;
+  const activeCount=callStartTs?Object.keys(adminLog).length:0;
 
   const colors=useMemo(()=>({
     bg:isDarkMode?"#060a15":"#f4efe7",
@@ -9829,6 +10412,30 @@ export default function App(){
 
   const CERT_SCOPE_MAP_DRUG={EMT:"EMT",AEMT:"AEMT",Paramedic:"Medic"};
   const certScopeKey=authUser?.certLevel ? CERT_SCOPE_MAP_DRUG[authUser.certLevel] : null;
+  const callAllowedDrugs=useMemo(()=>{
+    if(!callStartTs || !callCcList.length) return null;
+    const names=callCcList.flatMap(cc=>{
+      const matched=cc.matched||matchCcInput(cc.raw||'');
+      return CC_DRUG_MAP[matched]?.drugs||[];
+    });
+    return new Set(names);
+  },[callStartTs,callCcList]);
+  const visibleDrugSystems=useMemo(()=>{
+    if(!callAllowedDrugs) return systems;
+    return systems.filter(system=>(bank[system.k]||[]).some(drug=>callAllowedDrugs.has(drug.name)));
+  },[systems,bank,callAllowedDrugs]);
+  useEffect(()=>{
+    if(!callAllowedDrugs||!visibleDrugSystems.length) return;
+    if(!visibleDrugSystems.some(system=>system.k===activeSys)) setSys(visibleDrugSystems[0].k);
+  },[callAllowedDrugs,visibleDrugSystems,activeSys,setSys]);
+  const callAllowedProtocolIds=useMemo(()=>{
+    if(!callStartTs || !callCcList.length) return null;
+    const ids=callCcList.flatMap(cc=>{
+      const matched=cc.matched||matchCcInput(cc.raw||'');
+      return CC_PROTOCOL_MAP[matched]||[];
+    }).filter(id=>id!=="__arrest");
+    return [...new Set(ids)];
+  },[callStartTs,callCcList]);
 
   const list=useMemo(()=>{
     const raw=bank[activeSys]||[];
@@ -9839,11 +10446,23 @@ export default function App(){
       const dRank=scopeRank[d.scope]||1;
       const selRank=scope==="all" ? certRank : Math.min(scopeRank[scope]||3, certRank);
       const scopeOk=dRank<=selRank;
-      return (!q||d.name.toLowerCase().includes(q)||(d.sub||"").toLowerCase().includes(q))&&scopeOk;
+      const callOk=!callAllowedDrugs||callAllowedDrugs.has(d.name);
+      return (!q||d.name.toLowerCase().includes(q)||(d.sub||"").toLowerCase().includes(q))&&scopeOk&&callOk;
     });
-  },[bank,activeSys,search,scope,certScopeKey]);
+  },[bank,activeSys,search,scope,certScopeKey,callAllowedDrugs]);
 
   const numInp=useCallback((v,fn,ph,max,step)=>({type:"number",value:v||"",onChange:e=>fn(Math.max(0,parseFloat(e.target.value)||0)),placeholder:ph,min:0,max,step,style:{width:58,padding:"5px 7px",background:colors.surface,border:`1px solid ${colors.border}`,borderRadius:6,color:colors.text,fontSize:13,fontFamily:"'IBM Plex Mono',monospace",textAlign:"right",outline:"none"}}),[colors]);
+  // Most recently entered value for each vital, regardless of whether it came
+  // from the vitals log, a medication pre-check, or a reassessment.
+  const sharedVitals=useMemo(()=>{
+    const latest={};
+    vitalsEntries.forEach(entry=>{
+      VITAL_SYNC_FIELDS.forEach(field=>{
+        if(entry[field]!==''&&entry[field]!=null) latest[field]=entry[field];
+      });
+    });
+    return latest;
+  },[vitalsEntries]);
   // Pre-check answers already known from elsewhere this call (protocol decisions, other drug pre-checks)
   const drugFactDefaults=useMemo(()=>{
     const o={};
@@ -9950,7 +10569,7 @@ export default function App(){
 
   return(
     <>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700&display=swap');*{box-sizing:border-box;margin:0;padding:0}input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}input[type=number]{-moz-appearance:textfield}::-webkit-scrollbar{width:0;height:0}@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}@keyframes flash{0%,100%{background:#2a0808}50%{background:#7f1d1d}}:root{--c-surface:#0d1120;--c-surface-open:#141c2e;--c-nav:#0a0f1c;--c-input:#090e1c;--c-deep:#080c18;--c-deep2:#0d1525;--c-border:#1a2338;--c-border-sub:#141e30;--c-text-sub:#8a9dc0;--c-text:#e2e8f0;--c-text2:#c0cfe8;--c-text3:#a0b4d0;--c-text4:#6b82a8;--c-text5:#7a90b0;--c-text-ghost:#1a2638}[data-theme="light"]{--c-surface:#e6edf4;--c-surface-open:#d8e2ec;--c-nav:#dce4ec;--c-input:#eef3f7;--c-deep:#dce6ef;--c-deep2:#e7eef5;--c-border:#8796aa;--c-border-sub:#98a8bb;--c-text-sub:#26364c;--c-text:#0f172a;--c-text2:#172033;--c-text3:#25354d;--c-text4:#36455c;--c-text5:#1f2f46;--c-text-ghost:#53637a}`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700&display=swap');*{box-sizing:border-box;margin:0;padding:0}input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}input[type=number]{-moz-appearance:textfield}::-webkit-scrollbar{width:0;height:0}@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}@keyframes flash{0%,100%{background:#2a0808}50%{background:#7f1d1d}}:root{--c-surface:#0d1120;--c-surface-open:#141c2e;--c-nav:#0a0f1c;--c-input:#090e1c;--c-deep:#080c18;--c-deep2:#0d1525;--c-border:#1a2338;--c-border-sub:#141e30;--c-text-sub:#8a9dc0;--c-text:#e2e8f0;--c-text2:#c0cfe8;--c-text3:#a0b4d0;--c-text4:#6b82a8;--c-text5:#7a90b0;--c-text-ghost:#1a2638}[data-theme="light"]{--c-surface:#e1e9f1;--c-surface-open:#d2dde8;--c-nav:#d7e0e9;--c-input:#f7f9fb;--c-deep:#d8e2ec;--c-deep2:#e2eaf2;--c-border:#64748b;--c-border-sub:#718096;--c-text-sub:#172033;--c-text:#070d1a;--c-text2:#111827;--c-text3:#1f2937;--c-text4:#27364a;--c-text5:#17253a;--c-text-ghost:#374151}[data-theme="light"] input::placeholder,[data-theme="light"] textarea::placeholder{color:#4b5563;opacity:1}[data-theme="light"] button:disabled{color:#4b5563}`}</style>
 
       <div style={{minHeight:"100vh",background:isDarkMode?"#060a15":"#f4efe7",fontFamily:"'DM Sans',sans-serif",maxWidth:480,margin:"0 auto",padding:"14px 11px 60px",transition:"background-color 0.3s",zoom:{sm:0.9,md:1,lg:1.15,xl:1.3}[fontSize]||1}}>
 
@@ -9976,10 +10595,10 @@ export default function App(){
                 ["protocols","Protocols",isDarkMode?"#1a0e28":"#c7a4e6",isDarkMode?"#c084fc":"#4c1d95"],
                 ["arrest","❤ Arrest",isDarkMode?"#2a0808":"#e5a2a2",isDarkMode?"#fca5a5":"#7f1d1d"],
                 ["medlog","⏱ Log",isDarkMode?"#1a0a18":"#e4b07e",isDarkMode?"#fb923c":"#7c2d12"],
-                ["epcr","✨ Narrative",isDarkMode?"#1a0e28":"#c7a4e6",isDarkMode?"#c084fc":"#4c1d95"],
+                ...(AI_NARRATIVE_ENABLED?[["epcr","✨ Narrative",isDarkMode?"#1a0e28":"#c7a4e6",isDarkMode?"#c084fc":"#4c1d95"]]:[]),
 
                 ["assessments","🩺 Assess",isDarkMode?"#071a1a":"#cff9fd",isDarkMode?"#22d3ee":"#0e7490"],
-                ["ref","📚 Reference",isDarkMode?"#0a1628":"#dbeafe",isDarkMode?"#38bdf8":"#075985"],
+                ["ref","📚 Drug Reference",isDarkMode?"#0a1628":"#dbeafe",isDarkMode?"#38bdf8":"#075985"],
               ];
               const cur=NAV.find(([s])=>s===screen)||NAV[0];
               const [,curL,curBg,curFg]=cur;
@@ -10109,6 +10728,27 @@ export default function App(){
             defaultAgeUnit={defaultAgeUnit}
           />
         )}
+        {showContextEditor&&(
+          <QuickIntakeModal
+            isDarkMode={isDarkMode}
+            initialData={{age:patient.age||"",sex:patient.sex||"",ccList:callCcList,phase:callPhase}}
+            onStart={intake=>{
+              const ccDisplay=(intake.ccList||[]).map(c=>c.matched||c.raw).join(" / ");
+              const displayAge=intake.age?(intake.ageUnit==="mos"?`${intake.age} mos`:intake.age):"";
+              setPatient(p=>({...p,age:displayAge,sex:intake.sex||"",cc:intake.cc||ccDisplay||""}));
+              setCallCcList(intake.ccList||[]);
+              if(intake.weightKg>0){
+                const peds=intake.ageUnit==="mos"||(parseInt(intake.age,10)<18);
+                setMode(peds?"peds":"adult");
+                if(peds){setPedsWkg(intake.weightKg);setPedsWlb(intake.weightLb);}
+                else{setAdultWkg(intake.weightKg);setAdultWlb(intake.weightLb);}
+              }
+              setShowContextEditor(false);
+            }}
+            onCancel={()=>setShowContextEditor(false)}
+            defaultAgeUnit={defaultAgeUnit}
+          />
+        )}
 
         {/* NEW CALL WARNING — active call already in progress */}
         {showNewCallWarning&&(
@@ -10141,8 +10781,8 @@ export default function App(){
               <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#ef4444",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:6}}>End Call</div>
               <div style={{fontSize:19,fontWeight:800,color:isDarkMode?"#e2e8f0":"#0f172a",marginBottom:10}}>Ready to close this call?</div>
               <div style={{fontSize:13,color:isDarkMode?"#8aa0c2":"#4b5563",lineHeight:1.6,marginBottom:20}}>
-                You'll be taken to the <strong style={{color:isDarkMode?"#a78bfa":"#6d28d9"}}>AI Narrative builder</strong> to generate your PCR narrative. Review and copy it into your agency ePCR before clearing.<br /><br />
-                <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:"#ef4444",fontWeight:700}}>⚠ This app does not submit your ePCR. Always document in your agency system.</span>
+                Closing the call stops the call clock, medication re-dose timers, protocol timers, CPR timers, and scheduled medication reminders. Recorded medications and vitals remain available for review.<br /><br />
+                <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:"#a855f7",fontWeight:700}}>AI narrative generation is temporarily paused.</span>
               </div>
               <div style={{display:"flex",gap:10}}>
                 <button onClick={()=>setShowEndCallModal(false)}
@@ -10150,14 +10790,20 @@ export default function App(){
                   Cancel
                 </button>
                 <button onClick={()=>{
+                  Object.keys(adminLog).forEach(name=>swCancel(`drug-bg-${name}`));
+                  swCancel('cpr-cycle');
+                  swCancel('epi-due');
                   setShowEndCallModal(false);
                   setCallStartTs(null);
+                  setCallPhase(null);
                   setCallCcList([]);
                   setArrestState({startTs:null,endTs:null,endReason:null,rhythm:null,cycleStartTs:null,lastEpiTs:null,events:[],airway:null,hts:{},access:[],patientType:null});
-                  setScreen("epcr");
+                  setProtocolActiveMeds([]);
+                  setActiveProtocol(null);
+                  setScreen("home");
                 }}
-                  style={{flex:2,height:48,borderRadius:11,border:"none",background:"linear-gradient(135deg,#6d28d9,#a78bfa)",color:"#fff",fontFamily:"'DM Sans',sans-serif",fontSize:15,fontWeight:800,cursor:"pointer",letterSpacing:"0.02em"}}>
-                  ✨ Build Narrative
+                  style={{flex:2,height:48,borderRadius:11,border:"none",background:"linear-gradient(135deg,#b91c1c,#ef4444)",color:"#fff",fontFamily:"'DM Sans',sans-serif",fontSize:15,fontWeight:800,cursor:"pointer",letterSpacing:"0.02em"}}>
+                  End Call &amp; Stop Timers
                 </button>
               </div>
             </div>
@@ -10179,9 +10825,10 @@ export default function App(){
                 style={{display:"flex",alignItems:"center",gap:8,padding:"7px 11px",marginBottom:8,background:"#071a0e",border:"1px solid #14532d",borderRadius:7,cursor:canOpenOverview?"pointer":"default"}}>
                 <span style={{fontSize:13,animation:"pulse 1.5s ease-in-out infinite",display:"inline-block"}}>🟢</span>
                 <div style={{flex:1}}>
-                  <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,color:"#4ade80"}}>Call Active · {fmtE}</div>
+                  <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,color:"#4ade80"}}>{callPhase==="onscene"?"On Scene":"En Route"} · {fmtE}</div>
                   <div style={{fontSize:9,color:"#166534",fontFamily:"'IBM Plex Mono',monospace",marginTop:1}}>{patient.cc||"No CC"}{canOpenOverview?" · tap for overview":""}</div>
                 </div>
+                {callPhase!=="onscene"&&<button onClick={e=>{e.stopPropagation();setCallPhase("onscene");}} style={{flexShrink:0,height:28,padding:"0 9px",borderRadius:6,border:"1px solid #10b981",background:"#052e16",color:"#6ee7b7",fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap"}}>Arrived</button>}
                 <button onClick={e=>{e.stopPropagation();setShowEndCallModal(true);}} style={{flexShrink:0,height:28,padding:"0 10px",borderRadius:6,border:"1px solid #ef4444",background:"transparent",color:"#ef4444",fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,cursor:"pointer",letterSpacing:"0.04em",whiteSpace:"nowrap"}}>
                   End Call
                 </button>
@@ -10193,7 +10840,7 @@ export default function App(){
         })()}
 
         {/* ACTIVE SUMMARY */}
-        {activeDrugs.length>0&&(
+        {activeCount>0&&(
           <div style={{background:isDarkMode?"#120e05":"#f1d8cf",border:isDarkMode?"1px solid #f9731630":"1px solid #c2410c",borderRadius:8,padding:"8px 12px",marginBottom:10}}>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
               <span style={{color:"#f97316",fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em"}}>⏱ Active Drugs This Call</span>
@@ -10220,9 +10867,22 @@ export default function App(){
             ccList={callCcList}
             patient={patient}
             isDarkMode={isDarkMode}
-            onOpenProtocol={(sys)=>{ setProtocolInitSys(sys); setScreen("protocols"); }}
-            onOpenDrugs={()=>setScreen("drugs")}
+            onEditContext={()=>setShowContextEditor(true)}
+            onOpenProtocol={(sys,complaint)=>{
+              if(complaint==="Cardiac Arrest"){ setScreen("arrest"); return; }
+              setActiveProtocol(null);
+              setProtocolInitSys(sys);
+              setScreen("protocols");
+            }}
+            onOpenDrugs={(sys)=>{
+              if(sys){
+                if(mode==="adult") setASys(sys==="neuro"?"neurological":sys);
+                else setPSys(sys==="neuro"?"seizure":sys);
+              }
+              setScreen("drugs");
+            }}
             adminLog={adminLog}
+            protocolEvents={protocolEvents}
             onJumpDrug={handlePillClick}
             onOpenMedLog={()=>setScreen("medlog")}
           />
@@ -10230,7 +10890,7 @@ export default function App(){
 
         {/* PROTOCOLS SCREEN */}
         {screen==="protocols"&&(
-          <ProtocolsScreen mode={mode} setMode={setMode} isDarkMode={isDarkMode} burnMaps={burnMaps} setBurnMaps={setBurnMaps} onJumpDrug={handlePillClick} findDrugLocation={findDrugLocation} wkg={wkg} wlb={wlb} setWkg={setWkg} setWlb={setWlb} authUser={authUser} initialSystem={protocolInitSys}
+          <ProtocolsScreen mode={mode} setMode={setMode} isDarkMode={isDarkMode} burnMaps={burnMaps} setBurnMaps={setBurnMaps} onJumpDrug={handlePillClick} findDrugLocation={findDrugLocation} wkg={wkg} wlb={wlb} setWkg={setWkg} setWlb={setWlb} authUser={authUser} initialSystem={protocolInitSys} allowedProtocolIds={callAllowedProtocolIds} onVitalsChange={handleProtocolVitalsChange}
             activeProtocol={activeProtocol} setActiveProtocol={setActiveProtocol}
             protocolValues={protocolValues} setProtocolValues={setProtocolValues}
             protocolEvents={protocolEvents} setProtocolEvents={setProtocolEvents}
@@ -10251,6 +10911,7 @@ export default function App(){
               setPatient({age:"",sex:"",cc:""});
               setCallCcList([]);
               setCallStartTs(null);
+              setCallPhase(null);
             }}/>
           </>
         )}
@@ -10261,7 +10922,7 @@ export default function App(){
         )}
 
         {/* NARRATIVE SCREEN */}
-        {screen==="epcr"&&(
+        {AI_NARRATIVE_ENABLED&&screen==="epcr"&&(
           <NarrativeScreen patient={patient} setPatient={setPatient} adminLog={adminLog} vitalsEntries={vitalsEntries} wkg={wkg} wlb={wlb} mode={mode} isDarkMode={isDarkMode}
             onClearCall={()=>{
               setAdminLog({});setInitChecks({});setReChecks({});setVitalsEntries([]);
@@ -10269,6 +10930,7 @@ export default function App(){
               setPatient({age:"",sex:"",cc:""});
               setCallCcList([]);
               setCallStartTs(null);
+              setCallPhase(null);
               setPedsWkg(0);setPedsWlb(0);setAdultWkg(0);setAdultWlb(0);
               setArrestState({startTs:null,endTs:null,endReason:null,rhythm:null,cycleStartTs:null,lastEpiTs:null,events:[],airway:null,hts:{},access:[],patientType:null});
               setMode("adult");
@@ -10367,7 +11029,7 @@ export default function App(){
               <span style={{color:pedsWkg>0?"#4ade80":"var(--c-text4)",fontSize:11,fontFamily:"'IBM Plex Mono',monospace"}}>{pedsWkg>0?`${pedsWkg} kg`:"kg auto"}</span>
             </>
           )}
-          {wkg>0&&<span style={{marginLeft:"auto",color:"#4ade80",fontSize:11,fontFamily:"'IBM Plex Mono',monospace"}}>{wkg} kg ✓</span>}
+          {wkg>0&&<span style={{marginLeft:"auto",color:isDarkMode?"#4ade80":"#166534",fontSize:11,fontWeight:700,fontFamily:"'IBM Plex Mono',monospace"}}>{wkg} kg ✓</span>}
         </div>
 
         {/* SYSTEM DROPDOWN */}
@@ -10381,13 +11043,13 @@ export default function App(){
                 style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",borderRadius:10,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:700,background:isDarkMode?sc+"18":light.bg,color:sc,border:`1px solid ${isDarkMode?sc+"50":light.bd}`,transition:"all 0.12s"}}
               >
                 <span>{sysInfo.e} {sysInfo.l}</span>
-                <span style={{fontSize:10,opacity:0.7,marginLeft:8}}>{sysDdOpen?"▲":"▼"} {systems.length} systems</span>
+                <span style={{fontSize:10,opacity:0.7,marginLeft:8}}>{sysDdOpen?"▲":"▼"} {visibleDrugSystems.length} {callAllowedDrugs?"call ":""}system{visibleDrugSystems.length===1?"":"s"}</span>
               </button>
               {sysDdOpen&&(
                 <>
                   <div onClick={()=>setSysDdOpen(false)} style={{position:"fixed",inset:0,zIndex:40}}/>
                   <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,right:0,zIndex:50,background:isDarkMode?"#0d1120":"#f0f4f8",border:`1px solid ${isDarkMode?"#1a2338":"#9aa6b4"}`,borderRadius:10,padding:8,boxShadow:"0 12px 32px rgba(0,0,0,.35)",display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
-                    {systems.map(s=>{
+                    {visibleDrugSystems.map(s=>{
                       const sl=LIGHT_TABS[s.k]||{bg:s.lc+"22",fg:s.lc,bd:s.lc};
                       const sc2=isDarkMode?s.c:sl.fg;
                       const isActive=activeSys===s.k;
@@ -10442,7 +11104,7 @@ export default function App(){
         })()}
 
         {/* SECTION HEADER */}
-        <div style={{display:"flex",alignItems:"center",gap:7,paddingBottom:8,borderBottom:`1px solid #0e1525`,marginBottom:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:7,paddingBottom:8,borderBottom:`1px solid ${isDarkMode?"#0e1525":"var(--c-border-sub)"}`,marginBottom:10}}>
           <div style={{width:7,height:7,borderRadius:"50%",background:color}}/>
           <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em"}}>{mode==="adult"?"Adult":"Pediatric"} — {sysInfo.l}</span>
           <span style={{color:"var(--c-text-ghost)",fontSize:10,marginLeft:"auto"}}>{list.length} drug{list.length!==1?"s":""}</span>
@@ -10453,12 +11115,13 @@ export default function App(){
           ?<div style={{textAlign:"center",marginTop:48,color:"var(--c-text-ghost)",fontSize:13}}>No drugs match</div>
           :list.map((d)=>{
               const explicitInitVals=initChecks[d.name]||EMPTY_OBJ;
-              const mergedInitVals=Object.keys(drugFactDefaults).length?{...drugFactDefaults,...explicitInitVals}:explicitInitVals;
-              return <DrugCard key={d.name} drug={d} wt={wkg} color={color} tick={adminLog[d.name]?tick:0} adminLog={adminLog} onGive={handleGive} onReset={handleReset} initVals={mergedInitVals} initExplicit={explicitInitVals} onInitUpdate={handleInitUpdate} reVals={reChecks[d.name]||EMPTY_OBJ} onReUpdate={handleReUpdate} onClearRe={handleClearRe} highlighted={highlightDrug===d.name} isDarkMode={isDarkMode} scopeFilter={scope}/>;
+              const mergedInitVals={...drugFactDefaults,...explicitInitVals,...sharedVitals};
+              const mergedReVals={...(reChecks[d.name]||EMPTY_OBJ),...sharedVitals};
+              return <DrugCard key={d.name} drug={d} wt={wkg} color={color} tick={callStartTs&&adminLog[d.name]?tick:0} adminLog={adminLog} onGive={handleGive} onReset={handleReset} initVals={mergedInitVals} initExplicit={explicitInitVals} onInitUpdate={handleInitUpdate} reVals={mergedReVals} onReUpdate={handleReUpdate} onClearRe={handleClearRe} highlighted={highlightDrug===d.name} isDarkMode={isDarkMode} scopeFilter={scope}/>;
             })
         }
 
-        <div style={{marginTop:30,textAlign:"center",color:"#0e1525",fontSize:9.5,lineHeight:1.8,fontFamily:"'IBM Plex Mono',monospace"}}>Clinical reference only — follow local protocols &amp; medical direction</div>
+        <div style={{marginTop:30,textAlign:"center",color:isDarkMode?"#53637a":"#374151",fontSize:9.5,lineHeight:1.8,fontWeight:isDarkMode?400:600,fontFamily:"'IBM Plex Mono',monospace"}}>Clinical reference only — follow local protocols &amp; medical direction</div>
         </>)}
       </div>
 
