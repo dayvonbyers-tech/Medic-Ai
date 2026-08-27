@@ -8916,13 +8916,16 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
   const [q, setQ]                = React.useState("");
   const [catFilter, setCatFilter]= React.useState("All");
   const [expanded, setExpanded]  = React.useState(null);
-  const [drugTier,setDrugTier]   = React.useState("active");
+  const [drugTier,setDrugTier]   = React.useState("all");
 
   const isGuest = authUser?.role === "Guest";
 
+  const ACTIVE_PHARM_CATS=["Cardiac","Respiratory","Analgesic","Sedation","Antidote","Metabolic","OB"];
   const PHARM_CATS = drugTier==="active"
-    ? ["All","Cardiac","Respiratory","Analgesic","Sedation","Antidote","Metabolic","OB"]
-    : ["All",...Object.keys(DOCX_REFERENCE_GROUPS)];
+    ? ["All",...ACTIVE_PHARM_CATS]
+    : drugTier==="reference"
+      ? ["All",...Object.keys(DOCX_REFERENCE_GROUPS)]
+      : ["All",...new Set([...ACTIVE_PHARM_CATS,...Object.keys(DOCX_REFERENCE_GROUPS)])];
   const TERM_CATS  = ["All","Cardiovascular","Respiratory","Neurological","Assessment","Pharmacology","Vitals"];
   const cats = tab === "pharm" ? PHARM_CATS : TERM_CATS;
 
@@ -8932,12 +8935,19 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
     Cardiovascular:"#f87171", Neurological:"#a78bfa", Assessment:"#60a5fa",
     Pharmacology:"#fb923c", Vitals:"#4ade80",
   };
+  const CAT_LIGHT_COLORS = {
+    Cardiac:"#b91c1c", Respiratory:"#15803d", Analgesic:"#c2410c",
+    Sedation:"#7e22ce", Antidote:"#a16207", Metabolic:"#0369a1", OB:"#be185d",
+    Cardiovascular:"#b91c1c", Neurological:"#6d28d9", Assessment:"#1d4ed8",
+    Pharmacology:"#c2410c", Vitals:"#15803d",
+  };
+  const categoryColor=cat=>isDarkMode?(CAT_COLORS[cat]||"#60a5fa"):(CAT_LIGHT_COLORS[cat]||"#075985");
 
   const filteredPharm = React.useMemo(() => {
     let list = PHARM_DATA.filter(drug=>{
       const doses=getDoseEntries(drug.name);
       const live=doses.adult.length>0||doses.peds.length>0;
-      return drugTier==="active"?live:!live;
+      return drugTier==="active"?live:drugTier==="reference"?!live:true;
     });
     if(catFilter !== "All") list = list.filter(d => d.cat === catFilter);
     if(q.trim()) {
@@ -8954,7 +8964,7 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
   }, [q, catFilter, drugTier]);
 
   const filteredDocReferences=React.useMemo(()=>{
-    if(drugTier!=="reference") return [];
+    if(drugTier==="active") return [];
     const detailedNames=new Set(PHARM_DATA.map(drug=>drug.name.toLowerCase()));
     let list=DOCX_REFERENCE_DATA.filter(drug=>!detailedNames.has(drug.name.toLowerCase()));
     if(catFilter!=="All") list=list.filter(drug=>drug.cat===catFilter);
@@ -9012,10 +9022,12 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
 
       <div style={{opacity:isGuest?0.35:1,pointerEvents:isGuest?"none":"auto"}}>
         {tab==="pharm"&&(
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,background:"var(--c-nav)",border:`1px solid ${bd}`,borderRadius:9,padding:3,marginBottom:10}}>
-            {[["active","Active Treatment"],["reference","Reference Only"]].map(([key,label])=>{
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,background:"var(--c-nav)",border:`1px solid ${bd}`,borderRadius:9,padding:3,marginBottom:10}}>
+            {[["all","All Drugs"],["active","Active"],["reference","Reference"]].map(([key,label])=>{
               const selected=drugTier===key;
-              return <button key={key} onClick={()=>{setDrugTier(key);setCatFilter("All");setExpanded(null);setQ("");}} style={{padding:"8px 5px",borderRadius:7,border:selected?`1px solid ${key==="active"?"#22c55e":"#38bdf8"}`:"1px solid transparent",background:selected?(key==="active"?(isDarkMode?"#052e16":"#dcfce7"):(isDarkMode?"#082f49":"#e0f2fe")):"transparent",color:selected?(key==="active"?(isDarkMode?"#86efac":"#166534"):(isDarkMode?"#7dd3fc":"#075985")):mu,fontFamily:"'IBM Plex Mono',monospace",fontSize:9.5,fontWeight:800,cursor:"pointer"}}>{label}</button>;
+              const accent=key==="active"?"#22c55e":key==="reference"?"#38bdf8":"#a855f7";
+              const selectedBg=key==="active"?(isDarkMode?"#052e16":"#dcfce7"):key==="reference"?(isDarkMode?"#082f49":"#e0f2fe"):(isDarkMode?"#2e1065":"#f3e8ff");
+              return <button key={key} onClick={()=>{setDrugTier(key);setCatFilter("All");setExpanded(null);setQ("");}} style={{padding:"8px 3px",borderRadius:7,border:selected?`1px solid ${accent}`:"1px solid transparent",background:selected?selectedBg:"transparent",color:selected?accent:mu,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap"}}>{label}</button>;
             })}
           </div>
         )}
@@ -9031,7 +9043,7 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
         {/* Category Filter Chips */}
         <div style={{display:"flex",gap:5,overflowX:"auto",paddingBottom:4,marginBottom:12,scrollbarWidth:"none",WebkitOverflowScrolling:"touch"}}>
           {cats.map(c=>{
-            const cc=CAT_COLORS[c]||"#60a5fa";
+            const cc=categoryColor(c);
             const active=catFilter===c;
             return(
               <button key={c} onClick={()=>{setCatFilter(c);setExpanded(null);}}
@@ -9052,24 +9064,32 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
           : filteredPharm.map(drug=>{
               const key=`ph-${drug.name}`;
               const isOpen=expanded===key;
-              const cc=CAT_COLORS[drug.cat]||"#60a5fa";
-              const doseEntries=isOpen?getDoseEntries(drug.name):null;
+              const cc=categoryColor(drug.cat);
+              const indicationColor=isDarkMode?"#4ade80":"#15803d";
+              const dangerColor=isDarkMode?"#fca5a5":"#b91c1c";
+              const sideEffectColor=isDarkMode?"#fdba74":"#c2410c";
+              const interactionColor=isDarkMode?"#facc15":"#a16207";
+              const doseColor=isDarkMode?"#93c5fd":"#1d4ed8";
+              const expandedBg=isDarkMode?drug.bg:"#ffffff";
+              const liveDoseEntries=getDoseEntries(drug.name);
+              const isActiveTreatment=liveDoseEntries.adult.length>0||liveDoseEntries.peds.length>0;
+              const doseEntries=isOpen?liveDoseEntries:null;
               return(
                 <div key={key} style={{marginBottom:7,borderRadius:11,border:`1px solid ${isOpen?cc:bd}`,overflow:"hidden",transition:"border-color 0.15s"}}>
-                  <button onClick={()=>setExpanded(isOpen?null:key)} style={{width:"100%",background:isOpen?drug.bg:su,padding:"13px 14px",display:"flex",alignItems:"center",gap:10,border:"none",cursor:"pointer",textAlign:"left",transition:"background 0.15s"}}>
+                  <button onClick={()=>setExpanded(isOpen?null:key)} style={{width:"100%",background:isOpen?expandedBg:su,padding:"13px 14px",display:"flex",alignItems:"center",gap:10,border:"none",cursor:"pointer",textAlign:"left",transition:"background 0.15s"}}>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:13,fontWeight:700,color:isOpen?cc:t,fontFamily:"'DM Sans',sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{drug.name}</div>
                       <div style={{fontSize:9.5,color:mu,fontFamily:"'IBM Plex Mono',monospace",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{drug.aka}</div>
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                      <span style={{background:drugTier==="active"?(isDarkMode?"#052e16":"#dcfce7"):(isDarkMode?"#082f49":"#e0f2fe"),border:`1px solid ${drugTier==="active"?"#22c55e":"#38bdf8"}`,color:drugTier==="active"?(isDarkMode?"#86efac":"#166534"):(isDarkMode?"#7dd3fc":"#075985"),borderRadius:5,padding:"2px 6px",fontFamily:"'IBM Plex Mono',monospace",fontSize:7.5,fontWeight:800,whiteSpace:"nowrap"}}>{drugTier==="active"?"ACTIVE":"REFERENCE"}</span>
+                      <span style={{background:isActiveTreatment?(isDarkMode?"#052e16":"#dcfce7"):(isDarkMode?"#082f49":"#e0f2fe"),border:`1px solid ${isActiveTreatment?"#22c55e":"#38bdf8"}`,color:isActiveTreatment?(isDarkMode?"#86efac":"#166534"):(isDarkMode?"#7dd3fc":"#075985"),borderRadius:5,padding:"2px 6px",fontFamily:"'IBM Plex Mono',monospace",fontSize:7.5,fontWeight:800,whiteSpace:"nowrap"}}>{isActiveTreatment?"ACTIVE":"REFERENCE"}</span>
                       <span style={{background:isDarkMode?"#0d1120":"#f1f5f9",border:`1px solid ${cc}`,color:cc,borderRadius:5,padding:"2px 7px",fontFamily:"'IBM Plex Mono',monospace",fontSize:8,fontWeight:800}}>{drug.cat}</span>
                       <span style={{color:mu,fontSize:10}}>{isOpen?"▲":"▼"}</span>
                     </div>
                   </button>
                   {isOpen&&(
-                    <div style={{padding:"0 14px 16px",background:drug.bg,borderTop:`1px solid ${cc}25`}}>
-                      <div style={{background:"#00000025",borderRadius:7,padding:"8px 11px",marginTop:12,marginBottom:14}}>
+                    <div style={{padding:"0 14px 16px",background:expandedBg,borderTop:`1px solid ${cc}40`}}>
+                      <div style={{background:isDarkMode?"#00000025":"#f1f5f9",border:`1px solid ${isDarkMode?"transparent":"#d1d5db"}`,borderRadius:7,padding:"8px 11px",marginTop:12,marginBottom:14}}>
                         <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:mu,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:3}}>Drug Class</div>
                         <div style={{fontSize:12,color:t,fontWeight:600}}>{drug.cls}</div>
                       </div>
@@ -9077,34 +9097,34 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
                       <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:cc,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Mechanism of Action</div>
                       <div style={{fontSize:12,color:t,lineHeight:1.65,marginBottom:14}}>{drug.moa}</div>
 
-                      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:"#4ade80",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Indications</div>
+                      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:indicationColor,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Indications</div>
                       <div style={{marginBottom:14}}>
                         {drug.indications.map((ind,j)=>(
                           <div key={j} style={{fontSize:12,color:t,lineHeight:1.6,paddingLeft:14,position:"relative"}}>
-                            <span style={{position:"absolute",left:2,color:"#4ade80",fontSize:10}}>▸</span>{ind}
+                            <span style={{position:"absolute",left:2,color:indicationColor,fontSize:10}}>▸</span>{ind}
                           </div>
                         ))}
                       </div>
 
-                      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:"#fca5a5",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Contraindications</div>
+                      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:dangerColor,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Contraindications</div>
                       <div style={{marginBottom:14}}>
                         {drug.contras.map((c,j)=>(
-                          <div key={j} style={{fontSize:12,color:"#fca5a5",lineHeight:1.6,paddingLeft:14,position:"relative"}}>
+                          <div key={j} style={{fontSize:12,color:dangerColor,lineHeight:1.6,paddingLeft:14,position:"relative"}}>
                             <span style={{position:"absolute",left:2,fontSize:10}}>⚠</span>{c}
                           </div>
                         ))}
                       </div>
 
-                      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:"#fdba74",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Side Effects</div>
+                      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:sideEffectColor,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Side Effects</div>
                       <div style={{fontSize:12,color:mu,lineHeight:1.6,marginBottom:14}}>{drug.se.join(" · ")}</div>
 
                       {drug.interactions&&drug.interactions.length>0&&(
                         <>
-                          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:"#facc15",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Drug Interactions</div>
+                          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:interactionColor,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Drug Interactions</div>
                           <div style={{marginBottom:14}}>
                             {drug.interactions.map((it,j)=>(
                               <div key={j} style={{fontSize:12,color:t,lineHeight:1.6,paddingLeft:14,position:"relative"}}>
-                                <span style={{position:"absolute",left:2,color:"#facc15",fontSize:10}}>⇄</span>{it}
+                                <span style={{position:"absolute",left:2,color:interactionColor,fontSize:10}}>⇄</span>{it}
                               </div>
                             ))}
                           </div>
@@ -9116,7 +9136,7 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
                           <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:mu,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Duration of Action</div>
                           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:14}}>
                             {[["Onset",drug.onset],["Peak Effect",drug.peak],["Duration",drug.duration]].map(([l,v])=>(
-                              <div key={l} style={{background:"#00000025",borderRadius:6,padding:"6px 8px"}}>
+                              <div key={l} style={{background:isDarkMode?"#00000025":"#f1f5f9",border:`1px solid ${isDarkMode?"transparent":"#e2e8f0"}`,borderRadius:6,padding:"6px 8px"}}>
                                 <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:7.5,color:mu,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}}>{l}</div>
                                 <div style={{fontSize:10.5,color:t,lineHeight:1.35}}>{v||"—"}</div>
                               </div>
@@ -9125,7 +9145,7 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
                         </>
                       )}
 
-                      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:"#93c5fd",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Dosage &amp; Administration</div>
+                      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:doseColor,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Dosage &amp; Administration</div>
                       <div style={{marginBottom:14}}>
                         {(!doseEntries||(doseEntries.adult.length===0&&doseEntries.peds.length===0))?(
                           <div style={{fontSize:11.5,color:mu,fontStyle:"italic"}}>Not currently on a live dosing card in this app — reference only.</div>
@@ -9133,7 +9153,7 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
                           <>
                             {doseEntries.adult.length>0&&(
                               <div style={{marginBottom:doseEntries.peds.length>0?8:0}}>
-                                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,fontWeight:800,color:"#93c5fd",marginBottom:3}}>ADULT</div>
+                                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,fontWeight:800,color:doseColor,marginBottom:3}}>ADULT</div>
                                 {doseEntries.adult.map((d,j)=>(
                                   <div key={j} style={{fontSize:11.5,color:t,lineHeight:1.55,marginBottom:2}}>
                                     {doseEntries.adult.length>1&&<span style={{color:mu}}>{d.sub}: </span>}{d.dose}
@@ -9143,7 +9163,7 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
                             )}
                             {doseEntries.peds.length>0&&(
                               <div>
-                                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,fontWeight:800,color:"#93c5fd",marginBottom:3}}>PEDIATRIC</div>
+                                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,fontWeight:800,color:doseColor,marginBottom:3}}>PEDIATRIC</div>
                                 {doseEntries.peds.map((d,j)=>(
                                   <div key={j} style={{fontSize:11.5,color:t,lineHeight:1.55,marginBottom:2}}>
                                     {doseEntries.peds.length>1&&<span style={{color:mu}}>{d.sub}: </span>}{d.dose}
@@ -9158,7 +9178,7 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
                         )}
                       </div>
 
-                      <div style={{background:"#ffffff0d",borderRadius:9,padding:"11px 13px",border:`1px solid ${cc}35`}}>
+                      <div style={{background:isDarkMode?"#ffffff0d":"#f8fafc",borderRadius:9,padding:"11px 13px",border:`1px solid ${cc}55`}}>
                         <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:cc,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>⚕ EMS Clinical Notes</div>
                         <div style={{fontSize:12,color:t,lineHeight:1.65}}>{drug.notes}</div>
                       </div>
@@ -9169,22 +9189,54 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
             })
         )}
 
-        {tab==="pharm"&&drugTier==="reference"&&filteredDocReferences.map(drug=>{
+        {tab==="pharm"&&drugTier!=="active"&&filteredDocReferences.map(drug=>{
           const key=`doc-ref-${drug.cat}-${drug.name}`;
           const isOpen=expanded===key;
-          const cc=CAT_COLORS[drug.cat]||"#38bdf8";
+          const cc=categoryColor(drug.cat);
+          const expandedBg=isDarkMode?"#07121f":"#ffffff";
+          const indicationColor=isDarkMode?"#4ade80":"#15803d";
+          const dangerColor=isDarkMode?"#fca5a5":"#b91c1c";
+          const sideEffectColor=isDarkMode?"#fdba74":"#c2410c";
+          const interactionColor=isDarkMode?"#facc15":"#a16207";
+          const doseColor=isDarkMode?"#93c5fd":"#1d4ed8";
           return <div key={key} style={{marginBottom:7,borderRadius:11,border:`1px solid ${isOpen?cc:bd}`,overflow:"hidden"}}>
-            <button onClick={()=>setExpanded(isOpen?null:key)} style={{width:"100%",background:isOpen?(isDarkMode?"#082f49":"#e0f2fe"):su,padding:"12px 14px",display:"flex",alignItems:"center",gap:9,border:"none",cursor:"pointer",textAlign:"left"}}>
+            <button onClick={()=>setExpanded(isOpen?null:key)} style={{width:"100%",background:isOpen?expandedBg:su,padding:"12px 14px",display:"flex",alignItems:"center",gap:9,border:"none",cursor:"pointer",textAlign:"left"}}>
               <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:700,color:isOpen?cc:t,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{drug.name}</div><div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:mu,marginTop:2}}>{drug.cat}</div></div>
               <span style={{border:"1px solid #38bdf8",color:isDarkMode?"#7dd3fc":"#075985",background:isDarkMode?"#082f49":"#e0f2fe",borderRadius:5,padding:"2px 6px",fontFamily:"'IBM Plex Mono',monospace",fontSize:7.5,fontWeight:800,whiteSpace:"nowrap"}}>REFERENCE ONLY</span>
               <span style={{color:mu,fontSize:10}}>{isOpen?"▲":"▼"}</span>
             </button>
-            {isOpen&&<div style={{padding:"12px 14px 14px",background:isDarkMode?"#061724":"#f0f9ff",borderTop:"1px solid #38bdf833"}}>
-              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:"#38bdf8",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Recognition purpose</div>
-              <div style={{fontSize:12,color:t,lineHeight:1.6,marginBottom:12}}>{REFERENCE_GROUP_NOTES[drug.cat]}</div>
-              <div style={{background:isDarkMode?"#0d1120":"#ffffff",border:"1px solid #f59e0b",borderRadius:8,padding:"10px 11px"}}>
-                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:"#f59e0b",textTransform:"uppercase",marginBottom:4}}>No administration workflow</div>
-                <div style={{fontSize:11.5,color:mu,lineHeight:1.55}}>This study-list entry is not connected to a live app protocol, dose calculator, safety gate, administer button, or timer. Verify the medication against current state and local medical-director protocols before operational use.</div>
+            {isOpen&&<div style={{padding:"0 14px 16px",background:expandedBg,borderTop:`1px solid ${cc}40`}}>
+              <div style={{background:isDarkMode?"#00000025":"#f1f5f9",border:`1px solid ${isDarkMode?"transparent":"#d1d5db"}`,borderRadius:7,padding:"8px 11px",marginTop:12,marginBottom:14}}>
+                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:mu,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:3}}>Drug Class</div>
+                <div style={{fontSize:12,color:t,fontWeight:600}}>{drug.cat} · Reference-only medication</div>
+              </div>
+
+              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:cc,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Mechanism / Reference Purpose</div>
+              <div style={{fontSize:12,color:t,lineHeight:1.65,marginBottom:14}}>{REFERENCE_GROUP_NOTES[drug.cat]} A drug-specific mechanism has not yet been clinically verified for this build.</div>
+
+              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:indicationColor,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Indications</div>
+              <div style={{fontSize:12,color:t,lineHeight:1.6,paddingLeft:14,position:"relative",marginBottom:14}}><span style={{position:"absolute",left:2,color:indicationColor,fontSize:10}}>▸</span>Recognition and medication-history reference only. Drug-specific indications are pending source verification.</div>
+
+              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:dangerColor,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Contraindications</div>
+              <div style={{fontSize:12,color:dangerColor,lineHeight:1.6,paddingLeft:14,position:"relative",marginBottom:14}}><span style={{position:"absolute",left:2,fontSize:10}}>⚠</span>Not validated in this reference entry. Consult a current authoritative monograph and local protocol.</div>
+
+              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:sideEffectColor,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Side Effects</div>
+              <div style={{fontSize:12,color:mu,lineHeight:1.6,marginBottom:14}}>Drug-specific adverse effects are pending clinical-source verification.</div>
+
+              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:interactionColor,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Drug Interactions</div>
+              <div style={{fontSize:12,color:t,lineHeight:1.6,paddingLeft:14,position:"relative",marginBottom:14}}><span style={{position:"absolute",left:2,color:interactionColor,fontSize:10}}>⇄</span>Drug-specific interactions are pending clinical-source verification.</div>
+
+              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:mu,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Duration of Action</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:14}}>
+                {["Onset","Peak Effect","Duration"].map(label=><div key={label} style={{background:isDarkMode?"#00000025":"#f1f5f9",border:`1px solid ${isDarkMode?"transparent":"#e2e8f0"}`,borderRadius:6,padding:"6px 8px"}}><div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:7.5,color:mu,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}}>{label}</div><div style={{fontSize:10.5,color:t}}>Pending verification</div></div>)}
+              </div>
+
+              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:doseColor,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Dosage &amp; Administration</div>
+              <div style={{fontSize:11.5,color:mu,fontStyle:"italic",lineHeight:1.55,marginBottom:14}}>Not currently on a live dosing card in this app — reference only. No dose calculator, safety gate, administer button, or timer is enabled.</div>
+
+              <div style={{background:isDarkMode?"#ffffff0d":"#f8fafc",borderRadius:9,padding:"11px 13px",border:`1px solid ${cc}55`}}>
+                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:cc,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>⚕ EMS Clinical Notes</div>
+                <div style={{fontSize:12,color:t,lineHeight:1.65}}>This entry supports medication recognition only. Verify the drug against current authoritative references, state scope, and local medical-director protocols before operational use.</div>
               </div>
             </div>}
           </div>;
@@ -9197,7 +9249,7 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
           : filteredTerms.map(term=>{
               const key=`tr-${term.term}`;
               const isOpen=expanded===key;
-              const cc=CAT_COLORS[term.cat]||"#60a5fa";
+              const cc=categoryColor(term.cat);
               return(
                 <div key={key} style={{marginBottom:6,borderRadius:10,border:`1px solid ${isOpen?cc:bd}`,overflow:"hidden",transition:"border-color 0.12s"}}>
                   <button onClick={()=>setExpanded(isOpen?null:key)} style={{width:"100%",background:isOpen?(isDarkMode?"#0d1120":"#f0f4ff"):su,padding:"11px 14px",display:"flex",alignItems:"center",gap:10,border:"none",cursor:"pointer",textAlign:"left",transition:"background 0.12s"}}>
