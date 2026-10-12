@@ -364,6 +364,7 @@ const ADULT = {
     { name:"Thiamine (B1)", sub:"Suspected Wernicke's / Alcoholism / AMS", dose:"100 mg IV/IM", route:"IV/IM", conc:"100 mg/mL", draw:"1 mL", notes:"Give BEFORE dextrose in known or suspected alcoholics.", ci:[], scope:"Medic", redoseMins:null, maxDoses:1 },
   ],
   metabolic: [
+    { name:"Ondansetron", sub:"Nausea / Vomiting", dose:"4 mg IV/IM or ODT", route:"IV/IM/PO", conc:"2 mg/mL injection · 4 mg ODT", draw:"2 mL injection or 1 ODT", notes:"Administer IV slowly. Consider ECG monitoring when QT-prolongation risk is present. Verify local protocol before use.", ci:["Known hypersensitivity","Congenital long-QT syndrome","Concurrent apomorphine"], scope:"Medic", redoseMins:null, maxDoses:1 },
     { name:"Dextrose 50% (D50)", sub:"Severe Hypoglycemia (IV access)", dose:"25 g IV (50 mL)", route:"IV", conc:"500 mg/mL (50%)", draw:"50 mL prefilled syringe", notes:"Vesicant — large-bore IV. Recheck BGL in 5 min.", ci:["Hyperglycemia"], scope:"AEMT", redoseMins:5, maxDoses:2 },
     { name:"Glucagon", sub:"Hypoglycemia (No IV) / Beta-Blocker OD", dose:"1 mg IM · 3–10 mg IV (OD)", route:"IM / IV", conc:"1 mg/mL (reconstituted)", draw:"1 mL IM", notes:"Reconstitute per kit. Onset 5–20 min IM. May cause vomiting.", ci:["Pheochromocytoma","Insulinoma"], scope:"AEMT", redoseMins:null, maxDoses:1 },
     { name:"Oral Glucose (Glutose)", sub:"Conscious Hypoglycemia", dose:"15–20 g PO", route:"PO", conc:"15 g/tube", draw:"1 tube (15 g)", notes:"Patient MUST be conscious with intact gag reflex. Recheck BGL in 15 min.", ci:["Unconscious","Impaired swallow"], scope:"EMT", redoseMins:15, maxDoses:2 },
@@ -421,6 +422,9 @@ const ADULT = {
 };
 
 const PEDS = {
+  metabolic: [
+    { name:"Ondansetron", sub:"Nausea / Vomiting — Pediatric", dose:"0.1 mg/kg IV/IM (max 4 mg) · 4 mg ODT when appropriate", route:"IV/IM/PO", conc:"2 mg/mL injection · 4 mg ODT", draw:"0.05 mL/kg injection (max 2 mL) or 1 ODT", notes:"Administer IV slowly. Use ODT only when age, swallowing ability, and local protocol permit. Consider ECG monitoring when QT-prolongation risk is present.", ci:["Known hypersensitivity","Congenital long-QT syndrome","Concurrent apomorphine"], scope:"Medic", wt:true, mpk:0.1, cmpml:2, maxd:4, redoseMins:null, maxDoses:1 },
+  ],
   cardiac: [
     { name:"Epinephrine 1:10,000", sub:"Cardiac Arrest", dose:"0.01 mg/kg IV/IO q3–5 min", route:"IV/IO", conc:"0.1 mg/mL", draw:"0.1 mL/kg (max 10 mL)", notes:"Max 1 mg per dose. Flush 3–5 mL NS after each dose. No established maximum dose per AHA/ACLS — continue every 3–5 min throughout arrest.", ci:[], scope:"AEMT", wt:true, mpk:0.01, cmpml:0.1, maxd:1, redoseMins:4, maxDoses:null },
     { name:"Adenosine", sub:"SVT", dose:"0.1 mg/kg rapid IVP (max 6 mg)", route:"Rapid IV proximal + flush", conc:"3 mg/mL", draw:"Varies by weight (max 2 mL)", notes:"Push FAST + flush 10–20 mL NS. 2nd dose: 0.2 mg/kg (max 12 mg).", ci:["2nd/3rd degree AV block","Asthma (relative)"], scope:"Medic", wt:true, mpk:0.1, cmpml:3, maxd:6, redoseMins:2, maxDoses:3 },
@@ -8747,7 +8751,7 @@ const PHARM_DATA = [
     se:["Headache","QT prolongation (dose-dependent)","Constipation","Dizziness"],
     interactions:["Additive QT prolongation with other QT-prolonging drugs (haloperidol, some antiarrhythmics)","Rare serotonin syndrome risk with SSRIs/SNRIs/MAOIs","Tramadol may reduce ondansetron's antiemetic efficacy"],
     onset:"10–15 min (IV)", peak:"30 min", duration:"4–8 h",
-    notes:"4 mg IV/IM or ODT. Peds: 0.1 mg/kg IV (max 4 mg). Does NOT cause sedation — neurological assessment remains valid. Not currently on the live dosing cards in this app — reference only until added.", col:"#fde68a", bg:"#1a1200" },
+    notes:"4 mg IV/IM or ODT. Peds: 0.1 mg/kg IV/IM (max 4 mg). Does NOT cause sedation — neurological assessment remains valid. Active app card is grouped under Metabolic; verify local protocol before administration.", col:"#fde68a", bg:"#1a1200" },
 
   { name:"Sodium Bicarbonate", aka:"NaHCO₃, Bicarb", cat:"Metabolic", cls:"Buffer / Alkalinizing Agent",
     moa:"Provides bicarbonate ions → buffers excess hydrogen ions → raises blood pH. In TCA overdose, alkalinization increases protein binding of TCAs → reduces free toxic drug and narrows QRS.",
@@ -8920,12 +8924,10 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
 
   const isGuest = authUser?.role === "Guest";
 
-  const ACTIVE_PHARM_CATS=["Cardiac","Respiratory","Analgesic","Sedation","Antidote","Metabolic","OB"];
-  const PHARM_CATS = drugTier==="active"
-    ? ["All",...ACTIVE_PHARM_CATS]
-    : drugTier==="reference"
+  const STUDY_PHARM_CATS=["Cardiac","Respiratory","Analgesic","Sedation","Antidote","Metabolic","OB"];
+  const PHARM_CATS = drugTier==="reference"
       ? ["All",...Object.keys(DOCX_REFERENCE_GROUPS)]
-      : ["All",...new Set([...ACTIVE_PHARM_CATS,...Object.keys(DOCX_REFERENCE_GROUPS)])];
+      : ["All",...new Set([...STUDY_PHARM_CATS,...Object.keys(DOCX_REFERENCE_GROUPS)])];
   const TERM_CATS  = ["All","Cardiovascular","Respiratory","Neurological","Assessment","Pharmacology","Vitals"];
   const cats = tab === "pharm" ? PHARM_CATS : TERM_CATS;
 
@@ -8947,7 +8949,7 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
     let list = PHARM_DATA.filter(drug=>{
       const doses=getDoseEntries(drug.name);
       const live=doses.adult.length>0||doses.peds.length>0;
-      return drugTier==="active"?live:drugTier==="reference"?!live:true;
+      return drugTier==="reference"?!live:true;
     });
     if(catFilter !== "All") list = list.filter(d => d.cat === catFilter);
     if(q.trim()) {
@@ -8964,7 +8966,6 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
   }, [q, catFilter, drugTier]);
 
   const filteredDocReferences=React.useMemo(()=>{
-    if(drugTier==="active") return [];
     const detailedNames=new Set(PHARM_DATA.map(drug=>drug.name.toLowerCase()));
     let list=DOCX_REFERENCE_DATA.filter(drug=>!detailedNames.has(drug.name.toLowerCase()));
     if(catFilter!=="All") list=list.filter(drug=>drug.cat===catFilter);
@@ -9022,11 +9023,17 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
 
       <div style={{opacity:isGuest?0.35:1,pointerEvents:isGuest?"none":"auto"}}>
         {tab==="pharm"&&(
-          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,background:"var(--c-nav)",border:`1px solid ${bd}`,borderRadius:9,padding:3,marginBottom:10}}>
-            {[["all","All Drugs"],["active","Active"],["reference","Reference"]].map(([key,label])=>{
+          <div style={{background:isDarkMode?"#172033":"#eff6ff",border:`1px solid ${isDarkMode?"#3b82f6":"#2563eb"}`,borderRadius:10,padding:"10px 12px",marginBottom:10,color:t}}>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:900,color:isDarkMode?"#93c5fd":"#1d4ed8",letterSpacing:"0.06em",marginBottom:4}}>NREMT STUDY REFERENCE — NOT AUTHORIZATION</div>
+            <div style={{fontSize:11.5,lineHeight:1.5,color:t}}>Every completed card includes dosage and administration for study. No drug is marked active or authorized. Follow current state/local protocol and medical direction before administration.</div>
+          </div>
+        )}
+        {tab==="pharm"&&(
+          <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:5,background:"var(--c-nav)",border:`1px solid ${bd}`,borderRadius:9,padding:3,marginBottom:10}}>
+            {[["all","All Drugs"],["reference","Recognition Only"]].map(([key,label])=>{
               const selected=drugTier===key;
-              const accent=key==="active"?"#22c55e":key==="reference"?"#38bdf8":"#a855f7";
-              const selectedBg=key==="active"?(isDarkMode?"#052e16":"#dcfce7"):key==="reference"?(isDarkMode?"#082f49":"#e0f2fe"):(isDarkMode?"#2e1065":"#f3e8ff");
+              const accent=key==="reference"?"#38bdf8":"#a855f7";
+              const selectedBg=key==="reference"?(isDarkMode?"#082f49":"#e0f2fe"):(isDarkMode?"#2e1065":"#f3e8ff");
               return <button key={key} onClick={()=>{setDrugTier(key);setCatFilter("All");setExpanded(null);setQ("");}} style={{padding:"8px 3px",borderRadius:7,border:selected?`1px solid ${accent}`:"1px solid transparent",background:selected?selectedBg:"transparent",color:selected?accent:mu,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap"}}>{label}</button>;
             })}
           </div>
@@ -9072,7 +9079,6 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
               const doseColor=isDarkMode?"#93c5fd":"#1d4ed8";
               const expandedBg=isDarkMode?drug.bg:"#ffffff";
               const liveDoseEntries=getDoseEntries(drug.name);
-              const isActiveTreatment=liveDoseEntries.adult.length>0||liveDoseEntries.peds.length>0;
               const doseEntries=isOpen?liveDoseEntries:null;
               return(
                 <div key={key} style={{marginBottom:7,borderRadius:11,border:`1px solid ${isOpen?cc:bd}`,overflow:"hidden",transition:"border-color 0.15s"}}>
@@ -9082,7 +9088,7 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
                       <div style={{fontSize:9.5,color:mu,fontFamily:"'IBM Plex Mono',monospace",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{drug.aka}</div>
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                      <span style={{background:isActiveTreatment?(isDarkMode?"#052e16":"#dcfce7"):(isDarkMode?"#082f49":"#e0f2fe"),border:`1px solid ${isActiveTreatment?"#22c55e":"#38bdf8"}`,color:isActiveTreatment?(isDarkMode?"#86efac":"#166534"):(isDarkMode?"#7dd3fc":"#075985"),borderRadius:5,padding:"2px 6px",fontFamily:"'IBM Plex Mono',monospace",fontSize:7.5,fontWeight:800,whiteSpace:"nowrap"}}>{isActiveTreatment?"ACTIVE":"REFERENCE"}</span>
+                      <span style={{background:isDarkMode?"#2e1065":"#f3e8ff",border:"1px solid #a855f7",color:isDarkMode?"#d8b4fe":"#6b21a8",borderRadius:5,padding:"2px 6px",fontFamily:"'IBM Plex Mono',monospace",fontSize:7.5,fontWeight:800,whiteSpace:"nowrap"}}>STUDY CARD</span>
                       <span style={{background:isDarkMode?"#0d1120":"#f1f5f9",border:`1px solid ${cc}`,color:cc,borderRadius:5,padding:"2px 7px",fontFamily:"'IBM Plex Mono',monospace",fontSize:8,fontWeight:800}}>{drug.cat}</span>
                       <span style={{color:mu,fontSize:10}}>{isOpen?"▲":"▼"}</span>
                     </div>
@@ -9148,7 +9154,7 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
                       <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5,fontWeight:800,color:doseColor,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Dosage &amp; Administration</div>
                       <div style={{marginBottom:14}}>
                         {(!doseEntries||(doseEntries.adult.length===0&&doseEntries.peds.length===0))?(
-                          <div style={{fontSize:11.5,color:mu,fontStyle:"italic"}}>Not currently on a live dosing card in this app — reference only.</div>
+                          <div style={{fontSize:11.5,color:mu,fontStyle:"italic"}}>No app dosing data is attached to this reference card.</div>
                         ):(
                           <>
                             {doseEntries.adult.length>0&&(
@@ -9189,7 +9195,7 @@ function ReferenceScreen({ isDarkMode=true, authUser=null, onUpgrade=null }) {
             })
         )}
 
-        {tab==="pharm"&&drugTier!=="active"&&filteredDocReferences.map(drug=>{
+        {tab==="pharm"&&filteredDocReferences.map(drug=>{
           const key=`doc-ref-${drug.cat}-${drug.name}`;
           const isOpen=expanded===key;
           const cc=categoryColor(drug.cat);
