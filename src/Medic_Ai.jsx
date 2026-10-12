@@ -337,159 +337,159 @@ const RE_CHECKS = {
 /* ��� DRUG DATABASE ��� */
 const ADULT = {
   cardiac: [
-    { name:"Aspirin", sub:"ACS / Chest Pain", dose:"324 mg PO (4 tablets, chewed)", route:"PO", conc:"81 mg/tablet", draw:"4 tablets — subtract any taken prior to arrival", notes:"Give early in suspected ACS. Must be chewed, not swallowed whole. Screen for allergy and prior dose before giving.", ci:["Aspirin/NSAID allergy","Active GI bleed","Hemorrhagic stroke"], scope:"EMT", redoseMins:null, maxDoses:1 },
-    { name:"Nitroglycerin", sub:"ACS / Pulmonary Edema", dose:"0.4 mg SL q5min × 3", route:"SL", conc:"0.4 mg/tablet or spray", draw:"1 tablet or 1 spray SL", notes:"Hold if SBP <100, HR <50 or >100, suspected RVI, or PDE-5 use in past 24–48 h.", ci:["SBP <100","RVI","PDE-5 inhibitor <24–48h","HR <50"], scope:"EMT", redoseMins:5, maxDoses:3 },
+    { name:"Aspirin", sub:"ACS / Chest Pain", dose:"324 mg PO (4 tablets, chewed)", route:"PO", conc:"81 mg/tablet", draw:"4 tablets — subtract any taken prior to arrival", syringe:"None — chewable PO tablets", notes:"Give early in suspected ACS. Must be chewed, not swallowed whole. Screen for allergy and prior dose before giving.", ci:["Aspirin/NSAID allergy","Active GI bleed","Hemorrhagic stroke"], scope:"EMT", redoseMins:null, maxDoses:1 },
+    { name:"Nitroglycerin", sub:"ACS / Pulmonary Edema", dose:"0.4 mg SL q5min × 3", route:"SL", conc:"0.4 mg/tablet or spray", draw:"1 tablet or 1 spray SL", syringe:"None — SL tablet or spray", notes:"Hold if SBP <100, HR <50 or >100, suspected RVI, or PDE-5 use in past 24–48 h.", ci:["SBP <100","RVI","PDE-5 inhibitor <24–48h","HR <50"], scope:"EMT", redoseMins:5, maxDoses:3 },
     { name:"Epinephrine 1:10,000", sub:"Cardiac Arrest (all rhythms)", dose:"1 mg IV/IO q3–5 min", route:"IV/IO", conc:"0.1 mg/mL", draw:"10 mL", syringe:"10 mL syringe", notes:"Flush with 20 mL NS after each dose. Continue CPR without interruption. No established maximum dose per AHA/ACLS — continue every 3–5 min throughout arrest.", ci:[], scope:"AEMT", redoseMins:4, maxDoses:null },
-    { name:"Amiodarone", sub:"VF / Pulseless VT", dose:"Dose 1: 300 mg IVP · Dose 2: 150 mg IVP", route:"IV/IO", conc:"50 mg/mL", draw:"Dose 1: 6 mL (300 mg) · Dose 2: 3 mL (150 mg)", notes:"Stable VT: 150 mg IV over 10 min. Avoid in iodine allergy. Do NOT mix with other drugs.", maxDoseNote:"Max 450 mg total (2 doses)", doseSteps:[{label:"Dose 1",dose:"300 mg IVP",draw:"6 mL",mg:300},{label:"Dose 2",dose:"150 mg IVP",draw:"3 mL",mg:150}], ci:["Iodine allergy (relative)","Cardiogenic shock"], scope:"Medic", redoseMins:2, maxDoses:2 },
+    { name:"Amiodarone", sub:"VF / Pulseless VT", dose:"Dose 1: 300 mg IVP · Dose 2: 150 mg IVP", route:"IV/IO", conc:"50 mg/mL", draw:"Dose 1: 6 mL (300 mg) · Dose 2: 3 mL (150 mg)", syringe:"10 mL syringe (dose 1: 6 mL) · 5 mL syringe (dose 2: 3 mL)", notes:"Stable VT: 150 mg IV over 10 min. Avoid in iodine allergy. Do NOT mix with other drugs.", maxDoseNote:"Max 450 mg total (2 doses)", doseSteps:[{label:"Dose 1",dose:"300 mg IVP",draw:"6 mL",mg:300},{label:"Dose 2",dose:"150 mg IVP",draw:"3 mL",mg:150}], ci:["Iodine allergy (relative)","Cardiogenic shock"], scope:"Medic", redoseMins:2, maxDoses:2 },
     { name:"Adenosine", sub:"SVT", dose:"6 mg rapid IVP; repeat 12 mg ×2", route:"IV (proximal site)", conc:"3 mg/mL", draw:"2 mL (6 mg) · 4 mL (12 mg)", syringe:"5 mL", notes:"PUSH FAST — flush 20 mL NS immediately. 2nd & 3rd doses = 12 mg each.", ci:["2nd/3rd degree AV block","Sick sinus syndrome","Asthma (relative)"], scope:"Medic", redoseMins:2, maxDoses:3 },
     { name:"Atropine", sub:"Symptomatic Bradycardia", dose:"0.5 mg IV q3–5 min (max 3 mg)", route:"IV/IO", conc:"0.1 mg/mL", draw:"5 mL per dose", syringe:"10 mL", notes:"Min 0.5 mg to avoid paradoxical bradycardia. Max 3 mg total (6 doses).", ci:["Glaucoma (relative)","Infranodal block – Type II"], scope:"AEMT", redoseMins:4, maxDoses:6 },
-    { name:"Dopamine", sub:"Cardiogenic Shock / Hypotension", dose:"2–20 mcg/kg/min IV infusion", route:"IV infusion", conc:"1,600 mcg/mL (400 mg/250 mL)", draw:"Titrate via IV pump", notes:"2–5 mcg/kg/min = renal. 5–10 = inotropic. 10–20 = vasopressor.", ci:["Pheochromocytoma"], scope:"Medic", redoseMins:null, maxDoses:null },
-    { name:"Lidocaine", sub:"VF/pVT (alternative to amiodarone)", dose:"1–1.5 mg/kg IV/IO", route:"IV/IO", conc:"20 mg/mL (2%)", draw:"Varies by weight", notes:"Maintenance after ROSC: 1–4 mg/min infusion.", ci:["High-degree AV block","Lidocaine allergy"], scope:"Medic", wt:true, mpk:1.5, cmpml:20, redoseMins:null, maxDoses:1 },
-    { name:"Magnesium Sulfate", sub:"Torsades de Pointes", dose:"1–2 g IV over 5–20 min", route:"IV", conc:"500 mg/mL (dilute in 100 mL NS)", draw:"2–4 mL in 100 mL NS", notes:"Antidote for toxicity: Calcium Gluconate 1 g IV.", ci:["Renal failure (relative)","Heart block"], scope:"Medic", redoseMins:null, maxDoses:1 },
-    { name:"Sodium Bicarbonate", sub:"Prolonged Arrest / TCA OD / Hyperkalemia", dose:"1 mEq/kg IV", route:"IV/IO", conc:"1 mEq/mL (8.4%)", draw:"1 mL/kg", notes:"Do NOT mix with calcium or epinephrine. Flush line before and after.", ci:["Metabolic alkalosis","Hypokalemia"], scope:"Medic", wt:true, mpk:1, cmpml:1, unit:"mEq", redoseMins:null, maxDoses:null },
+    { name:"Dopamine", sub:"Cardiogenic Shock / Hypotension", dose:"2–20 mcg/kg/min IV infusion", route:"IV infusion", conc:"1,600 mcg/mL (400 mg/250 mL)", draw:"Titrate via IV pump", syringe:"None — premixed bag on IV pump", notes:"2–5 mcg/kg/min = renal. 5–10 = inotropic. 10–20 = vasopressor.", ci:["Pheochromocytoma"], scope:"Medic", redoseMins:null, maxDoses:null },
+    { name:"Lidocaine", sub:"VF/pVT (alternative to amiodarone)", dose:"1–1.5 mg/kg IV/IO", route:"IV/IO", conc:"20 mg/mL (2%)", draw:"Varies by weight", syringe:"5 mL prefilled syringe (100 mg/5 mL) or 10 mL syringe", notes:"Maintenance after ROSC: 1–4 mg/min infusion.", ci:["High-degree AV block","Lidocaine allergy"], scope:"Medic", wt:true, mpk:1.5, cmpml:20, redoseMins:null, maxDoses:1 },
+    { name:"Magnesium Sulfate", sub:"Torsades de Pointes", dose:"1–2 g IV over 5–20 min", route:"IV", conc:"500 mg/mL (dilute in 100 mL NS)", draw:"2–4 mL in 100 mL NS", syringe:"5 mL syringe to draw — inject into 100 mL NS bag", notes:"Antidote for toxicity: Calcium Gluconate 1 g IV.", ci:["Renal failure (relative)","Heart block"], scope:"Medic", redoseMins:null, maxDoses:1 },
+    { name:"Sodium Bicarbonate", sub:"Prolonged Arrest / TCA OD / Hyperkalemia", dose:"1 mEq/kg IV", route:"IV/IO", conc:"1 mEq/mL (8.4%)", draw:"1 mL/kg", syringe:"50 mL prefilled syringe (50 mEq)", notes:"Do NOT mix with calcium or epinephrine. Flush line before and after.", ci:["Metabolic alkalosis","Hypokalemia"], scope:"Medic", wt:true, mpk:1, cmpml:1, unit:"mEq", redoseMins:null, maxDoses:null },
   ],
   respiratory: [
-    { name:"Albuterol", sub:"Bronchospasm / Asthma / COPD", dose:"2.5 mg nebulized (may repeat)", route:"Nebulizer", conc:"0.83 mg/mL (2.5 mg/3 mL unit)", draw:"1 unit dose (3 mL)", notes:"May give continuous neb in severe asthma. Can mix with ipratropium.", ci:["Tachyarrhythmia (relative)"], scope:"EMT", redoseMins:20, maxDoses:null },
-    { name:"Ipratropium (Atrovent)", sub:"COPD Exacerbation / Bronchospasm", dose:"0.5 mg nebulized (once)", route:"Nebulizer", conc:"0.02% (0.5 mg/2.5 mL)", draw:"1 unit dose — mix with albuterol", notes:"Give ONCE with albuterol. Do not repeat alone.", ci:["Peanut/soy allergy (relative)"], scope:"AEMT", redoseMins:null, maxDoses:1 },
+    { name:"Albuterol", sub:"Bronchospasm / Asthma / COPD", dose:"2.5 mg nebulized (may repeat)", route:"Nebulizer", conc:"0.83 mg/mL (2.5 mg/3 mL unit)", draw:"1 unit dose (3 mL)", syringe:"None — nebulizer unit dose", notes:"May give continuous neb in severe asthma. Can mix with ipratropium.", ci:["Tachyarrhythmia (relative)"], scope:"EMT", redoseMins:20, maxDoses:null },
+    { name:"Ipratropium (Atrovent)", sub:"COPD Exacerbation / Bronchospasm", dose:"0.5 mg nebulized (once)", route:"Nebulizer", conc:"0.02% (0.5 mg/2.5 mL)", draw:"1 unit dose — mix with albuterol", syringe:"None — nebulizer unit dose", notes:"Give ONCE with albuterol. Do not repeat alone.", ci:["Peanut/soy allergy (relative)"], scope:"AEMT", redoseMins:null, maxDoses:1 },
     { name:"Epinephrine 1:1,000", sub:"Severe Bronchospasm / Anaphylaxis", dose:"0.3–0.5 mg IM (lateral thigh)", route:"IM", conc:"1 mg/mL", draw:"0.3–0.5 mL", syringe:"1 mL", notes:"IM lateral thigh preferred. May repeat in 5–15 min.", ci:["None absolute in anaphylaxis"], scope:"AEMT", redoseMins:10, maxDoses:3 },
-    { name:"Methylprednisolone", sub:"Severe Asthma / COPD / Anaphylaxis", dose:"125 mg IV/IM", route:"IV/IM", conc:"125 mg/2 mL", draw:"2 mL", notes:"Delayed onset ~1–2 hr. Helps prevent biphasic reaction.", ci:["Active systemic fungal infection"], scope:"Medic", redoseMins:null, maxDoses:1 },
-    { name:"Nitroglycerin", sub:"Flash Pulmonary Edema / HTN Urgency", dose:"0.4 mg SL q5min", route:"SL", conc:"0.4 mg/tablet or spray", draw:"1 spray or tablet SL", notes:"Key adjunct for flash pulmonary edema with hypertension.", ci:["SBP <100","PDE-5 inhibitors <24–48h"], scope:"EMT", redoseMins:5, maxDoses:3 },
+    { name:"Methylprednisolone", sub:"Severe Asthma / COPD / Anaphylaxis", dose:"125 mg IV/IM", route:"IV/IM", conc:"125 mg/2 mL", draw:"2 mL", syringe:"3 mL syringe (2 mL Act-O-Vial)", notes:"Delayed onset ~1–2 hr. Helps prevent biphasic reaction.", ci:["Active systemic fungal infection"], scope:"Medic", redoseMins:null, maxDoses:1 },
+    { name:"Nitroglycerin", sub:"Flash Pulmonary Edema / HTN Urgency", dose:"0.4 mg SL q5min", route:"SL", conc:"0.4 mg/tablet or spray", draw:"1 spray or tablet SL", syringe:"None — SL tablet or spray", notes:"Key adjunct for flash pulmonary edema with hypertension.", ci:["SBP <100","PDE-5 inhibitors <24–48h"], scope:"EMT", redoseMins:5, maxDoses:3 },
   ],
   neurological: [
     { name:"Midazolam (Versed)", sub:"Active Seizure / Sedation / Agitation", dose:"2–5 mg IV · 5–10 mg IM/IN", route:"IV/IM/IN", conc:"5 mg/mL", draw:"0.5–1 mL IV · 1–2 mL IM/IN", syringe:"3 mL; MAD for IN", notes:"IN: max 1 mL per nostril. Titrate to effect. Monitor airway.", ci:["Significant respiratory depression","Hypotension (relative)"], scope:"Medic", redoseMins:10, maxDoses:2 },
-    { name:"Diazepam (Valium)", sub:"Active Seizure", dose:"5–10 mg IV · 5–10 mg IM/PR", route:"IV/IM/PR", conc:"5 mg/mL", draw:"1–2 mL IV", notes:"Give IV slowly — causes pain/phlebitis if fast.", ci:["Acute narrow-angle glaucoma","Severe respiratory depression"], scope:"Medic", redoseMins:10, maxDoses:2 },
-    { name:"Lorazepam (Ativan)", sub:"Active Seizure / Status Epilepticus", dose:"2–4 mg IV/IM", route:"IV/IM", conc:"2 mg/mL", draw:"1–2 mL", notes:"Onset 2–5 min IV. Preferred for status epilepticus.", ci:["Acute narrow-angle glaucoma","Severe respiratory depression"], scope:"Medic", redoseMins:10, maxDoses:2 },
-    { name:"Dextrose 50% (D50)", sub:"Hypoglycemia with AMS", dose:"25 g IV (50 mL)", route:"IV", conc:"500 mg/mL (50%)", draw:"50 mL prefilled syringe", notes:"Confirm BGL <60 mg/dL. Vesicant — large-bore IV. Recheck BGL in 5 min.", ci:["Confirmed hyperglycemia"], scope:"AEMT", redoseMins:5, maxDoses:2 },
-    { name:"Naloxone (Narcan)", sub:"Opioid Overdose", dose:"0.4–2 mg IV/IM/IN (titrate)", route:"IV/IM/IN", conc:"0.4 mg/mL or 1 mg/mL", draw:"1–5 mL (0.4 mg/mL) · 2 mL IN", notes:"Titrate to adequate respirations ONLY. Re-dose PRN.", ci:[], scope:"EMT", redoseMins:3, maxDoses:null },
-    { name:"Thiamine (B1)", sub:"Suspected Wernicke's / Alcoholism / AMS", dose:"100 mg IV/IM", route:"IV/IM", conc:"100 mg/mL", draw:"1 mL", notes:"Give BEFORE dextrose in known or suspected alcoholics.", ci:[], scope:"Medic", redoseMins:null, maxDoses:1 },
+    { name:"Diazepam (Valium)", sub:"Active Seizure", dose:"5–10 mg IV · 5–10 mg IM/PR", route:"IV/IM/PR", conc:"5 mg/mL", draw:"1–2 mL IV", syringe:"3 mL syringe (PR: remove needle, lubricated tip)", notes:"Give IV slowly — causes pain/phlebitis if fast.", ci:["Acute narrow-angle glaucoma","Severe respiratory depression"], scope:"Medic", redoseMins:10, maxDoses:2 },
+    { name:"Lorazepam (Ativan)", sub:"Active Seizure / Status Epilepticus", dose:"2–4 mg IV/IM", route:"IV/IM", conc:"2 mg/mL", draw:"1–2 mL", syringe:"3 mL syringe", notes:"Onset 2–5 min IV. Preferred for status epilepticus.", ci:["Acute narrow-angle glaucoma","Severe respiratory depression"], scope:"Medic", redoseMins:10, maxDoses:2 },
+    { name:"Dextrose 50% (D50)", sub:"Hypoglycemia with AMS", dose:"25 g IV (50 mL)", route:"IV", conc:"500 mg/mL (50%)", draw:"50 mL prefilled syringe", syringe:"50 mL prefilled syringe", notes:"Confirm BGL <60 mg/dL. Vesicant — large-bore IV. Recheck BGL in 5 min.", ci:["Confirmed hyperglycemia"], scope:"AEMT", redoseMins:5, maxDoses:2 },
+    { name:"Naloxone (Narcan)", sub:"Opioid Overdose", dose:"0.4–2 mg IV/IM/IN (titrate)", route:"IV/IM/IN", conc:"0.4 mg/mL or 1 mg/mL", draw:"1–5 mL (0.4 mg/mL) · 2 mL IN", syringe:"5 mL syringe IV/IM (0.4 mg/mL) · MAD atomizer or nasal spray for IN", notes:"Titrate to adequate respirations ONLY. Re-dose PRN.", ci:[], scope:"EMT", redoseMins:3, maxDoses:null },
+    { name:"Thiamine (B1)", sub:"Suspected Wernicke's / Alcoholism / AMS", dose:"100 mg IV/IM", route:"IV/IM", conc:"100 mg/mL", draw:"1 mL", syringe:"3 mL syringe", notes:"Give BEFORE dextrose in known or suspected alcoholics.", ci:[], scope:"Medic", redoseMins:null, maxDoses:1 },
   ],
   metabolic: [
-    { name:"Ondansetron", sub:"Nausea / Vomiting", dose:"4 mg IV/IM or ODT", route:"IV/IM/PO", conc:"2 mg/mL injection · 4 mg ODT", draw:"2 mL injection or 1 ODT", notes:"Administer IV slowly. Consider ECG monitoring when QT-prolongation risk is present. Verify local protocol before use.", ci:["Known hypersensitivity","Congenital long-QT syndrome","Concurrent apomorphine"], scope:"Medic", redoseMins:null, maxDoses:1 },
-    { name:"Dextrose 50% (D50)", sub:"Severe Hypoglycemia (IV access)", dose:"25 g IV (50 mL)", route:"IV", conc:"500 mg/mL (50%)", draw:"50 mL prefilled syringe", notes:"Vesicant — large-bore IV. Recheck BGL in 5 min.", ci:["Hyperglycemia"], scope:"AEMT", redoseMins:5, maxDoses:2 },
-    { name:"Glucagon", sub:"Hypoglycemia (No IV) / Beta-Blocker OD", dose:"1 mg IM · 3–10 mg IV (OD)", route:"IM / IV", conc:"1 mg/mL (reconstituted)", draw:"1 mL IM", notes:"Reconstitute per kit. Onset 5–20 min IM. May cause vomiting.", ci:["Pheochromocytoma","Insulinoma"], scope:"AEMT", redoseMins:null, maxDoses:1 },
-    { name:"Oral Glucose (Glutose)", sub:"Conscious Hypoglycemia", dose:"15–20 g PO", route:"PO", conc:"15 g/tube", draw:"1 tube (15 g)", notes:"Patient MUST be conscious with intact gag reflex. Recheck BGL in 15 min.", ci:["Unconscious","Impaired swallow"], scope:"EMT", redoseMins:15, maxDoses:2 },
-    { name:"Normal Saline (0.9% NaCl)", sub:"Volume Replacement / DKA / Heat Emergency", dose:"250–1,000 mL IV bolus (titrate)", route:"IV/IO", conc:"0.9% NaCl", draw:"250–1,000 mL bag", notes:"Caution in pulmonary edema or CHF.", ci:["Cardiogenic pulmonary edema (large volumes)"], scope:"AEMT", redoseMins:null, maxDoses:null },
-    { name:"Sodium Bicarbonate", sub:"Metabolic Acidosis / DKA / Hyperkalemia", dose:"1 mEq/kg IV", route:"IV", conc:"1 mEq/mL (8.4%)", draw:"1 mL/kg", notes:"DKA: use only if pH <7.0 and hemodynamically unstable. Alkalinizes serum. Do NOT mix with calcium or epinephrine. Flush line before and after.", ci:["Metabolic alkalosis","Hypernatremia"], scope:"Medic", wt:true, mpk:1, cmpml:1, unit:"mEq", redoseMins:null, maxDoses:null },
-    { name:"Calcium Chloride 10%", sub:"Hyperkalemia — Cardiac Membrane Stabilization", dose:"1 g (10 mL) IV slow push over 3–5 min", route:"IV", conc:"100 mg/mL (10%)", draw:"10 mL prefilled syringe", notes:"Stabilizes cardiac membrane — does NOT lower potassium. Combine with bicarb and albuterol for full hyperkalemia treatment. Do NOT mix with bicarb in same line.", ci:["Ventricular fibrillation","Digitalis toxicity","Hypercalcemia"], scope:"Medic", redoseMins:null, maxDoses:null },
-    { name:"Thiamine (B1)", sub:"Pre-Glucose Administration / Wernicke's Prevention", dose:"100 mg IV/IM", route:"IV/IM", conc:"100 mg/mL", draw:"1 mL", notes:"Give BEFORE dextrose in known or suspected alcoholism or malnourished patients. Prevents Wernicke's encephalopathy.", ci:[], scope:"Medic", redoseMins:null, maxDoses:1 },
+    { name:"Ondansetron", sub:"Nausea / Vomiting", dose:"4 mg IV/IM or ODT", route:"IV/IM/PO", conc:"2 mg/mL injection · 4 mg ODT", draw:"2 mL injection or 1 ODT", syringe:"3 mL syringe (2 mL) · ODT: none", notes:"Administer IV slowly. Consider ECG monitoring when QT-prolongation risk is present. Verify local protocol before use.", ci:["Known hypersensitivity","Congenital long-QT syndrome","Concurrent apomorphine"], scope:"Medic", redoseMins:null, maxDoses:1 },
+    { name:"Dextrose 50% (D50)", sub:"Severe Hypoglycemia (IV access)", dose:"25 g IV (50 mL)", route:"IV", conc:"500 mg/mL (50%)", draw:"50 mL prefilled syringe", syringe:"50 mL prefilled syringe", notes:"Vesicant — large-bore IV. Recheck BGL in 5 min.", ci:["Hyperglycemia"], scope:"AEMT", redoseMins:5, maxDoses:2 },
+    { name:"Glucagon", sub:"Hypoglycemia (No IV) / Beta-Blocker OD", dose:"1 mg IM · 3–10 mg IV (OD)", route:"IM / IV", conc:"1 mg/mL (reconstituted)", draw:"1 mL IM", syringe:"Kit syringe (reconstitute with supplied diluent) · 10 mL syringe for 3–10 mg IV", notes:"Reconstitute per kit. Onset 5–20 min IM. May cause vomiting.", ci:["Pheochromocytoma","Insulinoma"], scope:"AEMT", redoseMins:null, maxDoses:1 },
+    { name:"Oral Glucose (Glutose)", sub:"Conscious Hypoglycemia", dose:"15–20 g PO", route:"PO", conc:"15 g/tube", draw:"1 tube (15 g)", syringe:"None — PO gel tube", notes:"Patient MUST be conscious with intact gag reflex. Recheck BGL in 15 min.", ci:["Unconscious","Impaired swallow"], scope:"EMT", redoseMins:15, maxDoses:2 },
+    { name:"Normal Saline (0.9% NaCl)", sub:"Volume Replacement / DKA / Heat Emergency", dose:"250–1,000 mL IV bolus (titrate)", route:"IV/IO", conc:"0.9% NaCl", draw:"250–1,000 mL bag", syringe:"None — IV bag & tubing", notes:"Caution in pulmonary edema or CHF.", ci:["Cardiogenic pulmonary edema (large volumes)"], scope:"AEMT", redoseMins:null, maxDoses:null },
+    { name:"Sodium Bicarbonate", sub:"Metabolic Acidosis / DKA / Hyperkalemia", dose:"1 mEq/kg IV", route:"IV", conc:"1 mEq/mL (8.4%)", draw:"1 mL/kg", syringe:"50 mL prefilled syringe (50 mEq)", notes:"DKA: use only if pH <7.0 and hemodynamically unstable. Alkalinizes serum. Do NOT mix with calcium or epinephrine. Flush line before and after.", ci:["Metabolic alkalosis","Hypernatremia"], scope:"Medic", wt:true, mpk:1, cmpml:1, unit:"mEq", redoseMins:null, maxDoses:null },
+    { name:"Calcium Chloride 10%", sub:"Hyperkalemia — Cardiac Membrane Stabilization", dose:"1 g (10 mL) IV slow push over 3–5 min", route:"IV", conc:"100 mg/mL (10%)", draw:"10 mL prefilled syringe", syringe:"10 mL prefilled syringe", notes:"Stabilizes cardiac membrane — does NOT lower potassium. Combine with bicarb and albuterol for full hyperkalemia treatment. Do NOT mix with bicarb in same line.", ci:["Ventricular fibrillation","Digitalis toxicity","Hypercalcemia"], scope:"Medic", redoseMins:null, maxDoses:null },
+    { name:"Thiamine (B1)", sub:"Pre-Glucose Administration / Wernicke's Prevention", dose:"100 mg IV/IM", route:"IV/IM", conc:"100 mg/mL", draw:"1 mL", syringe:"3 mL syringe", notes:"Give BEFORE dextrose in known or suspected alcoholism or malnourished patients. Prevents Wernicke's encephalopathy.", ci:[], scope:"Medic", redoseMins:null, maxDoses:1 },
   ],
   anaphylaxis: [
-    { name:"Epinephrine 1:1,000", sub:"Anaphylaxis — FIRST LINE", dose:"0.3–0.5 mg IM (lateral thigh)", route:"IM", conc:"1 mg/mL", draw:"0.3–0.5 mL", notes:"FIRST-LINE. Lateral mid-thigh preferred. Repeat every 5–15 min.", ci:["None absolute in anaphylaxis"], scope:"EMT", redoseMins:10, maxDoses:3 },
-    { name:"Diphenhydramine (Benadryl)", sub:"Allergic Reaction (adjunct to epi)", dose:"25–50 mg IV/IM", route:"IV/IM", conc:"50 mg/mL", draw:"0.5–1 mL", notes:"ADJUNCT only — never first-line. Slow IV push.", ci:["Narrow-angle glaucoma","Prostatic hypertrophy (relative)"], scope:"AEMT", redoseMins:null, maxDoses:1 },
-    { name:"Methylprednisolone", sub:"Anaphylaxis — biphasic prevention", dose:"125 mg IV/IM", route:"IV/IM", conc:"125 mg/2 mL", draw:"2 mL", notes:"Secondary agent. Delayed onset. Prevents biphasic reaction.", ci:[], scope:"Medic", redoseMins:null, maxDoses:1 },
-    { name:"Albuterol", sub:"Bronchospasm in Anaphylaxis", dose:"2.5 mg nebulized", route:"Nebulizer", conc:"0.83 mg/mL", draw:"1 unit dose in neb cup", notes:"Give after epinephrine for persistent bronchospasm.", ci:[], scope:"EMT", redoseMins:20, maxDoses:null },
+    { name:"Epinephrine 1:1,000", sub:"Anaphylaxis — FIRST LINE", dose:"0.3–0.5 mg IM (lateral thigh)", route:"IM", conc:"1 mg/mL", draw:"0.3–0.5 mL", syringe:"1 mL syringe + IM needle (1–1.5 in) — or auto-injector", notes:"FIRST-LINE. Lateral mid-thigh preferred. Repeat every 5–15 min.", ci:["None absolute in anaphylaxis"], scope:"EMT", redoseMins:10, maxDoses:3 },
+    { name:"Diphenhydramine (Benadryl)", sub:"Allergic Reaction (adjunct to epi)", dose:"25–50 mg IV/IM", route:"IV/IM", conc:"50 mg/mL", draw:"0.5–1 mL", syringe:"3 mL syringe", notes:"ADJUNCT only — never first-line. Slow IV push.", ci:["Narrow-angle glaucoma","Prostatic hypertrophy (relative)"], scope:"AEMT", redoseMins:null, maxDoses:1 },
+    { name:"Methylprednisolone", sub:"Anaphylaxis — biphasic prevention", dose:"125 mg IV/IM", route:"IV/IM", conc:"125 mg/2 mL", draw:"2 mL", syringe:"3 mL syringe (2 mL Act-O-Vial)", notes:"Secondary agent. Delayed onset. Prevents biphasic reaction.", ci:[], scope:"Medic", redoseMins:null, maxDoses:1 },
+    { name:"Albuterol", sub:"Bronchospasm in Anaphylaxis", dose:"2.5 mg nebulized", route:"Nebulizer", conc:"0.83 mg/mL", draw:"1 unit dose in neb cup", syringe:"None — nebulizer unit dose", notes:"Give after epinephrine for persistent bronchospasm.", ci:[], scope:"EMT", redoseMins:20, maxDoses:null },
   ],
   pain: [
     { name:"Fentanyl", sub:"Moderate–Severe Pain", dose:"1–2 mcg/kg IV/IM/IN", route:"IV/IM/IN", conc:"50 mcg/mL", draw:"Varies by weight", syringe:"3 mL; MAD for IN", notes:"IN: 2 mcg/kg, max 1 mL per nostril. Monitor resp depression.", ci:["Significant respiratory depression","Hemodynamic instability (relative)"], scope:"Medic", wt:true, mpk:0.001, cmpml:0.05, unit:"mcg", dmult:1000, redoseMins:10, maxDoses:null },
-    { name:"Morphine Sulfate", sub:"Moderate–Severe Pain / ACS", dose:"2–4 mg IV q5–15 min (titrate)", route:"IV/IM", conc:"2 mg/mL", draw:"1–2 mL", notes:"Slow IVP. Caution in hypotension and respiratory depression.", ci:["Hypotension","Severe respiratory depression"], scope:"Medic", redoseMins:10, maxDoses:null },
-    { name:"Ketorolac (Toradol)", sub:"Moderate Pain — non-narcotic", dose:"15–30 mg IV · 30 mg IM", route:"IV/IM", conc:"30 mg/mL", draw:"0.5–1 mL IV · 1 mL IM", notes:"Slow IV push over 15 sec. Avoid in elderly, renal failure, GI bleed.", ci:["Active GI bleeding","Renal failure","NSAID allergy","Age >65 (reduce dose)"], scope:"Medic", redoseMins:null, maxDoses:1 },
-    { name:"Acetaminophen IV (Ofirmev)", sub:"Moderate Pain / Fever", dose:"1,000 mg IV over 15 min (≥50 kg) · 15 mg/kg <50 kg (max 750 mg)", route:"IV infusion", conc:"10 mg/mL", draw:"100 mL bag over 15 min", notes:"Max 4 g/day.", ci:["Hepatic failure","Acetaminophen allergy"], scope:"Medic", redoseMins:null, maxDoses:1 },
-    { name:"Ketamine", sub:"Pain / Excited Delirium / RSI", dose:"Pain: 0.1–0.3 mg/kg IV · Behavioral: 4–6 mg/kg IM · RSI: 1–2 mg/kg IV", route:"IV/IM", conc:"10 mg/mL or 50 mg/mL", draw:"Varies by weight and indication", notes:"Sub-dissociative (0.3 mg/kg IV) for pain. Full dissociative for RSI.", ci:["History of schizophrenia","Age <3 months"], scope:"Medic", wt:true, mpk:0.3, cmpml:10, redoseMins:null, maxDoses:null },
-    { name:"Midazolam (Versed)", sub:"Procedural Sedation / Agitation", dose:"1–2.5 mg IV · 5 mg IM/IN", route:"IV/IM/IN", conc:"5 mg/mL", draw:"0.5–1 mL IV · 1 mL IM", notes:"Titrate slowly IV. Reversal: Flumazenil 0.2 mg IV.", ci:["Significant respiratory depression","Hypotension (relative)"], scope:"Medic", redoseMins:10, maxDoses:2 },
-    { name:"Haloperidol (Haldol)", sub:"Acute Agitation / Behavioral Emergency", dose:"5 mg IM (may repeat; max 20 mg total)", route:"IM", conc:"5 mg/mL", draw:"1 mL", notes:"Monitor QT prolongation. Avoid in Parkinson's. Onset 20–40 min IM.", ci:["Parkinson's disease","Known QT prolongation","CNS depression"], scope:"Medic", redoseMins:30, maxDoses:4 },
+    { name:"Morphine Sulfate", sub:"Moderate–Severe Pain / ACS", dose:"2–4 mg IV q5–15 min (titrate)", route:"IV/IM", conc:"2 mg/mL", draw:"1–2 mL", syringe:"3 mL syringe", notes:"Slow IVP. Caution in hypotension and respiratory depression.", ci:["Hypotension","Severe respiratory depression"], scope:"Medic", redoseMins:10, maxDoses:null },
+    { name:"Ketorolac (Toradol)", sub:"Moderate Pain — non-narcotic", dose:"15–30 mg IV · 30 mg IM", route:"IV/IM", conc:"30 mg/mL", draw:"0.5–1 mL IV · 1 mL IM", syringe:"3 mL syringe", notes:"Slow IV push over 15 sec. Avoid in elderly, renal failure, GI bleed.", ci:["Active GI bleeding","Renal failure","NSAID allergy","Age >65 (reduce dose)"], scope:"Medic", redoseMins:null, maxDoses:1 },
+    { name:"Acetaminophen IV (Ofirmev)", sub:"Moderate Pain / Fever", dose:"1,000 mg IV over 15 min (≥50 kg) · 15 mg/kg <50 kg (max 750 mg)", route:"IV infusion", conc:"10 mg/mL", draw:"100 mL bag over 15 min", syringe:"None — 100 mL bottle/bag over 15 min", notes:"Max 4 g/day.", ci:["Hepatic failure","Acetaminophen allergy"], scope:"Medic", redoseMins:null, maxDoses:1 },
+    { name:"Ketamine", sub:"Pain / Excited Delirium / RSI", dose:"Pain: 0.1–0.3 mg/kg IV · Behavioral: 4–6 mg/kg IM · RSI: 1–2 mg/kg IV", route:"IV/IM", conc:"10 mg/mL or 50 mg/mL", draw:"Varies by weight and indication", syringe:"3 mL syringe (pain doses) · 5–10 mL syringe (RSI / IM sedation)", notes:"Sub-dissociative (0.3 mg/kg IV) for pain. Full dissociative for RSI.", ci:["History of schizophrenia","Age <3 months"], scope:"Medic", wt:true, mpk:0.3, cmpml:10, redoseMins:null, maxDoses:null },
+    { name:"Midazolam (Versed)", sub:"Procedural Sedation / Agitation", dose:"1–2.5 mg IV · 5 mg IM/IN", route:"IV/IM/IN", conc:"5 mg/mL", draw:"0.5–1 mL IV · 1 mL IM", syringe:"3 mL syringe · MAD atomizer for IN", notes:"Titrate slowly IV. Reversal: Flumazenil 0.2 mg IV.", ci:["Significant respiratory depression","Hypotension (relative)"], scope:"Medic", redoseMins:10, maxDoses:2 },
+    { name:"Haloperidol (Haldol)", sub:"Acute Agitation / Behavioral Emergency", dose:"5 mg IM (may repeat; max 20 mg total)", route:"IM", conc:"5 mg/mL", draw:"1 mL", syringe:"3 mL syringe + IM needle", notes:"Monitor QT prolongation. Avoid in Parkinson's. Onset 20–40 min IM.", ci:["Parkinson's disease","Known QT prolongation","CNS depression"], scope:"Medic", redoseMins:30, maxDoses:4 },
   ],
   toxicology: [
-    { name:"Naloxone (Narcan)", sub:"Opioid Overdose", dose:"0.4–2 mg IV/IM/IN (titrate)", route:"IV/IM/IN", conc:"0.4 mg/mL or 1 mg/mL", draw:"1–5 mL (0.4 mg/mL) · 2 mL IN", notes:"Titrate to adequate respirations only. Monitor for re-narcotization.", ci:[], scope:"EMT", redoseMins:3, maxDoses:null },
-    { name:"Atropine (Organophosphate)", sub:"Organophosphate / Nerve Agent Poisoning", dose:"2–4 mg IV/IM q5–10 min until secretions dry", route:"IV/IM", conc:"0.1 mg/mL", draw:"20–40 mL per dose", notes:"ENDPOINT = DRYING OF SECRETIONS — not HR.", ci:[], scope:"Medic", redoseMins:7, maxDoses:null },
-    { name:"Sodium Bicarbonate", sub:"TCA OD / Salicylate Toxicity / Hyperkalemia", dose:"1 mEq/kg IV bolus", route:"IV", conc:"1 mEq/mL (8.4%)", draw:"1 mL/kg", notes:"TCA OD: give until QRS narrows. Do NOT mix with calcium or epi.", ci:["Metabolic alkalosis","Hypernatremia"], scope:"Medic", wt:true, mpk:1, cmpml:1, unit:"mEq", redoseMins:null, maxDoses:null },
-    { name:"Glucagon", sub:"Beta-Blocker / CCB Overdose", dose:"3–10 mg IV · 1 mg IM", route:"IV/IM", conc:"1 mg/mL (reconstituted)", draw:"3–10 mL IV", notes:"Reconstitute per kit. Monitor for vomiting.", ci:["Pheochromocytoma","Insulinoma"], scope:"AEMT", redoseMins:null, maxDoses:null },
-    { name:"Activated Charcoal", sub:"Certain Toxic Ingestions (within 1 hr)", dose:"1 g/kg PO (max 50–100 g)", route:"PO", conc:"25 g/120 mL or 50 g/240 mL", draw:"50 g standard adult dose", notes:"NOT for caustics, hydrocarbons, or AMS.", ci:["AMS","Caustic ingestion","Hydrocarbon ingestion","Unprotected airway"], scope:"Medic", redoseMins:null, maxDoses:1 },
+    { name:"Naloxone (Narcan)", sub:"Opioid Overdose", dose:"0.4–2 mg IV/IM/IN (titrate)", route:"IV/IM/IN", conc:"0.4 mg/mL or 1 mg/mL", draw:"1–5 mL (0.4 mg/mL) · 2 mL IN", syringe:"5 mL syringe IV/IM (0.4 mg/mL) · MAD atomizer or nasal spray for IN", notes:"Titrate to adequate respirations only. Monitor for re-narcotization.", ci:[], scope:"EMT", redoseMins:3, maxDoses:null },
+    { name:"Atropine (Organophosphate)", sub:"Organophosphate / Nerve Agent Poisoning", dose:"2–4 mg IV/IM q5–10 min until secretions dry", route:"IV/IM", conc:"0.1 mg/mL", draw:"20–40 mL per dose", syringe:"Multiple 10 mL prefilled syringes, or 30–60 mL syringe from multi-dose vial", notes:"ENDPOINT = DRYING OF SECRETIONS — not HR.", ci:[], scope:"Medic", redoseMins:7, maxDoses:null },
+    { name:"Sodium Bicarbonate", sub:"TCA OD / Salicylate Toxicity / Hyperkalemia", dose:"1 mEq/kg IV bolus", route:"IV", conc:"1 mEq/mL (8.4%)", draw:"1 mL/kg", syringe:"50 mL prefilled syringe (50 mEq)", notes:"TCA OD: give until QRS narrows. Do NOT mix with calcium or epi.", ci:["Metabolic alkalosis","Hypernatremia"], scope:"Medic", wt:true, mpk:1, cmpml:1, unit:"mEq", redoseMins:null, maxDoses:null },
+    { name:"Glucagon", sub:"Beta-Blocker / CCB Overdose", dose:"3–10 mg IV · 1 mg IM", route:"IV/IM", conc:"1 mg/mL (reconstituted)", draw:"3–10 mL IV", syringe:"10 mL syringe (multiple reconstituted kits)", notes:"Reconstitute per kit. Monitor for vomiting.", ci:["Pheochromocytoma","Insulinoma"], scope:"AEMT", redoseMins:null, maxDoses:null },
+    { name:"Activated Charcoal", sub:"Certain Toxic Ingestions (within 1 hr)", dose:"1 g/kg PO (max 50–100 g)", route:"PO", conc:"25 g/120 mL or 50 g/240 mL", draw:"50 g standard adult dose", syringe:"None — PO bottle", notes:"NOT for caustics, hydrocarbons, or AMS.", ci:["AMS","Caustic ingestion","Hydrocarbon ingestion","Unprotected airway"], scope:"Medic", redoseMins:null, maxDoses:1 },
   ],
   obgyn: [
-    { name:"Magnesium Sulfate", sub:"Eclampsia / Severe Pre-Eclampsia", dose:"4–6 g IV over 15–20 min (loading)", route:"IV infusion", conc:"500 mg/mL — dilute 4 g in 100 mL NS", draw:"8 mL (4 g) in 100 mL NS", notes:"Monitor: DTRs, RR >12/min, UO >25 mL/hr. Antidote: Calcium Gluconate 1 g IV.", ci:["Renal failure (relative)","Myasthenia gravis","Heart block"], scope:"Medic", redoseMins:null, maxDoses:1 },
-    { name:"Oxytocin (Pitocin)", sub:"Postpartum Hemorrhage", dose:"10–40 units in 1 L NS at 500 mL/hr", route:"IV infusion", conc:"10 units/mL", draw:"1–4 mL in 1 L NS bag", notes:"ONLY after placental delivery. NEVER undiluted IVP.", ci:["Before placental delivery","Undiluted IV push"], scope:"Medic", redoseMins:null, maxDoses:1 },
-    { name:"Epinephrine 1:1,000", sub:"Anaphylaxis in Pregnancy", dose:"0.3–0.5 mg IM (lateral thigh)", route:"IM", conc:"1 mg/mL", draw:"0.3–0.5 mL", notes:"Do NOT withhold due to fetal concerns — maternal survival is priority.", ci:[], scope:"AEMT", redoseMins:10, maxDoses:3 },
+    { name:"Magnesium Sulfate", sub:"Eclampsia / Severe Pre-Eclampsia", dose:"4–6 g IV over 15–20 min (loading)", route:"IV infusion", conc:"500 mg/mL — dilute 4 g in 100 mL NS", draw:"8 mL (4 g) in 100 mL NS", syringe:"10 mL syringe to draw (8 mL) — inject into 100 mL NS bag", notes:"Monitor: DTRs, RR >12/min, UO >25 mL/hr. Antidote: Calcium Gluconate 1 g IV.", ci:["Renal failure (relative)","Myasthenia gravis","Heart block"], scope:"Medic", redoseMins:null, maxDoses:1 },
+    { name:"Oxytocin (Pitocin)", sub:"Postpartum Hemorrhage", dose:"10–40 units in 1 L NS at 500 mL/hr", route:"IV infusion", conc:"10 units/mL", draw:"1–4 mL in 1 L NS bag", syringe:"5 mL syringe to draw — add to 1 L NS bag", notes:"ONLY after placental delivery. NEVER undiluted IVP.", ci:["Before placental delivery","Undiluted IV push"], scope:"Medic", redoseMins:null, maxDoses:1 },
+    { name:"Epinephrine 1:1,000", sub:"Anaphylaxis in Pregnancy", dose:"0.3–0.5 mg IM (lateral thigh)", route:"IM", conc:"1 mg/mL", draw:"0.3–0.5 mL", syringe:"1 mL syringe + IM needle (1–1.5 in) — or auto-injector", notes:"Do NOT withhold due to fetal concerns — maternal survival is priority.", ci:[], scope:"AEMT", redoseMins:10, maxDoses:3 },
   ],
   trauma: [
-    { name:"Tranexamic Acid (TXA)", sub:"Hemorrhagic Shock — within 3 hrs of injury", dose:"1 g IV over 10 min", route:"IV infusion", conc:"100 mg/mL", draw:"10 mL in 100 mL NS over 10 min", notes:"CRITICAL: Give within 3 hours of injury only.", ci:["Injury >3 hrs prior","Active thromboembolic disease","Subarachnoid hemorrhage"], scope:"Medic", redoseMins:null, maxDoses:1 },
-    { name:"Normal Saline / LR", sub:"Hemorrhagic Shock — Permissive Hypotension", dose:"250–500 mL IV bolus; titrate to SBP 80–90", route:"IV/IO wide-bore", conc:"0.9% NaCl or LR", draw:"250–500 mL bolus; reassess after each", notes:"PERMISSIVE HYPOTENSION target: SBP 80–90. LR preferred.", ci:["TBI with suspected ICP elevation"], scope:"AEMT", redoseMins:null, maxDoses:null },
-    { name:"Ketamine", sub:"Trauma Pain / RSI Induction", dose:"Pain: 0.1–0.3 mg/kg IV · RSI: 1–2 mg/kg IV · IM: 4 mg/kg", route:"IV/IM", conc:"10 mg/mL or 50 mg/mL", draw:"Varies by weight", notes:"Drug of choice for hemodynamically unstable trauma.", ci:["Suspected aortic dissection (relative)"], scope:"Medic", wt:true, mpk:0.3, cmpml:10, redoseMins:null, maxDoses:null },
-    { name:"Fentanyl", sub:"Trauma Pain (hemodynamically stable)", dose:"1–2 mcg/kg IV/IM/IN", route:"IV/IM/IN", conc:"50 mcg/mL", draw:"Varies by weight", notes:"Use Ketamine first if hemodynamically unstable.", ci:["Significant respiratory depression","Hypotension"], scope:"Medic", wt:true, mpk:0.001, cmpml:0.05, unit:"mcg", dmult:1000, redoseMins:10, maxDoses:null },
-    { name:"Calcium Chloride 10%", sub:"Crush Syndrome / Hyperkalemia / Massive Transfusion", dose:"1 g (10 mL) IV slow push over 3–5 min", route:"IV", conc:"100 mg/mL (10%)", draw:"10 mL prefilled syringe", notes:"For crush syndrome: give before releasing entrapment >4 hrs. Do NOT mix with bicarb.", ci:["Ventricular fibrillation","Digitalis toxicity","Hypercalcemia"], scope:"Medic", redoseMins:null, maxDoses:null },
-    { name:"Sodium Bicarbonate", sub:"Crush Syndrome — Rhabdomyolysis Alkalinization", dose:"1 mEq/kg IV bolus; then infusion", route:"IV/IO", conc:"1 mEq/mL (8.4%)", draw:"1 mL/kg", notes:"Alkalinizes urine to prevent myoglobin precipitation. Give after calcium.", ci:["Metabolic alkalosis"], scope:"Medic", wt:true, mpk:1, cmpml:1, unit:"mEq", redoseMins:null, maxDoses:null },
-    { name:"Epinephrine 1:10,000", sub:"Traumatic Cardiac Arrest", dose:"1 mg IV/IO q3–5 min", route:"IV/IO", conc:"0.1 mg/mL", draw:"10 mL", notes:"Address reversible causes first (4 H's and 4 T's).", ci:[], scope:"AEMT", redoseMins:4, maxDoses:null },
-    { name:"Midazolam (Versed)", sub:"RSI Pre-medication / Combative Trauma", dose:"2–5 mg IV · 5–10 mg IM", route:"IV/IM", conc:"5 mg/mL", draw:"0.5–1 mL IV · 1–2 mL IM", notes:"Caution in hypotensive trauma. Prefer ketamine for unstable patients.", ci:["Hemodynamic instability (relative)","Significant respiratory depression"], scope:"Medic", redoseMins:10, maxDoses:2 },
+    { name:"Tranexamic Acid (TXA)", sub:"Hemorrhagic Shock — within 3 hrs of injury", dose:"1 g IV over 10 min", route:"IV infusion", conc:"100 mg/mL", draw:"10 mL in 100 mL NS over 10 min", syringe:"10 mL syringe to draw — inject into 100 mL NS bag", notes:"CRITICAL: Give within 3 hours of injury only.", ci:["Injury >3 hrs prior","Active thromboembolic disease","Subarachnoid hemorrhage"], scope:"Medic", redoseMins:null, maxDoses:1 },
+    { name:"Normal Saline / LR", sub:"Hemorrhagic Shock — Permissive Hypotension", dose:"250–500 mL IV bolus; titrate to SBP 80–90", route:"IV/IO wide-bore", conc:"0.9% NaCl or LR", draw:"250–500 mL bolus; reassess after each", syringe:"None — IV bag & tubing (wide-bore catheter)", notes:"PERMISSIVE HYPOTENSION target: SBP 80–90. LR preferred.", ci:["TBI with suspected ICP elevation"], scope:"AEMT", redoseMins:null, maxDoses:null },
+    { name:"Ketamine", sub:"Trauma Pain / RSI Induction", dose:"Pain: 0.1–0.3 mg/kg IV · RSI: 1–2 mg/kg IV · IM: 4 mg/kg", route:"IV/IM", conc:"10 mg/mL or 50 mg/mL", draw:"Varies by weight", syringe:"3 mL syringe (pain doses) · 5–10 mL syringe (RSI / IM sedation)", notes:"Drug of choice for hemodynamically unstable trauma.", ci:["Suspected aortic dissection (relative)"], scope:"Medic", wt:true, mpk:0.3, cmpml:10, redoseMins:null, maxDoses:null },
+    { name:"Fentanyl", sub:"Trauma Pain (hemodynamically stable)", dose:"1–2 mcg/kg IV/IM/IN", route:"IV/IM/IN", conc:"50 mcg/mL", draw:"Varies by weight", syringe:"3 mL syringe · MAD atomizer for IN", notes:"Use Ketamine first if hemodynamically unstable.", ci:["Significant respiratory depression","Hypotension"], scope:"Medic", wt:true, mpk:0.001, cmpml:0.05, unit:"mcg", dmult:1000, redoseMins:10, maxDoses:null },
+    { name:"Calcium Chloride 10%", sub:"Crush Syndrome / Hyperkalemia / Massive Transfusion", dose:"1 g (10 mL) IV slow push over 3–5 min", route:"IV", conc:"100 mg/mL (10%)", draw:"10 mL prefilled syringe", syringe:"10 mL prefilled syringe", notes:"For crush syndrome: give before releasing entrapment >4 hrs. Do NOT mix with bicarb.", ci:["Ventricular fibrillation","Digitalis toxicity","Hypercalcemia"], scope:"Medic", redoseMins:null, maxDoses:null },
+    { name:"Sodium Bicarbonate", sub:"Crush Syndrome — Rhabdomyolysis Alkalinization", dose:"1 mEq/kg IV bolus; then infusion", route:"IV/IO", conc:"1 mEq/mL (8.4%)", draw:"1 mL/kg", syringe:"50 mL prefilled syringe (50 mEq)", notes:"Alkalinizes urine to prevent myoglobin precipitation. Give after calcium.", ci:["Metabolic alkalosis"], scope:"Medic", wt:true, mpk:1, cmpml:1, unit:"mEq", redoseMins:null, maxDoses:null },
+    { name:"Epinephrine 1:10,000", sub:"Traumatic Cardiac Arrest", dose:"1 mg IV/IO q3–5 min", route:"IV/IO", conc:"0.1 mg/mL", draw:"10 mL", syringe:"10 mL prefilled syringe", notes:"Address reversible causes first (4 H's and 4 T's).", ci:[], scope:"AEMT", redoseMins:4, maxDoses:null },
+    { name:"Midazolam (Versed)", sub:"RSI Pre-medication / Combative Trauma", dose:"2–5 mg IV · 5–10 mg IM", route:"IV/IM", conc:"5 mg/mL", draw:"0.5–1 mL IV · 1–2 mL IM", syringe:"3 mL syringe · MAD atomizer for IN", notes:"Caution in hypotensive trauma. Prefer ketamine for unstable patients.", ci:["Hemodynamic instability (relative)","Significant respiratory depression"], scope:"Medic", redoseMins:10, maxDoses:2 },
   ],
   burns: [
-    { name:"Normal Saline / LR (Parkland)", sub:"Burn Fluid Resuscitation — Parkland Formula", dose:"4 mL × kg × % TBSA in 24 hrs · First half in first 8 hrs from burn", route:"IV large-bore (2 sites)", conc:"0.9% NaCl or LR (preferred)", draw:"Calculate: 4 × wt(kg) × % TBSA = total mL / 24 h", notes:"Clock starts at TIME OF BURN. Target UO 0.5–1 mL/kg/hr.", ci:["<15% TBSA (oral hydration may suffice)"], scope:"AEMT", redoseMins:null, maxDoses:null },
-    { name:"Morphine Sulfate", sub:"Burn Pain Management", dose:"2–4 mg IV slow push q5–15 min", route:"IV", conc:"2 mg/mL", draw:"1–2 mL per dose", notes:"IV strongly preferred — IM/SQ unreliable in burns.", ci:["Hypotension","Significant respiratory depression"], scope:"Medic", redoseMins:10, maxDoses:null },
-    { name:"Fentanyl", sub:"Burn Pain — IV or Intranasal", dose:"1–2 mcg/kg IV/IN", route:"IV/IN", conc:"50 mcg/mL", draw:"Varies by weight", notes:"Preferred for initial burn analgesia. Faster onset than morphine.", ci:["Significant respiratory depression","Hemodynamic instability (relative)"], scope:"Medic", wt:true, mpk:0.001, cmpml:0.05, unit:"mcg", dmult:1000, redoseMins:10, maxDoses:null },
-    { name:"Ketamine", sub:"Burn Pain / Dressing Change / Procedural Sedation", dose:"Sub-dissoc: 0.1–0.3 mg/kg IV · Procedural: 1–2 mg/kg IV · IM: 4 mg/kg", route:"IV/IM", conc:"10 mg/mL or 50 mg/mL", draw:"Varies by weight and indication", notes:"Excellent for burn dressing changes. Maintains hemodynamics.", ci:["History of schizophrenia"], scope:"Medic", wt:true, mpk:0.3, cmpml:10, redoseMins:null, maxDoses:null },
-    { name:"Albuterol", sub:"Inhalation Injury — Bronchospasm", dose:"2.5 mg nebulized (may repeat)", route:"Nebulizer", conc:"0.83 mg/mL (2.5 mg/3 mL unit)", draw:"1 unit dose (3 mL) in neb cup", notes:"Give early for wheezing, stridor, or hoarseness.", ci:["Tachyarrhythmia (relative)"], scope:"EMT", redoseMins:20, maxDoses:null },
-    { name:"Epi 1:1,000 (Neb)", sub:"Severe Inhalation Injury / Airway Edema", dose:"5 mg (5 mL of 1 mg/mL) nebulized", route:"Nebulizer", conc:"1 mg/mL", draw:"5 mL in neb cup", notes:"Temporizing measure for impending upper airway edema. Early definitive airway is priority.", ci:["Tachyarrhythmia"], scope:"Medic", redoseMins:null, maxDoses:1 },
-    { name:"Midazolam (Versed)", sub:"Burn Sedation / RSI Pre-medication", dose:"2–5 mg IV · 5 mg IM", route:"IV/IM", conc:"5 mg/mL", draw:"0.5–1 mL IV · 1 mL IM", notes:"Pair with ketamine for better hemodynamic stability.", ci:["Hemodynamic instability (relative)","Significant respiratory depression"], scope:"Medic", redoseMins:10, maxDoses:2 },
+    { name:"Normal Saline / LR (Parkland)", sub:"Burn Fluid Resuscitation — Parkland Formula", dose:"4 mL × kg × % TBSA in 24 hrs · First half in first 8 hrs from burn", route:"IV large-bore (2 sites)", conc:"0.9% NaCl or LR (preferred)", draw:"Calculate: 4 × wt(kg) × % TBSA = total mL / 24 h", syringe:"None — IV bags (2 large-bore lines)", notes:"Clock starts at TIME OF BURN. Target UO 0.5–1 mL/kg/hr.", ci:["<15% TBSA (oral hydration may suffice)"], scope:"AEMT", redoseMins:null, maxDoses:null },
+    { name:"Morphine Sulfate", sub:"Burn Pain Management", dose:"2–4 mg IV slow push q5–15 min", route:"IV", conc:"2 mg/mL", draw:"1–2 mL per dose", syringe:"3 mL syringe", notes:"IV strongly preferred — IM/SQ unreliable in burns.", ci:["Hypotension","Significant respiratory depression"], scope:"Medic", redoseMins:10, maxDoses:null },
+    { name:"Fentanyl", sub:"Burn Pain — IV or Intranasal", dose:"1–2 mcg/kg IV/IN", route:"IV/IN", conc:"50 mcg/mL", draw:"Varies by weight", syringe:"3 mL syringe · MAD atomizer for IN", notes:"Preferred for initial burn analgesia. Faster onset than morphine.", ci:["Significant respiratory depression","Hemodynamic instability (relative)"], scope:"Medic", wt:true, mpk:0.001, cmpml:0.05, unit:"mcg", dmult:1000, redoseMins:10, maxDoses:null },
+    { name:"Ketamine", sub:"Burn Pain / Dressing Change / Procedural Sedation", dose:"Sub-dissoc: 0.1–0.3 mg/kg IV · Procedural: 1–2 mg/kg IV · IM: 4 mg/kg", route:"IV/IM", conc:"10 mg/mL or 50 mg/mL", draw:"Varies by weight and indication", syringe:"3 mL syringe (pain doses) · 5–10 mL syringe (RSI / IM sedation)", notes:"Excellent for burn dressing changes. Maintains hemodynamics.", ci:["History of schizophrenia"], scope:"Medic", wt:true, mpk:0.3, cmpml:10, redoseMins:null, maxDoses:null },
+    { name:"Albuterol", sub:"Inhalation Injury — Bronchospasm", dose:"2.5 mg nebulized (may repeat)", route:"Nebulizer", conc:"0.83 mg/mL (2.5 mg/3 mL unit)", draw:"1 unit dose (3 mL) in neb cup", syringe:"None — nebulizer unit dose", notes:"Give early for wheezing, stridor, or hoarseness.", ci:["Tachyarrhythmia (relative)"], scope:"EMT", redoseMins:20, maxDoses:null },
+    { name:"Epi 1:1,000 (Neb)", sub:"Severe Inhalation Injury / Airway Edema", dose:"5 mg (5 mL of 1 mg/mL) nebulized", route:"Nebulizer", conc:"1 mg/mL", draw:"5 mL in neb cup", syringe:"5 mL syringe to draw into neb cup", notes:"Temporizing measure for impending upper airway edema. Early definitive airway is priority.", ci:["Tachyarrhythmia"], scope:"Medic", redoseMins:null, maxDoses:1 },
+    { name:"Midazolam (Versed)", sub:"Burn Sedation / RSI Pre-medication", dose:"2–5 mg IV · 5 mg IM", route:"IV/IM", conc:"5 mg/mL", draw:"0.5–1 mL IV · 1 mL IM", syringe:"3 mL syringe · MAD atomizer for IN", notes:"Pair with ketamine for better hemodynamic stability.", ci:["Hemodynamic instability (relative)","Significant respiratory depression"], scope:"Medic", redoseMins:10, maxDoses:2 },
   ],
 };
 
 const PEDS = {
   metabolic: [
-    { name:"Ondansetron", sub:"Nausea / Vomiting — Pediatric", dose:"0.1 mg/kg IV/IM (max 4 mg) · 4 mg ODT when appropriate", route:"IV/IM/PO", conc:"2 mg/mL injection · 4 mg ODT", draw:"0.05 mL/kg injection (max 2 mL) or 1 ODT", notes:"Administer IV slowly. Use ODT only when age, swallowing ability, and local protocol permit. Consider ECG monitoring when QT-prolongation risk is present.", ci:["Known hypersensitivity","Congenital long-QT syndrome","Concurrent apomorphine"], scope:"Medic", wt:true, mpk:0.1, cmpml:2, maxd:4, redoseMins:null, maxDoses:1 },
+    { name:"Ondansetron", sub:"Nausea / Vomiting — Pediatric", dose:"0.1 mg/kg IV/IM (max 4 mg) · 4 mg ODT when appropriate", route:"IV/IM/PO", conc:"2 mg/mL injection · 4 mg ODT", draw:"0.05 mL/kg injection (max 2 mL) or 1 ODT", syringe:"1 or 3 mL syringe by weight · ODT: none", notes:"Administer IV slowly. Use ODT only when age, swallowing ability, and local protocol permit. Consider ECG monitoring when QT-prolongation risk is present.", ci:["Known hypersensitivity","Congenital long-QT syndrome","Concurrent apomorphine"], scope:"Medic", wt:true, mpk:0.1, cmpml:2, maxd:4, redoseMins:null, maxDoses:1 },
   ],
   cardiac: [
-    { name:"Epinephrine 1:10,000", sub:"Cardiac Arrest", dose:"0.01 mg/kg IV/IO q3–5 min", route:"IV/IO", conc:"0.1 mg/mL", draw:"0.1 mL/kg (max 10 mL)", notes:"Max 1 mg per dose. Flush 3–5 mL NS after each dose. No established maximum dose per AHA/ACLS — continue every 3–5 min throughout arrest.", ci:[], scope:"AEMT", wt:true, mpk:0.01, cmpml:0.1, maxd:1, redoseMins:4, maxDoses:null },
-    { name:"Adenosine", sub:"SVT", dose:"0.1 mg/kg rapid IVP (max 6 mg)", route:"Rapid IV proximal + flush", conc:"3 mg/mL", draw:"Varies by weight (max 2 mL)", notes:"Push FAST + flush 10–20 mL NS. 2nd dose: 0.2 mg/kg (max 12 mg).", ci:["2nd/3rd degree AV block","Asthma (relative)"], scope:"Medic", wt:true, mpk:0.1, cmpml:3, maxd:6, redoseMins:2, maxDoses:3 },
-    { name:"Amiodarone", sub:"VF / pVT (refractory)", dose:"5 mg/kg IV/IO (max 300 mg per dose)", route:"IV/IO", conc:"50 mg/mL", draw:"Varies by weight (max 6 mL per dose)", notes:"Max 300 mg per dose. Dilute in D5W. Both doses are equal weight-based amounts. Stable arrhythmia: give over 20–60 min.", maxDoseNote:"Max 300 mg/dose · Max 2 doses (600 mg total)", ci:[], scope:"Medic", wt:true, mpk:5, cmpml:50, maxd:300, redoseMins:2, maxDoses:2 },
-    { name:"Atropine", sub:"Symptomatic Bradycardia", dose:"0.02 mg/kg IV/IO", route:"IV/IO", conc:"0.1 mg/mL", draw:"Varies by weight", notes:"Min 0.1 mg; max 0.5 mg (child), 1 mg (adolescent).", ci:[], scope:"AEMT", wt:true, mpk:0.02, cmpml:0.1, maxd:0.5, mind:0.1, redoseMins:4, maxDoses:2 },
+    { name:"Epinephrine 1:10,000", sub:"Cardiac Arrest", dose:"0.01 mg/kg IV/IO q3–5 min", route:"IV/IO", conc:"0.1 mg/mL", draw:"0.1 mL/kg (max 10 mL)", syringe:"Sized to calculated dose (1–10 mL)", notes:"Max 1 mg per dose. Flush 3–5 mL NS after each dose. No established maximum dose per AHA/ACLS — continue every 3–5 min throughout arrest.", ci:[], scope:"AEMT", wt:true, mpk:0.01, cmpml:0.1, maxd:1, redoseMins:4, maxDoses:null },
+    { name:"Adenosine", sub:"SVT", dose:"0.1 mg/kg rapid IVP (max 6 mg)", route:"Rapid IV proximal + flush", conc:"3 mg/mL", draw:"Varies by weight (max 2 mL)", syringe:"1 or 3 mL syringe by weight + 10–20 mL NS flush (stopcock)", notes:"Push FAST + flush 10–20 mL NS. 2nd dose: 0.2 mg/kg (max 12 mg).", ci:["2nd/3rd degree AV block","Asthma (relative)"], scope:"Medic", wt:true, mpk:0.1, cmpml:3, maxd:6, redoseMins:2, maxDoses:3 },
+    { name:"Amiodarone", sub:"VF / pVT (refractory)", dose:"5 mg/kg IV/IO (max 300 mg per dose)", route:"IV/IO", conc:"50 mg/mL", draw:"Varies by weight (max 6 mL per dose)", syringe:"Sized to calculated dose (1–10 mL)", notes:"Max 300 mg per dose. Dilute in D5W. Both doses are equal weight-based amounts. Stable arrhythmia: give over 20–60 min.", maxDoseNote:"Max 300 mg/dose · Max 2 doses (600 mg total)", ci:[], scope:"Medic", wt:true, mpk:5, cmpml:50, maxd:300, redoseMins:2, maxDoses:2 },
+    { name:"Atropine", sub:"Symptomatic Bradycardia", dose:"0.02 mg/kg IV/IO", route:"IV/IO", conc:"0.1 mg/mL", draw:"Varies by weight", syringe:"Sized to calculated dose (prefilled 10 mL or smaller)", notes:"Min 0.1 mg; max 0.5 mg (child), 1 mg (adolescent).", ci:[], scope:"AEMT", wt:true, mpk:0.02, cmpml:0.1, maxd:0.5, mind:0.1, redoseMins:4, maxDoses:2 },
   ],
   airway: [
-    { name:"Succinylcholine", sub:"RSI Paralytic", dose:"1–2 mg/kg IV/IO", route:"IV/IO", conc:"20 mg/mL", draw:"Varies by weight (max 7.5 mL)", notes:"Onset 45–60 sec. Pre-treat with atropine. Contraindicated in hyperkalemia.", ci:["Hyperkalemia","Burns >24 h","Crush injury >24 h","Known myopathy"], scope:"Medic", wt:true, mpk:1.5, cmpml:20, maxd:150, redoseMins:null, maxDoses:1 },
-    { name:"Rocuronium", sub:"RSI Paralytic (if succinylcholine CI)", dose:"1–1.2 mg/kg IV", route:"IV/IO", conc:"10 mg/mL", draw:"Varies by weight (max 10 mL)", notes:"Onset 60–90 sec. Reversal: Sugammadex 16 mg/kg.", ci:["Allergy"], scope:"Medic", wt:true, mpk:1.2, cmpml:10, maxd:100, redoseMins:null, maxDoses:1 },
-    { name:"Ketamine", sub:"RSI Induction / Procedural Sedation", dose:"1–2 mg/kg IV · 4–6 mg/kg IM", route:"IV/IM", conc:"10 mg/mL", draw:"Varies by weight", notes:"Preserves airway reflexes and hemodynamics.", ci:["Age <3 months (relative)","Schizophrenia"], scope:"Medic", wt:true, mpk:2, cmpml:10, maxd:200, redoseMins:null, maxDoses:null },
-    { name:"Midazolam (Versed)", sub:"RSI Pre-medication / Sedation", dose:"0.1–0.3 mg/kg IV/IM/IN", route:"IV/IM/IN", conc:"5 mg/mL", draw:"Varies by weight (max 1 mL)", notes:"IN: use MAD device, max 0.5 mL per nostril.", ci:[], scope:"Medic", wt:true, mpk:0.1, cmpml:5, maxd:5, redoseMins:10, maxDoses:2 },
-    { name:"Atropine (RSI pre-tx)", sub:"RSI Pre-medication — under 1 yr", dose:"0.02 mg/kg IV (3 min before intubation)", route:"IV", conc:"0.1 mg/mL", draw:"Varies by weight", notes:"Prevents vagal bradycardia from laryngoscopy. Min 0.1 mg.", ci:[], scope:"Medic", wt:true, mpk:0.02, cmpml:0.1, maxd:0.5, mind:0.1, redoseMins:null, maxDoses:1 },
+    { name:"Succinylcholine", sub:"RSI Paralytic", dose:"1–2 mg/kg IV/IO", route:"IV/IO", conc:"20 mg/mL", draw:"Varies by weight (max 7.5 mL)", syringe:"Sized to calculated dose (1–10 mL)", notes:"Onset 45–60 sec. Pre-treat with atropine. Contraindicated in hyperkalemia.", ci:["Hyperkalemia","Burns >24 h","Crush injury >24 h","Known myopathy"], scope:"Medic", wt:true, mpk:1.5, cmpml:20, maxd:150, redoseMins:null, maxDoses:1 },
+    { name:"Rocuronium", sub:"RSI Paralytic (if succinylcholine CI)", dose:"1–1.2 mg/kg IV", route:"IV/IO", conc:"10 mg/mL", draw:"Varies by weight (max 10 mL)", syringe:"Sized to calculated dose (1–10 mL)", notes:"Onset 60–90 sec. Reversal: Sugammadex 16 mg/kg.", ci:["Allergy"], scope:"Medic", wt:true, mpk:1.2, cmpml:10, maxd:100, redoseMins:null, maxDoses:1 },
+    { name:"Ketamine", sub:"RSI Induction / Procedural Sedation", dose:"1–2 mg/kg IV · 4–6 mg/kg IM", route:"IV/IM", conc:"10 mg/mL", draw:"Varies by weight", syringe:"Sized to calculated dose (1–5 mL)", notes:"Preserves airway reflexes and hemodynamics.", ci:["Age <3 months (relative)","Schizophrenia"], scope:"Medic", wt:true, mpk:2, cmpml:10, maxd:200, redoseMins:null, maxDoses:null },
+    { name:"Midazolam (Versed)", sub:"RSI Pre-medication / Sedation", dose:"0.1–0.3 mg/kg IV/IM/IN", route:"IV/IM/IN", conc:"5 mg/mL", draw:"Varies by weight (max 1 mL)", syringe:"1 mL syringe · MAD atomizer for IN", notes:"IN: use MAD device, max 0.5 mL per nostril.", ci:[], scope:"Medic", wt:true, mpk:0.1, cmpml:5, maxd:5, redoseMins:10, maxDoses:2 },
+    { name:"Atropine (RSI pre-tx)", sub:"RSI Pre-medication — under 1 yr", dose:"0.02 mg/kg IV (3 min before intubation)", route:"IV", conc:"0.1 mg/mL", draw:"Varies by weight", syringe:"1 mL syringe", notes:"Prevents vagal bradycardia from laryngoscopy. Min 0.1 mg.", ci:[], scope:"Medic", wt:true, mpk:0.02, cmpml:0.1, maxd:0.5, mind:0.1, redoseMins:null, maxDoses:1 },
   ],
   respiratory: [
-    { name:"Albuterol", sub:"Bronchospasm / Asthma — Pediatric", dose:"≥20 kg: 2.5 mg neb · <20 kg: 1.25 mg neb", route:"Nebulizer", conc:"0.83 mg/mL (2.5 mg/3 mL unit)", draw:"Unit dose — see weight", notes:"Repeat q20 min. Continuous neb in severe asthma. Mix with ipratropium in same neb cup.", ci:["Tachyarrhythmia (relative)"], scope:"EMT", redoseMins:20, maxDoses:null },
-    { name:"Ipratropium (Atrovent)", sub:"Bronchospasm — Pediatric Adjunct", dose:"<20 kg: 0.25 mg neb · ≥20 kg: 0.5 mg neb (once)", route:"Nebulizer", conc:"0.02% (0.5 mg/2.5 mL)", draw:"Unit dose — mix with albuterol", notes:"Give ONCE with albuterol. Not effective as sole bronchodilator.", ci:["Peanut/soy allergy (relative)"], scope:"AEMT", redoseMins:null, maxDoses:1 },
-    { name:"Epinephrine 1:1,000 (Nebulized)", sub:"Croup (Laryngotracheobronchitis)", dose:"5 mL of 1:1,000 undiluted via neb", route:"Nebulizer", conc:"1 mg/mL (1:1,000)", draw:"5 mL undiluted in neb cup", notes:"For moderate-severe croup with stridor at rest. Watch for rebound — observe 2+ hrs. Use racemic epi if protocol permits.", ci:[], scope:"Medic", redoseMins:20, maxDoses:2 },
-    { name:"Epinephrine 1:1,000", sub:"Severe Bronchospasm / Near-Fatal Asthma", dose:"0.01 mg/kg IM (max 0.5 mg)", route:"IM (lateral thigh)", conc:"1 mg/mL", draw:"0.01 mL/kg (max 0.5 mL)", notes:"Reserve for life-threatening bronchospasm refractory to nebulized treatment. Monitor HR and rhythm.", ci:[], scope:"AEMT", wt:true, mpk:0.01, cmpml:1, maxd:0.5, redoseMins:15, maxDoses:2 },
-    { name:"Methylprednisolone", sub:"Severe Asthma / Reactive Airway Disease", dose:"1–2 mg/kg IV/IM (max 125 mg)", route:"IV/IM", conc:"125 mg/2 mL", draw:"Varies by weight (max 2 mL)", notes:"Start early — onset ~1–2 hr. Single-dose EMS intervention.", ci:["Active systemic fungal infection"], scope:"Medic", wt:true, mpk:1, cmpml:62.5, maxd:125, redoseMins:null, maxDoses:1 },
-    { name:"Magnesium Sulfate", sub:"Severe Refractory Bronchospasm", dose:"25–75 mg/kg IV over 20 min (max 2 g)", route:"IV infusion — dilute in 100 mL NS", conc:"500 mg/mL (diluted in 100 mL NS)", draw:"Varies by weight (max 4 mL = 2 g) in 100 mL NS", notes:"Reserve for life-threatening asthma unresponsive to bronchodilators. Monitor RR, BP, deep tendon reflexes. Antidote: Calcium Gluconate.", ci:["Renal failure","Hypotension","Heart block"], scope:"Medic", wt:true, mpk:50, cmpml:500, maxd:2000, redoseMins:null, maxDoses:1 },
-    { name:"Dexamethasone", sub:"Croup — Corticosteroid", dose:"0.6 mg/kg IM/IV/PO (max 16 mg)", route:"IM/IV/PO", conc:"4 mg/mL (injection)", draw:"Varies by weight (max 4 mL)", notes:"For moderate-severe croup. Single dose. May give orally if tolerated.", ci:["Active systemic infection (relative)"], scope:"Medic", wt:true, mpk:0.6, cmpml:4, maxd:16, redoseMins:null, maxDoses:1 },
+    { name:"Albuterol", sub:"Bronchospasm / Asthma — Pediatric", dose:"≥20 kg: 2.5 mg neb · <20 kg: 1.25 mg neb", route:"Nebulizer", conc:"0.83 mg/mL (2.5 mg/3 mL unit)", draw:"Unit dose — see weight", syringe:"None — nebulizer unit dose", notes:"Repeat q20 min. Continuous neb in severe asthma. Mix with ipratropium in same neb cup.", ci:["Tachyarrhythmia (relative)"], scope:"EMT", redoseMins:20, maxDoses:null },
+    { name:"Ipratropium (Atrovent)", sub:"Bronchospasm — Pediatric Adjunct", dose:"<20 kg: 0.25 mg neb · ≥20 kg: 0.5 mg neb (once)", route:"Nebulizer", conc:"0.02% (0.5 mg/2.5 mL)", draw:"Unit dose — mix with albuterol", syringe:"None — nebulizer unit dose", notes:"Give ONCE with albuterol. Not effective as sole bronchodilator.", ci:["Peanut/soy allergy (relative)"], scope:"AEMT", redoseMins:null, maxDoses:1 },
+    { name:"Epinephrine 1:1,000 (Nebulized)", sub:"Croup (Laryngotracheobronchitis)", dose:"5 mL of 1:1,000 undiluted via neb", route:"Nebulizer", conc:"1 mg/mL (1:1,000)", draw:"5 mL undiluted in neb cup", syringe:"5 mL syringe to draw into neb cup", notes:"For moderate-severe croup with stridor at rest. Watch for rebound — observe 2+ hrs. Use racemic epi if protocol permits.", ci:[], scope:"Medic", redoseMins:20, maxDoses:2 },
+    { name:"Epinephrine 1:1,000", sub:"Severe Bronchospasm / Near-Fatal Asthma", dose:"0.01 mg/kg IM (max 0.5 mg)", route:"IM (lateral thigh)", conc:"1 mg/mL", draw:"0.01 mL/kg (max 0.5 mL)", syringe:"1 mL syringe + IM needle — or pediatric auto-injector", notes:"Reserve for life-threatening bronchospasm refractory to nebulized treatment. Monitor HR and rhythm.", ci:[], scope:"AEMT", wt:true, mpk:0.01, cmpml:1, maxd:0.5, redoseMins:15, maxDoses:2 },
+    { name:"Methylprednisolone", sub:"Severe Asthma / Reactive Airway Disease", dose:"1–2 mg/kg IV/IM (max 125 mg)", route:"IV/IM", conc:"125 mg/2 mL", draw:"Varies by weight (max 2 mL)", syringe:"1 or 3 mL syringe by weight", notes:"Start early — onset ~1–2 hr. Single-dose EMS intervention.", ci:["Active systemic fungal infection"], scope:"Medic", wt:true, mpk:1, cmpml:62.5, maxd:125, redoseMins:null, maxDoses:1 },
+    { name:"Magnesium Sulfate", sub:"Severe Refractory Bronchospasm", dose:"25–75 mg/kg IV over 20 min (max 2 g)", route:"IV infusion — dilute in 100 mL NS", conc:"500 mg/mL (diluted in 100 mL NS)", draw:"Varies by weight (max 4 mL = 2 g) in 100 mL NS", syringe:"5 mL syringe to draw — inject into 100 mL NS bag", notes:"Reserve for life-threatening asthma unresponsive to bronchodilators. Monitor RR, BP, deep tendon reflexes. Antidote: Calcium Gluconate.", ci:["Renal failure","Hypotension","Heart block"], scope:"Medic", wt:true, mpk:50, cmpml:500, maxd:2000, redoseMins:null, maxDoses:1 },
+    { name:"Dexamethasone", sub:"Croup — Corticosteroid", dose:"0.6 mg/kg IM/IV/PO (max 16 mg)", route:"IM/IV/PO", conc:"4 mg/mL (injection)", draw:"Varies by weight (max 4 mL)", syringe:"1–5 mL syringe by weight (PO: oral syringe)", notes:"For moderate-severe croup. Single dose. May give orally if tolerated.", ci:["Active systemic infection (relative)"], scope:"Medic", wt:true, mpk:0.6, cmpml:4, maxd:16, redoseMins:null, maxDoses:1 },
   ],
   seizure: [
-    { name:"Midazolam (Versed)", sub:"Active Seizure — 1st Line", dose:"0.2 mg/kg IM/IN · 0.1 mg/kg IV", route:"IM/IN/IV", conc:"5 mg/mL", draw:"Varies by weight (max 2 mL)", notes:"IM/IN preferred if no IV access. IN: MAD, max 0.5 mL per nostril.", ci:[], scope:"Medic", wt:true, mpk:0.2, cmpml:5, maxd:10, redoseMins:10, maxDoses:2 },
-    { name:"Diazepam (Valium)", sub:"Active Seizure", dose:"0.2–0.5 mg/kg IV · 0.5 mg/kg PR", route:"IV/PR", conc:"5 mg/mL", draw:"Varies by weight (max 2 mL)", notes:"PR when no IV access. Max 10 mg. Monitor airway.", ci:[], scope:"Medic", wt:true, mpk:0.3, cmpml:5, maxd:10, redoseMins:10, maxDoses:2 },
-    { name:"Lorazepam (Ativan)", sub:"Status Epilepticus", dose:"0.05–0.1 mg/kg IV", route:"IV", conc:"2 mg/mL", draw:"Varies by weight (max 2 mL)", notes:"Preferred IV benzo for status epilepticus. Onset 2–5 min IV.", ci:[], scope:"Medic", wt:true, mpk:0.1, cmpml:2, maxd:4, redoseMins:10, maxDoses:2 },
+    { name:"Midazolam (Versed)", sub:"Active Seizure — 1st Line", dose:"0.2 mg/kg IM/IN · 0.1 mg/kg IV", route:"IM/IN/IV", conc:"5 mg/mL", draw:"Varies by weight (max 2 mL)", syringe:"1 mL syringe · MAD atomizer for IN", notes:"IM/IN preferred if no IV access. IN: MAD, max 0.5 mL per nostril.", ci:[], scope:"Medic", wt:true, mpk:0.2, cmpml:5, maxd:10, redoseMins:10, maxDoses:2 },
+    { name:"Diazepam (Valium)", sub:"Active Seizure", dose:"0.2–0.5 mg/kg IV · 0.5 mg/kg PR", route:"IV/PR", conc:"5 mg/mL", draw:"Varies by weight (max 2 mL)", syringe:"1 or 3 mL syringe (PR: remove needle, lubricated tip)", notes:"PR when no IV access. Max 10 mg. Monitor airway.", ci:[], scope:"Medic", wt:true, mpk:0.3, cmpml:5, maxd:10, redoseMins:10, maxDoses:2 },
+    { name:"Lorazepam (Ativan)", sub:"Status Epilepticus", dose:"0.05–0.1 mg/kg IV", route:"IV", conc:"2 mg/mL", draw:"Varies by weight (max 2 mL)", syringe:"1 or 3 mL syringe by weight", notes:"Preferred IV benzo for status epilepticus. Onset 2–5 min IV.", ci:[], scope:"Medic", wt:true, mpk:0.1, cmpml:2, maxd:4, redoseMins:10, maxDoses:2 },
   ],
   anaphylaxis: [
-    { name:"Epinephrine 1:1,000", sub:"Anaphylaxis — FIRST LINE", dose:"0.01 mg/kg IM (max 0.5 mg)", route:"IM (lateral thigh)", conc:"1 mg/mL", draw:"Varies by weight (max 0.5 mL)", notes:"EpiPen Jr (<25 kg) or EpiPen (≥25 kg). Repeat every 5–15 min PRN.", ci:[], scope:"EMT", wt:true, mpk:0.01, cmpml:1, maxd:0.5, redoseMins:10, maxDoses:3 },
-    { name:"Diphenhydramine", sub:"Allergic Reaction — adjunct only", dose:"1 mg/kg IV/IM (max 50 mg)", route:"IV/IM", conc:"50 mg/mL", draw:"Varies by weight (max 1 mL)", notes:"ADJUNCT — not first-line. Give slowly IV.", ci:[], scope:"AEMT", wt:true, mpk:1, cmpml:50, maxd:50, redoseMins:null, maxDoses:1 },
-    { name:"Albuterol", sub:"Bronchospasm in Anaphylaxis", dose:"≥20 kg: 2.5 mg neb · <20 kg: 1.25 mg neb", route:"Nebulizer", conc:"0.83 mg/mL", draw:"Unit dose — see weight", notes:"Adjunct for wheezing. Give after epinephrine.", ci:[], scope:"EMT", redoseMins:20, maxDoses:null },
+    { name:"Epinephrine 1:1,000", sub:"Anaphylaxis — FIRST LINE", dose:"0.01 mg/kg IM (max 0.5 mg)", route:"IM (lateral thigh)", conc:"1 mg/mL", draw:"Varies by weight (max 0.5 mL)", syringe:"1 mL syringe + IM needle — or pediatric auto-injector", notes:"EpiPen Jr (<25 kg) or EpiPen (≥25 kg). Repeat every 5–15 min PRN.", ci:[], scope:"EMT", wt:true, mpk:0.01, cmpml:1, maxd:0.5, redoseMins:10, maxDoses:3 },
+    { name:"Diphenhydramine", sub:"Allergic Reaction — adjunct only", dose:"1 mg/kg IV/IM (max 50 mg)", route:"IV/IM", conc:"50 mg/mL", draw:"Varies by weight (max 1 mL)", syringe:"1 mL syringe", notes:"ADJUNCT — not first-line. Give slowly IV.", ci:[], scope:"AEMT", wt:true, mpk:1, cmpml:50, maxd:50, redoseMins:null, maxDoses:1 },
+    { name:"Albuterol", sub:"Bronchospasm in Anaphylaxis", dose:"≥20 kg: 2.5 mg neb · <20 kg: 1.25 mg neb", route:"Nebulizer", conc:"0.83 mg/mL", draw:"Unit dose — see weight", syringe:"None — nebulizer unit dose", notes:"Adjunct for wheezing. Give after epinephrine.", ci:[], scope:"EMT", redoseMins:20, maxDoses:null },
   ],
   pain: [
-    { name:"Fentanyl", sub:"Moderate–Severe Pain", dose:"1–2 mcg/kg IV/IM/IN", route:"IV/IM/IN", conc:"50 mcg/mL", draw:"Varies by weight", notes:"IN: 2 mcg/kg, max 0.5 mL per nostril with MAD.", ci:[], scope:"Medic", wt:true, mpk:0.001, cmpml:0.05, maxd:0.1, unit:"mcg", dmult:1000, redoseMins:10, maxDoses:null },
-    { name:"Ketamine", sub:"Moderate–Severe Pain / Sedation", dose:"0.5–1 mg/kg IV · 2–3 mg/kg IM", route:"IV/IM", conc:"10 mg/mL", draw:"Varies by weight", notes:"Sub-dissociative (0.5 mg/kg IV) for pain.", ci:["Age <3 months"], scope:"Medic", wt:true, mpk:0.5, cmpml:10, maxd:100, redoseMins:null, maxDoses:null },
-    { name:"Morphine", sub:"Moderate–Severe Pain", dose:"0.1 mg/kg IV/IM", route:"IV/IM", conc:"2 mg/mL", draw:"Varies by weight (max 2 mL)", notes:"Titrate carefully. Monitor for respiratory depression.", ci:[], scope:"Medic", wt:true, mpk:0.1, cmpml:2, maxd:4, redoseMins:10, maxDoses:null },
-    { name:"Acetaminophen IV (Ofirmev)", sub:"Moderate Pain / Fever", dose:"15 mg/kg IV over 15 min (max 750 mg if <50 kg)", route:"IV infusion over 15 min", conc:"10 mg/mL", draw:"Varies by weight (max 75 mL)", notes:"Max 750 mg if <50 kg. Max 4 g/day.", ci:["Hepatic failure"], scope:"Medic", wt:true, mpk:15, cmpml:10, maxd:750, redoseMins:null, maxDoses:1 },
+    { name:"Fentanyl", sub:"Moderate–Severe Pain", dose:"1–2 mcg/kg IV/IM/IN", route:"IV/IM/IN", conc:"50 mcg/mL", draw:"Varies by weight", syringe:"1 mL syringe · MAD atomizer for IN", notes:"IN: 2 mcg/kg, max 0.5 mL per nostril with MAD.", ci:[], scope:"Medic", wt:true, mpk:0.001, cmpml:0.05, maxd:0.1, unit:"mcg", dmult:1000, redoseMins:10, maxDoses:null },
+    { name:"Ketamine", sub:"Moderate–Severe Pain / Sedation", dose:"0.5–1 mg/kg IV · 2–3 mg/kg IM", route:"IV/IM", conc:"10 mg/mL", draw:"Varies by weight", syringe:"Sized to calculated dose (1–5 mL)", notes:"Sub-dissociative (0.5 mg/kg IV) for pain.", ci:["Age <3 months"], scope:"Medic", wt:true, mpk:0.5, cmpml:10, maxd:100, redoseMins:null, maxDoses:null },
+    { name:"Morphine", sub:"Moderate–Severe Pain", dose:"0.1 mg/kg IV/IM", route:"IV/IM", conc:"2 mg/mL", draw:"Varies by weight (max 2 mL)", syringe:"1 or 3 mL syringe by weight", notes:"Titrate carefully. Monitor for respiratory depression.", ci:[], scope:"Medic", wt:true, mpk:0.1, cmpml:2, maxd:4, redoseMins:10, maxDoses:null },
+    { name:"Acetaminophen IV (Ofirmev)", sub:"Moderate Pain / Fever", dose:"15 mg/kg IV over 15 min (max 750 mg if <50 kg)", route:"IV infusion over 15 min", conc:"10 mg/mL", draw:"Varies by weight (max 75 mL)", syringe:"60 mL syringe or burette/IV pump", notes:"Max 750 mg if <50 kg. Max 4 g/day.", ci:["Hepatic failure"], scope:"Medic", wt:true, mpk:15, cmpml:10, maxd:750, redoseMins:null, maxDoses:1 },
   ],
   toxicology: [
-    { name:"Naloxone (Narcan)", sub:"Opioid Overdose — Pediatric", dose:"0.01 mg/kg IV/IM/IN (titrate) · 0.1 mg/kg for full reversal (max 2 mg)", route:"IV/IM/IN", conc:"0.4 mg/mL or 1 mg/mL (IN)", draw:"0.025 mL/kg IV/IM · 0.1 mL/kg per nostril IN using 1 mg/mL", notes:"Titrate to adequate respirations — not full reversal in opioid-dependent patients. IN via MAD. Re-dose q3–5 min PRN.", ci:[], scope:"EMT", wt:true, mpk:0.01, cmpml:0.4, maxd:2, redoseMins:3, maxDoses:null },
-    { name:"Activated Charcoal", sub:"Toxic Ingestion — within 1 hr of ingestion", dose:"1 g/kg PO (max 50 g)", route:"PO", conc:"25 g/120 mL or 50 g/240 mL", draw:"1 g/kg — see weight (max 50 g)", notes:"ONLY if conscious with intact airway/gag reflex and within 1 hr of ingestion. NOT for caustics, hydrocarbons, or AMS.", ci:["AMS or impaired airway","Caustic ingestion","Hydrocarbon ingestion","Ingestion >1 hr ago"], scope:"Medic", redoseMins:null, maxDoses:1 },
-    { name:"Atropine (Organophosphate)", sub:"Organophosphate / Nerve Agent Poisoning", dose:"0.05 mg/kg IV/IM; double dose q5 min until secretions dry", route:"IV/IM", conc:"0.1 mg/mL", draw:"0.5 mL/kg initial dose — titrate", notes:"ENDPOINT = DRYING OF SECRETIONS, not HR. Min 0.1 mg per dose. May require massive cumulative doses.", ci:[], scope:"Medic", redoseMins:7, maxDoses:null },
-    { name:"Sodium Bicarbonate", sub:"TCA Overdose / Salicylate Toxicity", dose:"1 mEq/kg IV bolus", route:"IV/IO", conc:"1 mEq/mL (8.4%)", draw:"1 mL/kg", notes:"TCA OD: give until QRS narrows to <100 ms. Do NOT mix with calcium or epinephrine. Flush line before/after.", ci:["Metabolic alkalosis","Hypernatremia"], scope:"Medic", wt:true, mpk:1, cmpml:1, unit:"mEq", redoseMins:null, maxDoses:null },
+    { name:"Naloxone (Narcan)", sub:"Opioid Overdose — Pediatric", dose:"0.01 mg/kg IV/IM/IN (titrate) · 0.1 mg/kg for full reversal (max 2 mg)", route:"IV/IM/IN", conc:"0.4 mg/mL or 1 mg/mL (IN)", draw:"0.025 mL/kg IV/IM · 0.1 mL/kg per nostril IN using 1 mg/mL", syringe:"1 or 3 mL syringe by weight · MAD atomizer for IN", notes:"Titrate to adequate respirations — not full reversal in opioid-dependent patients. IN via MAD. Re-dose q3–5 min PRN.", ci:[], scope:"EMT", wt:true, mpk:0.01, cmpml:0.4, maxd:2, redoseMins:3, maxDoses:null },
+    { name:"Activated Charcoal", sub:"Toxic Ingestion — within 1 hr of ingestion", dose:"1 g/kg PO (max 50 g)", route:"PO", conc:"25 g/120 mL or 50 g/240 mL", draw:"1 g/kg — see weight (max 50 g)", syringe:"None — PO bottle / cup", notes:"ONLY if conscious with intact airway/gag reflex and within 1 hr of ingestion. NOT for caustics, hydrocarbons, or AMS.", ci:["AMS or impaired airway","Caustic ingestion","Hydrocarbon ingestion","Ingestion >1 hr ago"], scope:"Medic", redoseMins:null, maxDoses:1 },
+    { name:"Atropine (Organophosphate)", sub:"Organophosphate / Nerve Agent Poisoning", dose:"0.05 mg/kg IV/IM; double dose q5 min until secretions dry", route:"IV/IM", conc:"0.1 mg/mL", draw:"0.5 mL/kg initial dose — titrate", syringe:"Sized to calculated dose (10 mL prefilled)", notes:"ENDPOINT = DRYING OF SECRETIONS, not HR. Min 0.1 mg per dose. May require massive cumulative doses.", ci:[], scope:"Medic", redoseMins:7, maxDoses:null },
+    { name:"Sodium Bicarbonate", sub:"TCA Overdose / Salicylate Toxicity", dose:"1 mEq/kg IV bolus", route:"IV/IO", conc:"1 mEq/mL (8.4%)", draw:"1 mL/kg", syringe:"10 mL syringe or prefilled (infant: 4.2% 10 mL)", notes:"TCA OD: give until QRS narrows to <100 ms. Do NOT mix with calcium or epinephrine. Flush line before/after.", ci:["Metabolic alkalosis","Hypernatremia"], scope:"Medic", wt:true, mpk:1, cmpml:1, unit:"mEq", redoseMins:null, maxDoses:null },
   ],
   glucose: [
-    { name:"Dextrose 25% (D25)", sub:"Hypoglycemia — preferred in peds", dose:"0.5–1 g/kg IV (2–4 mL/kg of D25)", route:"IV", conc:"250 mg/mL (25%)", draw:"2–4 mL/kg", notes:"Make D25 by diluting D50 1:1 with NS. Recheck BGL in 5 min.", ci:[], scope:"AEMT", wt:true, mpk:500, cmpml:250, maxd:25000, redoseMins:5, maxDoses:2 },
-    { name:"Dextrose 10% (D10)", sub:"Hypoglycemia — Neonates / Infants", dose:"2 mL/kg IV", route:"IV", conc:"100 mg/mL (10%)", draw:"2 mL/kg", notes:"Preferred for neonates. Recheck BGL in 5 min.", ci:[], scope:"Medic", redoseMins:5, maxDoses:null },
-    { name:"Glucagon", sub:"Hypoglycemia — No IV Access", dose:"<20 kg: 0.5 mg IM · ≥20 kg: 1 mg IM", route:"IM", conc:"1 mg/mL", draw:"0.5 mL (<20 kg) · 1 mL (≥20 kg)", notes:"Reconstitute per kit. Onset 5–15 min. May cause vomiting.", ci:[], scope:"AEMT", redoseMins:null, maxDoses:1 },
-    { name:"Oral Glucose", sub:"Conscious Hypoglycemia (age ≥2, intact gag)", dose:"15 g PO", route:"PO", conc:"15 g/tube", draw:"1 tube (15 g)", notes:"Must be conscious with intact gag reflex. Recheck BGL in 15 min.", ci:["AMS","Impaired swallow"], scope:"EMT", redoseMins:15, maxDoses:2 },
+    { name:"Dextrose 25% (D25)", sub:"Hypoglycemia — preferred in peds", dose:"0.5–1 g/kg IV (2–4 mL/kg of D25)", route:"IV", conc:"250 mg/mL (25%)", draw:"2–4 mL/kg", syringe:"10–60 mL syringe by weight", notes:"Make D25 by diluting D50 1:1 with NS. Recheck BGL in 5 min.", ci:[], scope:"AEMT", wt:true, mpk:500, cmpml:250, maxd:25000, redoseMins:5, maxDoses:2 },
+    { name:"Dextrose 10% (D10)", sub:"Hypoglycemia — Neonates / Infants", dose:"2 mL/kg IV", route:"IV", conc:"100 mg/mL (10%)", draw:"2 mL/kg", syringe:"10–60 mL syringe by weight (or D10 bag on pump)", notes:"Preferred for neonates. Recheck BGL in 5 min.", ci:[], scope:"Medic", redoseMins:5, maxDoses:null },
+    { name:"Glucagon", sub:"Hypoglycemia — No IV Access", dose:"<20 kg: 0.5 mg IM · ≥20 kg: 1 mg IM", route:"IM", conc:"1 mg/mL", draw:"0.5 mL (<20 kg) · 1 mL (≥20 kg)", syringe:"Kit syringe (reconstitute with supplied diluent)", notes:"Reconstitute per kit. Onset 5–15 min. May cause vomiting.", ci:[], scope:"AEMT", redoseMins:null, maxDoses:1 },
+    { name:"Oral Glucose", sub:"Conscious Hypoglycemia (age ≥2, intact gag)", dose:"15 g PO", route:"PO", conc:"15 g/tube", draw:"1 tube (15 g)", syringe:"None — PO gel tube", notes:"Must be conscious with intact gag reflex. Recheck BGL in 15 min.", ci:["AMS","Impaired swallow"], scope:"EMT", redoseMins:15, maxDoses:2 },
   ],
   trauma: [
-    { name:"Tranexamic Acid (TXA)", sub:"Pediatric Hemorrhagic Shock / Major Trauma", dose:"15 mg/kg IV over 10 min (max 1 g)", route:"IV infusion", conc:"100 mg/mL", draw:"Varies by weight in 100 mL NS (max 10 mL)", notes:"Must give within 3 hours of injury. Max 1 g.", ci:["Injury >3 hrs prior","Active thromboembolic disease"], scope:"Medic", wt:true, mpk:15, cmpml:100, maxd:1000, redoseMins:null, maxDoses:1 },
-    { name:"Normal Saline (Trauma Resus)", sub:"Hemorrhagic Shock — Peds Fluid Resuscitation", dose:"20 mL/kg IV/IO bolus; reassess; repeat PRN", route:"IV/IO", conc:"0.9% NaCl or LR", draw:"20 mL/kg per bolus", notes:"LR preferred. 20 mL/kg boluses; reassess after each.", ci:[], scope:"AEMT", wt:true, mpk:20, cmpml:1, redoseMins:null, maxDoses:null },
-    { name:"Ketamine", sub:"Trauma Pain / RSI", dose:"Pain: 0.5 mg/kg IV · RSI: 1–2 mg/kg IV · IM: 4 mg/kg", route:"IV/IM", conc:"10 mg/mL", draw:"Varies by weight", notes:"Drug of choice for hemodynamically unstable peds trauma.", ci:[], scope:"Medic", wt:true, mpk:0.5, cmpml:10, maxd:100, redoseMins:null, maxDoses:null },
-    { name:"Fentanyl", sub:"Trauma Pain (stable peds patient)", dose:"1–2 mcg/kg IV/IM/IN", route:"IV/IM/IN", conc:"50 mcg/mL", draw:"Varies by weight", notes:"Use ketamine first if hemodynamically unstable.", ci:["Hypotension","Significant respiratory depression"], scope:"Medic", wt:true, mpk:0.001, cmpml:0.05, maxd:0.1, unit:"mcg", dmult:1000, redoseMins:10, maxDoses:null },
-    { name:"Calcium Chloride 10%", sub:"Crush Syndrome / Hyperkalemia / Massive Transfusion", dose:"20 mg/kg IV slow push (max 1 g)", route:"IV", conc:"100 mg/mL (10%)", draw:"Varies by weight (max 10 mL)", notes:"Give slowly over 3–5 min. Do NOT mix with bicarb.", ci:["VF","Digitalis toxicity","Hypercalcemia"], scope:"Medic", wt:true, mpk:20, cmpml:100, maxd:1000, redoseMins:null, maxDoses:null },
-    { name:"Sodium Bicarbonate", sub:"Crush Syndrome — Rhabdomyolysis", dose:"1 mEq/kg IV", route:"IV/IO", conc:"1 mEq/mL (8.4%)", draw:"1 mL/kg", notes:"Alkalinizes urine to protect kidneys from myoglobin.", ci:["Metabolic alkalosis"], scope:"Medic", wt:true, mpk:1, cmpml:1, maxd:50, unit:"mEq", redoseMins:null, maxDoses:null },
+    { name:"Tranexamic Acid (TXA)", sub:"Pediatric Hemorrhagic Shock / Major Trauma", dose:"15 mg/kg IV over 10 min (max 1 g)", route:"IV infusion", conc:"100 mg/mL", draw:"Varies by weight in 100 mL NS (max 10 mL)", syringe:"10 mL syringe to draw — inject into 100 mL NS bag", notes:"Must give within 3 hours of injury. Max 1 g.", ci:["Injury >3 hrs prior","Active thromboembolic disease"], scope:"Medic", wt:true, mpk:15, cmpml:100, maxd:1000, redoseMins:null, maxDoses:1 },
+    { name:"Normal Saline (Trauma Resus)", sub:"Hemorrhagic Shock — Peds Fluid Resuscitation", dose:"20 mL/kg IV/IO bolus; reassess; repeat PRN", route:"IV/IO", conc:"0.9% NaCl or LR", draw:"20 mL/kg per bolus", syringe:"60 mL syringe push-pull (infants) or IV bag", notes:"LR preferred. 20 mL/kg boluses; reassess after each.", ci:[], scope:"AEMT", wt:true, mpk:20, cmpml:1, redoseMins:null, maxDoses:null },
+    { name:"Ketamine", sub:"Trauma Pain / RSI", dose:"Pain: 0.5 mg/kg IV · RSI: 1–2 mg/kg IV · IM: 4 mg/kg", route:"IV/IM", conc:"10 mg/mL", draw:"Varies by weight", syringe:"Sized to calculated dose (1–5 mL)", notes:"Drug of choice for hemodynamically unstable peds trauma.", ci:[], scope:"Medic", wt:true, mpk:0.5, cmpml:10, maxd:100, redoseMins:null, maxDoses:null },
+    { name:"Fentanyl", sub:"Trauma Pain (stable peds patient)", dose:"1–2 mcg/kg IV/IM/IN", route:"IV/IM/IN", conc:"50 mcg/mL", draw:"Varies by weight", syringe:"1 mL syringe · MAD atomizer for IN", notes:"Use ketamine first if hemodynamically unstable.", ci:["Hypotension","Significant respiratory depression"], scope:"Medic", wt:true, mpk:0.001, cmpml:0.05, maxd:0.1, unit:"mcg", dmult:1000, redoseMins:10, maxDoses:null },
+    { name:"Calcium Chloride 10%", sub:"Crush Syndrome / Hyperkalemia / Massive Transfusion", dose:"20 mg/kg IV slow push (max 1 g)", route:"IV", conc:"100 mg/mL (10%)", draw:"Varies by weight (max 10 mL)", syringe:"Sized to calculated dose (10 mL prefilled)", notes:"Give slowly over 3–5 min. Do NOT mix with bicarb.", ci:["VF","Digitalis toxicity","Hypercalcemia"], scope:"Medic", wt:true, mpk:20, cmpml:100, maxd:1000, redoseMins:null, maxDoses:null },
+    { name:"Sodium Bicarbonate", sub:"Crush Syndrome — Rhabdomyolysis", dose:"1 mEq/kg IV", route:"IV/IO", conc:"1 mEq/mL (8.4%)", draw:"1 mL/kg", syringe:"10 mL syringe or prefilled (infant: 4.2% 10 mL)", notes:"Alkalinizes urine to protect kidneys from myoglobin.", ci:["Metabolic alkalosis"], scope:"Medic", wt:true, mpk:1, cmpml:1, maxd:50, unit:"mEq", redoseMins:null, maxDoses:null },
   ],
   burns: [
-    { name:"Normal Saline / LR (Modified Parkland)", sub:"Pediatric Burn Fluid Resuscitation", dose:"3 mL × kg × % TBSA in first 24 hrs · First half in first 8 hrs", route:"IV large-bore", conc:"0.9% NaCl or LR (preferred)", draw:"Calculate: 3 × wt(kg) × % TBSA = total mL / 24 hrs", notes:"Add D5W maintenance fluids (<20 kg). Target UO 1 mL/kg/hr.", ci:["<10% TBSA (may use oral hydration)"], scope:"AEMT", redoseMins:null, maxDoses:null },
-    { name:"Fentanyl", sub:"Burn Pain — Peds", dose:"1–2 mcg/kg IV/IN", route:"IV/IN", conc:"50 mcg/mL", draw:"Varies by weight", notes:"IN route useful in peds burn patients. Avoid IM — unreliable absorption.", ci:["Respiratory depression","Hemodynamic instability (relative)"], scope:"Medic", wt:true, mpk:0.001, cmpml:0.05, maxd:0.1, unit:"mcg", dmult:1000, redoseMins:10, maxDoses:null },
-    { name:"Ketamine", sub:"Burn Pain / Dressing Changes / Sedation", dose:"Sub-dissoc: 0.5 mg/kg IV · Procedural: 1–2 mg/kg IV · IM: 4 mg/kg", route:"IV/IM", conc:"10 mg/mL", draw:"Varies by weight", notes:"Excellent for burn care. Maintains hemodynamics.", ci:["Age <3 months (relative)"], scope:"Medic", wt:true, mpk:0.5, cmpml:10, maxd:100, redoseMins:null, maxDoses:null },
-    { name:"Morphine", sub:"Burn Pain — IV preferred", dose:"0.1 mg/kg IV (max 4 mg)", route:"IV", conc:"2 mg/mL", draw:"Varies by weight (max 2 mL)", notes:"IV route strongly preferred — IM/SQ unreliable in burn patients.", ci:["Hypotension","Significant respiratory depression"], scope:"Medic", wt:true, mpk:0.1, cmpml:2, maxd:4, redoseMins:10, maxDoses:null },
-    { name:"Albuterol", sub:"Inhalation Injury — Pediatric Bronchospasm", dose:"≥20 kg: 2.5 mg neb · <20 kg: 1.25 mg neb", route:"Nebulizer", conc:"0.83 mg/mL", draw:"Unit dose — see weight", notes:"Give early for wheezing, stridor, or respiratory distress.", ci:[], scope:"EMT", redoseMins:20, maxDoses:null },
-    { name:"Succinylcholine", sub:"RSI — AVOID in Burns >24 Hours Old", dose:"1–2 mg/kg IV/IO (ONLY within 24 hrs of burn)", route:"IV/IO", conc:"20 mg/mL", draw:"Varies by weight (max 7.5 mL)", notes:"CRITICAL: AVOID after 24 hours — life-threatening HYPERKALEMIA. Use Rocuronium.", ci:["Burns >24 hours old","Hyperkalemia","Known myopathy"], scope:"Medic", wt:true, mpk:1.5, cmpml:20, maxd:150, redoseMins:null, maxDoses:1 },
+    { name:"Normal Saline / LR (Modified Parkland)", sub:"Pediatric Burn Fluid Resuscitation", dose:"3 mL × kg × % TBSA in first 24 hrs · First half in first 8 hrs", route:"IV large-bore", conc:"0.9% NaCl or LR (preferred)", draw:"Calculate: 3 × wt(kg) × % TBSA = total mL / 24 hrs", syringe:"None — IV bag on pump", notes:"Add D5W maintenance fluids (<20 kg). Target UO 1 mL/kg/hr.", ci:["<10% TBSA (may use oral hydration)"], scope:"AEMT", redoseMins:null, maxDoses:null },
+    { name:"Fentanyl", sub:"Burn Pain — Peds", dose:"1–2 mcg/kg IV/IN", route:"IV/IN", conc:"50 mcg/mL", draw:"Varies by weight", syringe:"1 mL syringe · MAD atomizer for IN", notes:"IN route useful in peds burn patients. Avoid IM — unreliable absorption.", ci:["Respiratory depression","Hemodynamic instability (relative)"], scope:"Medic", wt:true, mpk:0.001, cmpml:0.05, maxd:0.1, unit:"mcg", dmult:1000, redoseMins:10, maxDoses:null },
+    { name:"Ketamine", sub:"Burn Pain / Dressing Changes / Sedation", dose:"Sub-dissoc: 0.5 mg/kg IV · Procedural: 1–2 mg/kg IV · IM: 4 mg/kg", route:"IV/IM", conc:"10 mg/mL", draw:"Varies by weight", syringe:"Sized to calculated dose (1–5 mL)", notes:"Excellent for burn care. Maintains hemodynamics.", ci:["Age <3 months (relative)"], scope:"Medic", wt:true, mpk:0.5, cmpml:10, maxd:100, redoseMins:null, maxDoses:null },
+    { name:"Morphine", sub:"Burn Pain — IV preferred", dose:"0.1 mg/kg IV (max 4 mg)", route:"IV", conc:"2 mg/mL", draw:"Varies by weight (max 2 mL)", syringe:"1 or 3 mL syringe by weight", notes:"IV route strongly preferred — IM/SQ unreliable in burn patients.", ci:["Hypotension","Significant respiratory depression"], scope:"Medic", wt:true, mpk:0.1, cmpml:2, maxd:4, redoseMins:10, maxDoses:null },
+    { name:"Albuterol", sub:"Inhalation Injury — Pediatric Bronchospasm", dose:"≥20 kg: 2.5 mg neb · <20 kg: 1.25 mg neb", route:"Nebulizer", conc:"0.83 mg/mL", draw:"Unit dose — see weight", syringe:"None — nebulizer unit dose", notes:"Give early for wheezing, stridor, or respiratory distress.", ci:[], scope:"EMT", redoseMins:20, maxDoses:null },
+    { name:"Succinylcholine", sub:"RSI — AVOID in Burns >24 Hours Old", dose:"1–2 mg/kg IV/IO (ONLY within 24 hrs of burn)", route:"IV/IO", conc:"20 mg/mL", draw:"Varies by weight (max 7.5 mL)", syringe:"Sized to calculated dose (1–10 mL)", notes:"CRITICAL: AVOID after 24 hours — life-threatening HYPERKALEMIA. Use Rocuronium.", ci:["Burns >24 hours old","Hyperkalemia","Known myopathy"], scope:"Medic", wt:true, mpk:1.5, cmpml:20, maxd:150, redoseMins:null, maxDoses:1 },
   ],
 };
 
@@ -688,6 +688,15 @@ const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,
     }
   },[highlighted]);
   const calc=calcDose(drug,wt);
+  const noSyringe=/^None/.test(drug.syringe||"");
+  const doseSyringe=!noSyringe&&calc&&wt>0&&calc.mL!=null?getSyringeSize(calc.mL):null;
+  const syringeBox=drug.syringe?(
+    <div style={{gridColumn:"1/-1",background:noSyringe?"var(--c-deep2)":(isDarkMode?"#0b1f2e":"#e0f2fe"),border:`1px solid ${noSyringe?"var(--c-border)":(isDarkMode?"#0ea5e9":"#0284c7")}`,borderRadius:6,padding:"7px 10px",marginBottom:2}}>
+      <div style={{color:noSyringe?"var(--c-text4)":(isDarkMode?"#7dd3fc":"#075985"),fontSize:9,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>💉 Syringe</div>
+      <div style={{color:"var(--c-text)",fontSize:12.5,fontWeight:700,lineHeight:1.4}}>{drug.syringe}</div>
+      {doseSyringe&&<div style={{fontFamily:"'IBM Plex Mono',monospace",color:isDarkMode?"#7dd3fc":"#075985",fontSize:11.5,fontWeight:800,marginTop:4}}>For this dose ({calc.mL} mL): {doseSyringe}</div>}
+    </div>
+  ):null;
   const s=SS[drug.scope]||SS.EMT;
   const initChecks=INIT_CHECKS[drug.name]||[];
   const reChecks=RE_CHECKS[drug.name]||[];
@@ -800,9 +809,10 @@ const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,
             {tab==="info"&&(
               <>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"9px 14px",fontSize:12,marginBottom:10}}>
-                  {[["Dose",drug.dose],["Route",drug.route],["Concentration",drug.conc],["Draw Up",drug.draw],drug.syringe&&drug.syringe!=="N/A"?["Syringe",drug.syringe]:null].filter(Boolean).map(([l,v])=>(
+                  {[["Dose",drug.dose],["Route",drug.route],["Concentration",drug.conc],["Draw Up",drug.draw]].map(([l,v])=>(
                     <div key={l}><div style={{color:"var(--c-text5)",fontSize:9,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>{l}</div><div style={{color:"var(--c-text2)",lineHeight:1.45}}>{v}</div></div>
                   ))}
+                  {syringeBox}
                   {/* Max Dose — always shown, full width */}
                   {(()=>{const md=getMaxDoseDisplay(drug); return(
                     <div style={{gridColumn:"1/-1",background:"var(--c-deep2)",border:`1px solid ${md.color}33`,borderRadius:6,padding:"6px 10px"}}>
@@ -810,7 +820,7 @@ const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,
                       <div style={{fontFamily:"'IBM Plex Mono',monospace",color:md.color,fontSize:12,fontWeight:700}}>{md.text}</div>
                     </div>
                   );})()}
-                  {calc&&wt>0&&calc.mL!=null&&<div style={{gridColumn:"1/-1"}}><div style={{color:"var(--c-text5)",fontSize:9,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>⟹ Calculated Draw</div><div style={{fontFamily:"'IBM Plex Mono',monospace",color,fontWeight:700,fontSize:14}}>{calc.mL} mL = {calc.display} {calc.unit} <span style={{color:"var(--c-text4)",fontSize:11,fontWeight:400}}>({getSyringeSize(calc.mL)})</span></div></div>}
+                  {calc&&wt>0&&calc.mL!=null&&<div style={{gridColumn:"1/-1"}}><div style={{color:"var(--c-text5)",fontSize:9,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>⟹ Calculated Draw</div><div style={{fontFamily:"'IBM Plex Mono',monospace",color,fontWeight:700,fontSize:14}}>{calc.mL} mL = {calc.display} {calc.unit}</div></div>}
                 </div>
 
                 {/* Dose steps table (e.g. Amiodarone) */}
@@ -850,6 +860,7 @@ const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,
             {/* ADMINISTER */}
             {tab==="admin"&&(
               <div>
+                {syringeBox&&<div style={{marginBottom:10}}>{syringeBox}</div>}
 
                 {/* Gate: first dose, checks incomplete */}
                 {!hasActivity&&hasInitChecks&&!iOk&&(
@@ -4335,6 +4346,7 @@ const PROTOCOL_DEFINITIONS = [
     id:"acs",
     system:"cardiac",
     title:"Chest Pain / ACS",
+    painAssess:"chest",
     sub:"12-lead, aspirin, nitro screen, transport",
     scope:"EMT",
     patientType:"adult",
@@ -4786,6 +4798,7 @@ const PROTOCOL_DEFINITIONS = [
     id:"peds-chest-pain",
     system:"cardiac",
     title:"Pediatric Chest Pain",
+    painAssess:"chest",
     sub:"ACS rare in peds · myocarditis · exertional = red flag · MSK most common",
     scope:"EMT",
     patientType:"peds",
@@ -5333,6 +5346,7 @@ const PROTOCOL_DEFINITIONS = [
     id:"pain-management",
     system:"assess",
     title:"Pain Management (Adult)",
+    painAssess:"general",
     sub:"Multimodal analgesia · titrate to effect · hemodynamic screen",
     scope:"AEMT",
     patientType:"adult",
@@ -5359,6 +5373,7 @@ const PROTOCOL_DEFINITIONS = [
     id:"peds-pain",
     system:"assess",
     title:"Pediatric Pain Management",
+    painAssess:"general",
     sub:"Age-appropriate scale · weight-based dosing · multimodal",
     scope:"AEMT",
     patientType:"peds",
@@ -5780,6 +5795,139 @@ function InterventionShortcuts({protocol,onLogEvent,isDarkMode}){
   </div>;
 }
 
+// OPQRST pain assessment — shown on protocols that declare painAssess ("chest" adds ACS-specific prompts)
+const PAIN_ONSET     = ["Sudden","Gradual"];
+const PAIN_ACTIVITY  = ["At rest","Exertion","Woke from sleep"];
+const PAIN_PROVOKE   = ["Worse w/ breathing","Worse w/ movement","Reproducible on palpation","Positional","Better w/ rest","No change"];
+const PAIN_QUALITY   = ["Pressure","Tightness","Squeezing","Crushing","Heaviness","Sharp","Stabbing","Burning","Dull / Aching","Tearing / Ripping"];
+const PAIN_RADIATION = ["None","Left arm","Right arm","Jaw / Neck","Back","Shoulder(s)","Epigastric"];
+const PAIN_ASSOC     = ["Shortness of breath","Diaphoresis","Nausea / Vomiting","Dizziness","Syncope","Palpitations","Weakness / Fatigue"];
+const ISCHEMIC_QUALITY = ["Pressure","Tightness","Squeezing","Crushing","Heaviness"];
+const painScoreColor = n => n>=7?"#ef4444":n>=4?"#f59e0b":"#22c55e";
+
+function PainChips({ options, selected=[], onToggle, color }) {
+  return (
+    <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+      {options.map(opt => {
+        const on = selected.includes(opt);
+        return (
+          <button key={opt} onClick={()=>onToggle(opt)} style={{border:`1px solid ${on?color:"var(--c-border)"}`,background:on?color+"22":"transparent",color:on?color:"var(--c-text2)",borderRadius:16,padding:"5px 9px",fontSize:10.5,fontWeight:800,cursor:"pointer"}}>
+            {opt}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function PainAssessmentPanel({ protocol, values, setValues, activeCall, patientType, color }) {
+  const pain = values[protocol.id]?._pain || {};
+  const log = values[protocol.id]?._painLog || [];
+  const isChest = protocol.painAssess === "chest";
+  const setPain = patch => setValues(prev => {
+    const cur = prev[protocol.id] || {};
+    return { ...prev, [protocol.id]: { ...cur, _pain: { ...(cur._pain || {}), ...patch } } };
+  });
+  const toggle = (field, opt, single=false) => {
+    const list = pain[field] || [];
+    if (single) return setPain({ [field]: list[0] === opt ? [] : [opt] });
+    if (opt === "None") return setPain({ [field]: list.includes("None") ? [] : ["None"] });
+    const base = list.filter(o => o !== "None");
+    setPain({ [field]: base.includes(opt) ? base.filter(o => o !== opt) : [...base, opt] });
+  };
+  const setScore = n => {
+    setPain({ score: n });
+    activeCall?.onVitalsChange?.({ ...(activeCall.vitalsDraft || {}), pain: String(n) });
+  };
+  const has = (field, opt) => (pain[field] || []).includes(opt);
+  const flags = [];
+  if (isChest) {
+    if (has("quality","Tearing / Ripping") || (has("radiation","Back") && pain.onset?.[0]==="Sudden"))
+      flags.push({ c:"#ef4444", t:"Tearing pain or sudden pain radiating to the back — consider aortic dissection. Check bilateral arm BPs and reassess before aspirin/nitro per protocol." });
+    if ((pain.quality||[]).some(q => ISCHEMIC_QUALITY.includes(q)) || has("radiation","Left arm") || has("radiation","Jaw / Neck") || has("activity","Exertion"))
+      flags.push({ c:"#f59e0b", t:"Ischemic features present — obtain and transmit a 12-lead early." });
+    if (has("provoke","Worse w/ breathing") || has("provoke","Reproducible on palpation") || has("provoke","Positional"))
+      flags.push({ c:"#60a5fa", t:"Pleuritic, positional, or reproducible pain is less typical of ACS but does NOT rule it out." });
+  }
+  const summary = () => {
+    const parts = [];
+    if (pain.score !== undefined) parts.push(`Pain ${pain.score}/10`);
+    const join = f => (pain[f] || []).join(", ");
+    if (join("quality")) parts.push(`Quality: ${join("quality")}`);
+    const onset = [join("onset"), join("activity")].filter(Boolean).join(", ");
+    if (onset || pain.onsetTime) parts.push(`Onset: ${[onset, pain.onsetTime].filter(Boolean).join(" @ ")}`);
+    if (join("provoke")) parts.push(`P: ${join("provoke")}`);
+    if (join("radiation")) parts.push(`Radiates: ${join("radiation")}`);
+    if (join("assoc")) parts.push(`Assoc: ${join("assoc")}`);
+    return parts.join(" · ");
+  };
+  const canLog = pain.score !== undefined;
+  const logAssessment = () => {
+    if (!canLog) return;
+    const ts = Date.now();
+    activeCall?.onLogEvent?.(log.length ? "Pain Reassess" : "Pain", summary());
+    setValues(prev => {
+      const cur = prev[protocol.id] || {};
+      return { ...prev, [protocol.id]: { ...cur, _painLog: [...(cur._painLog || []), { ts, score: pain.score }] } };
+    });
+  };
+  const label = text => <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"var(--c-text3)",letterSpacing:"0.08em",textTransform:"uppercase",margin:"9px 0 5px"}}>{text}</div>;
+  return (
+    <div style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:10}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9.5,fontWeight:800,color:"var(--c-text)",letterSpacing:"0.1em",textTransform:"uppercase"}}>Pain assessment (OPQRST)</div>
+        {log.length>0&&(
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"var(--c-text3)"}}>
+            {log.map((e,i)=><span key={e.ts}>{i>0&&" → "}<span style={{color:painScoreColor(e.score)}}>{e.score}</span></span>)}
+          </div>
+        )}
+      </div>
+
+      {label(`Severity — pain scale 0–10${patientType==="peds"?" (ages 3–7: use Wong-Baker FACES)":""}`)}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(11,1fr)",gap:3}}>
+        {Array.from({length:11},(_,n)=>{
+          const on = pain.score === n;
+          const c = painScoreColor(n);
+          return (
+            <button key={n} onClick={()=>setScore(n)} style={{height:32,borderRadius:5,border:`1px solid ${on?c:"var(--c-border)"}`,background:on?c:"var(--c-input)",color:on?"#0b0b0b":c,fontFamily:"'IBM Plex Mono',monospace",fontSize:12,fontWeight:800,cursor:"pointer",padding:0}}>{n}</button>
+          );
+        })}
+      </div>
+
+      {label("Quality — how does it feel?")}
+      <PainChips options={PAIN_QUALITY} selected={pain.quality} onToggle={o=>toggle("quality",o)} color={color}/>
+
+      {label("Onset")}
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,alignItems:"center"}}>
+        <PainChips options={PAIN_ONSET} selected={pain.onset} onToggle={o=>toggle("onset",o,true)} color={color}/>
+        <PainChips options={PAIN_ACTIVITY} selected={pain.activity} onToggle={o=>toggle("activity",o,true)} color={color}/>
+        <input value={pain.onsetTime||""} onChange={e=>setPain({onsetTime:e.target.value})} placeholder="Time / how long ago" style={{flex:"1 1 130px",background:"var(--c-input)",border:"1px solid var(--c-border)",borderRadius:5,padding:"6px 7px",color:"var(--c-text)",fontSize:11,outline:"none"}}/>
+      </div>
+
+      {label("Provocation / palliation")}
+      <PainChips options={PAIN_PROVOKE} selected={pain.provoke} onToggle={o=>toggle("provoke",o)} color={color}/>
+
+      {label("Radiation")}
+      <PainChips options={PAIN_RADIATION} selected={pain.radiation} onToggle={o=>toggle("radiation",o)} color={color}/>
+
+      {label("Associated symptoms")}
+      <PainChips options={PAIN_ASSOC} selected={pain.assoc} onToggle={o=>toggle("assoc",o)} color={color}/>
+
+      {flags.length>0&&(
+        <div style={{display:"flex",flexDirection:"column",gap:5,marginTop:10}}>
+          {flags.map(f=>(
+            <div key={f.t} style={{borderLeft:`3px solid ${f.c}`,background:"var(--c-input)",borderRadius:5,padding:"6px 8px",fontSize:11,color:"var(--c-text2)",lineHeight:1.4}}>{f.t}</div>
+          ))}
+        </div>
+      )}
+
+      <button onClick={logAssessment} disabled={!canLog} style={{marginTop:10,width:"100%",border:canLog?"1px solid #14b8a6":"1px solid var(--c-border)",background:canLog?"#14b8a622":"var(--c-input)",color:canLog?"#14b8a6":"var(--c-text4)",borderRadius:6,padding:"9px 6px",fontSize:10.5,fontWeight:800,fontFamily:"'IBM Plex Mono',monospace",cursor:canLog?"pointer":"default"}}>
+        {canLog ? (log.length ? "Log Pain Reassessment" : "Log Pain Assessment") : "Select a pain score to log"}
+      </button>
+    </div>
+  );
+}
+
 function GenericProtocolAlgorithm({ protocol, values, setValues, onBack, isDarkMode, onJumpDrug, findDrugLocation, activeCall, patientType, wkg, wlb, setWkg, setWlb, callFacts={}, onFactAnswered }) {
   const setAnswer = (id, value) => {
     setValues(prev => ({ ...prev, [protocol.id]: { ...(prev[protocol.id] || {}), [id]: value } }));
@@ -5816,10 +5964,23 @@ function GenericProtocolAlgorithm({ protocol, values, setValues, onBack, isDarkM
       }));
     return [...specificRules, ...fallbackRules];
   }, [protocol.id, protocol.meds]);
-  const medState = rule => {
+  const ruleState = rule => {
     if(rule.blockedBy && Object.entries(rule.blockedBy).some(([id, value]) => answers[id] === value)) return "blocked";
     if(rule.when && !matchesAnswers(answers, rule.when)) return "pending";
     return "consider";
+  };
+  // Several rules for one med are alternatives (e.g. epi for airway OR shock) — show the med once.
+  const medGroups = Object.values(medRules.reduce((acc, rule) => {
+    (acc[rule.med] = acc[rule.med] || { med:rule.med, rules:[] }).rules.push(rule);
+    return acc;
+  }, {}));
+  const medState = group => {
+    const states = group.rules.map(ruleState);
+    return states.includes("blocked") ? "blocked" : states.includes("consider") ? "consider" : "pending";
+  };
+  const medNote = (group, state) => {
+    const matching = group.rules.filter(rule => ruleState(rule) === state);
+    return [...new Set((matching.length ? matching : group.rules.slice(0, 1)).map(rule => rule.note))].join(" ");
   };
   const pedsWeightBlocked = patientType === "peds" && (!wkg || wkg <= 0);
   const [stepsDone, setStepsDone] = React.useState({});
@@ -5856,6 +6017,8 @@ function GenericProtocolAlgorithm({ protocol, values, setValues, onBack, isDarkM
       </div>
 
       {pedsWeightBlocked && <PedsProtocolWeightGate wkg={wkg} wlb={wlb} setWkg={setWkg} setWlb={setWlb} isDarkMode={isDarkMode}/>}
+
+      {protocol.painAssess && <PainAssessmentPanel protocol={protocol} values={values} setValues={setValues} activeCall={activeCall} patientType={patientType} color={isDarkMode?system.color:system.lightColor}/>}
 
       <div style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:10}}>
         <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"var(--c-text4)",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}}>Decision points</div>
@@ -5930,8 +6093,9 @@ function GenericProtocolAlgorithm({ protocol, values, setValues, onBack, isDarkM
               Assessment-only protocol — no medication is indicated directly by this tool. Treat identified conditions through the appropriate clinical protocol.
             </div>
           )}
-          {medRules.map((rule, index) => {
+          {medGroups.map((rule, index) => {
             const state = medState(rule);
+            const note = medNote(rule, state);
             const isConsider = state === "consider";
             const isBlocked = state === "blocked";
             const isPending = state === "pending";
@@ -5961,7 +6125,7 @@ function GenericProtocolAlgorithm({ protocol, values, setValues, onBack, isDarkM
                 <span style={{display:"block",fontFamily:"'IBM Plex Mono',monospace",fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>
                   {isBlocked ? "⛔ Hold" : isConsider ? "→ Consider" : "◷ Pending"} — {rule.med}
                 </span>
-                <span style={{display:"block",marginTop:2,color:isDarkMode?"var(--c-text4)":"#374151",fontSize:10.5,lineHeight:1.35,fontWeight:600}}>{rule.note}</span>
+                <span style={{display:"block",marginTop:2,color:isDarkMode?"var(--c-text4)":"#374151",fontSize:10.5,lineHeight:1.35,fontWeight:600}}>{note}</span>
               </button>
             );
           })}
@@ -6501,7 +6665,7 @@ function ProtocolsScreen({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, onJ
         <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:2,scrollbarWidth:"none"}}>
           {selectedCallProtocols.map(protocol=>{
             const selected=activeProtocol===protocol.id;
-            return <button key={protocol.id} onClick={()=>setActiveProtocol(protocol.id)} style={{flexShrink:0,maxWidth:220,padding:"8px 10px",borderRadius:7,border:`1px solid ${selected?"#a855f7":"var(--c-border-sub)"}`,background:selected?(isDarkMode?"#2e1065":"#f3e8ff"):"var(--c-input)",color:selected?(isDarkMode?"#e9d5ff":"#6b21a8"):"var(--c-text3)",fontFamily:"'IBM Plex Mono',monospace",fontSize:9.5,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{selected?"● ":""}{protocol.title}</button>;
+            return <button key={protocol.id} onClick={()=>setActiveProtocol(protocol.id)} style={{flexShrink:0,maxWidth:220,padding:"8px 10px",borderRadius:7,border:`1.5px solid ${selected?"#a855f7":(isDarkMode?"#6d28d9":"#c084fc")}`,background:selected?(isDarkMode?"#2e1065":"#f3e8ff"):(isDarkMode?"#160d2b":"#faf5ff"),color:selected?(isDarkMode?"#e9d5ff":"#6b21a8"):(isDarkMode?"#c4b5fd":"#6b21a8"),fontFamily:"'IBM Plex Mono',monospace",fontSize:9.5,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{selected?"● ":""}{protocol.title}{selected?"":" ›"}</button>;
           })}
         </div>
       ):<div style={{padding:"10px",borderRadius:7,background:"var(--c-input)",color:"var(--c-text4)",fontSize:11}}>No matching protocol is attached to the selected complaint.</div>}
@@ -9726,6 +9890,206 @@ function QuickIntakeModal({ isDarkMode, onStart, onCancel, defaultAgeUnit="yrs",
   );
 }
 
+// ── QUICK ADD DRUG ───────────────────────────────────────────────────────────
+// Floating shortcut on every screen: search the full drug bank (limited to the
+// provider's cert scope) and jump to a card. During a call this also adds the drug
+// to the call, since the Drugs screen otherwise only shows complaint-matched drugs.
+function QuickAddDrugSheet({ isDarkMode, mode, certScopeKey, inCall, callDrugs, onPick, onClose }) {
+  const [q, setQ] = useState("");
+  const [bankMode, setBankMode] = useState(mode);
+  const mono = "'IBM Plex Mono',monospace";
+  const scopeRank = { EMT:1, AEMT:2, Medic:3 };
+  const maxRank = certScopeKey ? scopeRank[certScopeKey] : 3;
+  const results = useMemo(() => {
+    const bank = bankMode === "peds" ? PEDS : ADULT;
+    const s = q.trim().toLowerCase();
+    return Object.entries(bank).flatMap(([sys, drugs]) => drugs.map(d => ({ ...d, sys })))
+      .filter(d => (scopeRank[d.scope] || 1) <= maxRank)
+      .filter(d => !s || d.name.toLowerCase().includes(s) || (d.sub || "").toLowerCase().includes(s) || d.sys.includes(s))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, bankMode, maxRank]);
+  const accent = isDarkMode ? "#38bdf8" : "#0369a1";
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.7)",zIndex:9998,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+      <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:480,maxHeight:"82vh",display:"flex",flexDirection:"column",background:"var(--c-surface)",border:"1px solid var(--c-border)",borderRadius:"16px 16px 0 0",padding:"16px 14px calc(14px + env(safe-area-inset-bottom, 0px))"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+          <div>
+            <div style={{fontFamily:mono,fontSize:12,fontWeight:800,color:"var(--c-text)",letterSpacing:"0.08em",textTransform:"uppercase"}}>＋ Add Drug</div>
+            <div style={{fontSize:11,color:"var(--c-text3)",marginTop:2}}>{inCall?"Adds it to this call and opens the card":"Opens the drug card"}</div>
+          </div>
+          <button onClick={onClose} style={{border:"1px solid var(--c-border)",background:"var(--c-input)",color:"var(--c-text2)",borderRadius:7,padding:"6px 10px",fontFamily:mono,fontSize:10,fontWeight:800,cursor:"pointer"}}>Close</button>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,marginBottom:8}}>
+          {[["adult","🧑 Adult"],["peds","👶 Peds"]].map(([m,l])=>(
+            <button key={m} onClick={()=>setBankMode(m)} style={{padding:"7px 0",borderRadius:7,border:`1px solid ${bankMode===m?accent:"var(--c-border)"}`,background:bankMode===m?accent+"22":"transparent",color:bankMode===m?accent:"var(--c-text3)",fontFamily:mono,fontSize:10.5,fontWeight:800,cursor:"pointer"}}>{l}</button>
+          ))}
+        </div>
+        <input autoFocus value={q} onChange={e=>setQ(e.target.value)} placeholder="Search drug, indication or system…" style={{background:"var(--c-input)",border:"1px solid var(--c-border)",borderRadius:8,padding:"10px 11px",color:"var(--c-text)",fontSize:14,outline:"none",marginBottom:8}}/>
+        <div style={{overflowY:"auto",display:"flex",flexDirection:"column",gap:5}}>
+          {results.length===0&&<div style={{padding:16,textAlign:"center",color:"var(--c-text3)",fontSize:12}}>No drugs match "{q}"</div>}
+          {results.map(d=>{
+            const already = inCall && callDrugs?.has(d.name);
+            return (
+              <button key={`${d.sys}-${d.name}-${d.sub}`} onClick={()=>onPick(d.name, bankMode, d.sys)} style={{textAlign:"left",border:"1px solid var(--c-border)",background:"var(--c-input)",borderRadius:8,padding:"9px 10px",cursor:"pointer",display:"flex",alignItems:"center",gap:8}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:800,color:"var(--c-text)"}}>{d.name}</div>
+                  <div style={{fontSize:11,color:"var(--c-text3)",marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{d.sub} · {d.sys}</div>
+                </div>
+                <span style={{flexShrink:0,fontFamily:mono,fontSize:9.5,fontWeight:800,color:already?"#22c55e":accent}}>{already?"✓ In call":inCall?"＋ Add":"Open ›"}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── CALL HISTORY ─────────────────────────────────────────────────────────────
+// Ended calls are kept on this device only (no patient names are collected),
+// capped by count and auto-expired so old patient data doesn't accumulate.
+const CALL_HX_KEY = "medic-ai-call-history";
+const CALL_HX_MAX = 30;
+const CALL_HX_DAYS = 7;
+function loadCallHistory() {
+  try {
+    const cutoff = Date.now() - CALL_HX_DAYS * 86400000;
+    return JSON.parse(localStorage.getItem(CALL_HX_KEY) || "[]").filter(c => c.endTs >= cutoff);
+  } catch { return []; }
+}
+function saveCallHistory(list) {
+  try { localStorage.setItem(CALL_HX_KEY, JSON.stringify(list.slice(0, CALL_HX_MAX))); } catch { /* storage full or blocked */ }
+}
+function fmtDuration(ms) {
+  const m = Math.max(0, Math.round(ms / 60000));
+  return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
+}
+function callHxTimeline(call) {
+  const items = [
+    ...(call.meds || []).map(m => ({ ts:m.ts, kind:"Med", text:`${m.drug} — dose ${m.dose}`, color:"#fb923c" })),
+    ...(call.events || []).map(e => ({ ts:e.ts, kind:e.type, text:e.detail, color:"#14b8a6" })),
+    ...(call.vitals || []).map(v => {
+      const p = [];
+      if (v.sbp) p.push(`BP ${v.sbp}${v.dbp ? `/${v.dbp}` : ""}`);
+      if (v.hr) p.push(`HR ${v.hr}`);
+      if (v.rr) p.push(`RR ${v.rr}`);
+      if (v.spo2) p.push(`SpO2 ${v.spo2}%`);
+      if (v.etco2) p.push(`EtCO2 ${v.etco2}`);
+      if (v.bgl) p.push(`BGL ${v.bgl}`);
+      if (v.pain !== "" && v.pain != null) p.push(`Pain ${v.pain}/10`);
+      if (v.gcs) p.push(`GCS ${v.gcs}`);
+      return { ts:v.ts, kind:"Vitals", text:p.join(" · "), color:"#60a5fa" };
+    }).filter(i => i.text),
+    ...(call.arrest?.events || []).map(e => ({ ts:e.ts, kind:"Arrest", text:[ARREST_EVENT_COLORS[e.type]?.label || e.type, e.detail].filter(Boolean).join(" — "), color:"#ef4444" })),
+  ];
+  return items.filter(i => i.ts).sort((a, b) => a.ts - b.ts);
+}
+function callHxSummaryText(call) {
+  const t = ts => fmtTime(ts, false).slice(0, 5);
+  const lines = [
+    `CALL ${new Date(call.startTs).toLocaleDateString()} ${t(call.startTs)}–${t(call.endTs)} (${fmtDuration(call.endTs - call.startTs)})`,
+    `Patient: ${[call.age && `${call.age}${/mos/.test(call.age) ? "" : " y/o"}`, call.sex, call.wkg ? `${call.wkg} kg` : null].filter(Boolean).join(", ") || "Not recorded"}`,
+    `Complaint(s): ${(call.ccList?.length ? call.ccList : [call.cc]).filter(Boolean).join(", ") || "Not recorded"}`,
+    "",
+    ...callHxTimeline(call).map(i => `${t(i.ts)}  ${i.kind}: ${i.text}`),
+  ];
+  return lines.join("\n");
+}
+
+function CallHistoryScreen({ isDarkMode, history, onDelete, onClearAll }) {
+  const [openId, setOpenId] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const call = history.find(c => c.id === openId);
+  const mono = "'IBM Plex Mono',monospace";
+  const card = { background:"var(--c-surface)", border:"1px solid var(--c-border)", borderRadius:10, padding:12 };
+  const btn = (color) => ({ border:`1px solid ${color}`, background:color + "22", color, borderRadius:7, padding:"9px 10px", fontFamily:mono, fontSize:10.5, fontWeight:800, cursor:"pointer" });
+  const ccText = c => (c.ccList?.length ? c.ccList : [c.cc]).filter(Boolean).join(" · ") || "No complaint recorded";
+  const demo = c => [c.age && `${c.age}${/mos/.test(c.age) ? "" : " y/o"}`, c.sex, c.wkg ? `${c.wkg} kg` : null].filter(Boolean).join(" · ");
+
+  if (call) {
+    const timeline = callHxTimeline(call);
+    const copy = () => {
+      navigator.clipboard?.writeText(callHxSummaryText(call)).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }).catch(() => {});
+    };
+    return (
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <button onClick={()=>setOpenId(null)} style={{alignSelf:"flex-start",...btn(isDarkMode?"#93c5fd":"#1d4ed8")}}>← All Calls</button>
+        <div style={card}>
+          <div style={{fontFamily:mono,fontSize:10,fontWeight:800,color:"var(--c-text3)",letterSpacing:"0.08em",textTransform:"uppercase"}}>
+            {new Date(call.startTs).toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"})} · {fmtTime(call.startTs,false).slice(0,5)}–{fmtTime(call.endTs,false).slice(0,5)} · {fmtDuration(call.endTs-call.startTs)}
+          </div>
+          <div style={{fontSize:16,fontWeight:800,color:"var(--c-text)",marginTop:6}}>{ccText(call)}</div>
+          {demo(call)&&<div style={{fontSize:12,color:"var(--c-text2)",marginTop:3}}>{demo(call)}</div>}
+          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:10}}>
+            <span style={{fontFamily:mono,fontSize:10,fontWeight:800,color:"#fb923c"}}>{(call.meds||[]).length} meds</span>
+            <span style={{fontFamily:mono,fontSize:10,fontWeight:800,color:"#60a5fa"}}>{(call.vitals||[]).length} vitals</span>
+            <span style={{fontFamily:mono,fontSize:10,fontWeight:800,color:"#14b8a6"}}>{(call.events||[]).length} events</span>
+            {call.arrest&&<span style={{fontFamily:mono,fontSize:10,fontWeight:800,color:"#ef4444"}}>Arrest {fmtDuration((call.arrest.endTs||call.endTs)-call.arrest.startTs)}{call.arrest.endReason?` · ${call.arrest.endReason}`:""}</span>}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:8,marginTop:12}}>
+            <button onClick={copy} style={btn("#14b8a6")}>{copied?"✓ Copied":"Copy Summary for ePCR"}</button>
+            <button onClick={()=>{onDelete(call.id);setOpenId(null);}} style={btn("#ef4444")}>Delete</button>
+          </div>
+        </div>
+        <div style={card}>
+          <div style={{fontFamily:mono,fontSize:9.5,fontWeight:800,color:"var(--c-text)",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}}>Timeline</div>
+          {timeline.length===0?(
+            <div style={{fontSize:12,color:"var(--c-text3)"}}>Nothing was logged during this call.</div>
+          ):timeline.map((i,idx)=>(
+            <div key={idx} style={{display:"grid",gridTemplateColumns:"48px 1fr",gap:8,padding:"7px 0",borderTop:idx?"1px solid var(--c-border-sub)":"none"}}>
+              <div style={{fontFamily:mono,fontSize:10,fontWeight:800,color:i.color}}>{fmtTime(i.ts,false).slice(0,5)}</div>
+              <div>
+                <div style={{fontFamily:mono,fontSize:9,fontWeight:800,color:i.color,textTransform:"uppercase",letterSpacing:"0.06em"}}>{i.kind}</div>
+                <div style={{fontSize:12,color:"var(--c-text2)",lineHeight:1.4,marginTop:1}}>{i.text}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{fontSize:10.5,color:"var(--c-text3)",textAlign:"center",lineHeight:1.5}}>This app does not submit your ePCR. Always document in your agency system.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      <div style={card}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+          <div>
+            <div style={{fontFamily:mono,fontSize:12,fontWeight:800,color:"var(--c-text)",letterSpacing:"0.08em",textTransform:"uppercase"}}>🗂️ Call History</div>
+            <div style={{fontSize:11,color:"var(--c-text3)",marginTop:3,lineHeight:1.45}}>Saved on this device only · deleted automatically after {CALL_HX_DAYS} days · no patient names</div>
+          </div>
+          {history.length>0&&(confirmClear?(
+            <div style={{display:"flex",gap:5}}>
+              <button onClick={()=>{onClearAll();setConfirmClear(false);}} style={btn("#ef4444")}>Delete all</button>
+              <button onClick={()=>setConfirmClear(false)} style={btn(isDarkMode?"#94a3b8":"#475569")}>Cancel</button>
+            </div>
+          ):(
+            <button onClick={()=>setConfirmClear(true)} style={btn(isDarkMode?"#94a3b8":"#475569")}>Clear</button>
+          ))}
+        </div>
+      </div>
+      {history.length===0?(
+        <div style={{...card,textAlign:"center",color:"var(--c-text3)",fontSize:12,lineHeight:1.6,padding:24}}>
+          No calls yet. When you tap <b>End Call</b>, the call's meds, vitals and events are saved here.
+        </div>
+      ):history.map(c=>(
+        <button key={c.id} onClick={()=>setOpenId(c.id)} style={{...card,textAlign:"left",cursor:"pointer",display:"block",width:"100%"}}>
+          <div style={{display:"flex",justifyContent:"space-between",gap:8}}>
+            <span style={{fontFamily:mono,fontSize:10,fontWeight:800,color:"var(--c-text3)"}}>{new Date(c.startTs).toLocaleDateString(undefined,{month:"short",day:"numeric"})} · {fmtTime(c.startTs,false).slice(0,5)}</span>
+            <span style={{fontFamily:mono,fontSize:10,fontWeight:800,color:"var(--c-text3)"}}>{fmtDuration(c.endTs-c.startTs)} ›</span>
+          </div>
+          <div style={{fontSize:14,fontWeight:800,color:"var(--c-text)",marginTop:4}}>{ccText(c)}</div>
+          <div style={{fontSize:11.5,color:"var(--c-text2)",marginTop:2}}>
+            {[demo(c),`${(c.meds||[]).length} meds`,c.arrest?"Arrest":null].filter(Boolean).join(" · ")}
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ShiftHomeScreen({ authUser, isDarkMode, onNewPatient, onNavigate, callStartTs, patient, tick, totalDoses, onJumpDrug }) {
   const hour      = new Date().getHours();
   const timeEmoji = hour < 6 ? "🌙" : hour < 12 ? "☀️" : hour < 18 ? "🌤" : "🌙";
@@ -9750,6 +10114,7 @@ function ShiftHomeScreen({ authUser, isDarkMode, onNewPatient, onNavigate, callS
     { label:"Med Log",    icon:"⏱️", s:"medlog",      color:"#fb923c" },
     ...(AI_NARRATIVE_ENABLED?[{ label:"Narrative",icon:"✨",s:"epcr",color:"#a78bfa" }]:[]),
     { label:"Drug Ref",   icon:"📚", s:"ref",         color:"#38bdf8" },
+    { label:"Call Hx",    icon:"🗂️", s:"callhx",      color:"#a3e635" },
   ];
 
   const SPOTLIGHTS = [
@@ -10069,6 +10434,10 @@ export default function App(){
   const[showTour,setShowTour]=useState(false);
   const[tourStep,setTourStep]=useState(0);
   const[showEndCallModal,setShowEndCallModal]=useState(false);
+  const[callHistory,setCallHistory]=useState(loadCallHistory);
+  const[showQuickAdd,setShowQuickAdd]=useState(false);
+  const[extraCallDrugs,setExtraCallDrugs]=useState({callTs:null,names:[]}); // drugs added via ＋ Drug; tied to the call they were added in
+  const archiveCallRef=useRef(null); // latest "save current call to history" fn, usable from memoized handlers
   const[showNewCallWarning,setShowNewCallWarning]=useState(false);
   const[showSettings,setShowSettings]=useState(false);
   const[fontSize,setFontSize]=useState(()=>localStorage.getItem("roman-font-size")||"lg");
@@ -10340,6 +10709,7 @@ export default function App(){
   const ARREST_INIT={startTs:null,endTs:null,endReason:null,rhythm:null,cycleStartTs:null,lastEpiTs:null,events:[],airway:null,hts:{},access:[],patientType:null};
 
   const handleNewCall=useCallback((intake={})=>{
+    archiveCallRef.current?.(); // save any call still in progress before wiping it
     SOUNDS.callStart();
     soundedRef.current={};
     // Wipe all data from any previous call
@@ -10423,6 +10793,7 @@ export default function App(){
   },[]);
   const handleProtocolVitalsChange=useCallback(draft=>{
     const normalized={hr:draft.hr||'',rr:draft.rr||'',spo2:draft.spo2||'',bgl:draft.bgl||''};
+    if(draft.pain!==undefined) normalized.pain=String(draft.pain);
     const bp=String(draft.bp||'').match(/^\s*(\d{2,3})\s*[\/]\s*(\d{2,3})\s*$/);
     if(bp){normalized.sbp=bp[1];normalized.dbp=bp[2];}
     setVitalsEntries(prev=>{
@@ -10452,6 +10823,22 @@ export default function App(){
   const bank=mode==="adult"?ADULT:PEDS;
   const wkg=mode==="adult"?adultWkg:pedsWkg;
   const wlb=mode==="adult"?adultWlb:pedsWlb;
+
+  // Refreshed after every render so End Call / New Call always archive the latest call state
+  useEffect(()=>{ archiveCallRef.current=()=>{
+    if(!callStartTs) return;
+    const endTs=Date.now();
+    const meds=Object.entries(adminLog).flatMap(([drug,d])=>(d.times||[]).map((ts,i)=>({drug,ts,dose:i+1})));
+    const vitals=vitalsEntries.map(v=>({ts:v.ts,sbp:v.sbp,dbp:v.dbp,hr:v.hr,rr:v.rr,spo2:v.spo2,bgl:v.bgl,pain:v.pain,etco2:v.etco2,gcs:v.gcsTotal}));
+    const events=protocolEvents.map(e=>({ts:e.ts,type:e.type,detail:e.detail}));
+    const arrest=arrestState.startTs?{startTs:arrestState.startTs,endTs:arrestState.endTs||endTs,endReason:arrestState.endReason,events:arrestState.events.map(e=>({ts:e.ts,type:e.type,detail:e.detail}))}:null;
+    const record={id:`${callStartTs}`,startTs:callStartTs,endTs,age:patient.age,sex:patient.sex,cc:patient.cc,ccList:callCcList,mode,wkg:wkg||null,meds,vitals,events,arrest};
+    const next=[record,...loadCallHistory().filter(c=>c.id!==record.id)];
+    saveCallHistory(next);
+    setCallHistory(next.slice(0,CALL_HX_MAX));
+  }; });
+  const deleteCallHx=id=>setCallHistory(prev=>{const next=prev.filter(c=>c.id!==id);saveCallHistory(next);return next;});
+  const clearCallHx=()=>{saveCallHistory([]);setCallHistory([]);};
   const setWkg=mode==="adult"?setAdultWkg:setPedsWkg;
   const setWlb=mode==="adult"?setAdultWlb:setPedsWlb;
   const sysInfo=systems.find(s=>s.k===activeSys)||systems[0];
@@ -10476,8 +10863,24 @@ export default function App(){
       const matched=cc.matched||matchCcInput(cc.raw||'');
       return CC_DRUG_MAP[matched]?.drugs||[];
     });
-    return new Set(names);
-  },[callStartTs,callCcList]);
+    const extras=extraCallDrugs.callTs===callStartTs?extraCallDrugs.names:[];
+    return new Set([...names,...extras,...Object.keys(adminLog)]);
+  },[callStartTs,callCcList,extraCallDrugs,adminLog]);
+  const handleQuickAddPick=(name,pickMode,sys)=>{
+    if(callStartTs) setExtraCallDrugs(prev=>{
+      const names=prev.callTs===callStartTs?prev.names:[];
+      return names.includes(name)?prev:{callTs:callStartTs,names:[...names,name]};
+    });
+    setShowQuickAdd(false);
+    setScreen("drugs");
+    setMode(pickMode);
+    if(pickMode==="adult") setASys(sys); else setPSys(sys);
+    setSearch("");
+    setSysDdOpen(false);
+    clearTimeout(highlightTimerRef.current);
+    setHighlightDrug(name);
+    highlightTimerRef.current=setTimeout(()=>setHighlightDrug(null), 3000);
+  };
   const visibleDrugSystems=useMemo(()=>{
     if(!callAllowedDrugs) return systems;
     return systems.filter(system=>(bank[system.k]||[]).some(drug=>callAllowedDrugs.has(drug.name)));
@@ -10627,7 +11030,7 @@ export default function App(){
 
   return(
     <>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700&display=swap');*{box-sizing:border-box;margin:0;padding:0}input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}input[type=number]{-moz-appearance:textfield}::-webkit-scrollbar{width:0;height:0}@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}@keyframes flash{0%,100%{background:#2a0808}50%{background:#7f1d1d}}:root{--c-surface:#0d1120;--c-surface-open:#141c2e;--c-nav:#0a0f1c;--c-input:#090e1c;--c-deep:#080c18;--c-deep2:#0d1525;--c-border:#1a2338;--c-border-sub:#141e30;--c-text-sub:#8a9dc0;--c-text:#e2e8f0;--c-text2:#c0cfe8;--c-text3:#a0b4d0;--c-text4:#6b82a8;--c-text5:#7a90b0;--c-text-ghost:#1a2638}[data-theme="light"]{--c-surface:#e1e9f1;--c-surface-open:#d2dde8;--c-nav:#d7e0e9;--c-input:#f7f9fb;--c-deep:#d8e2ec;--c-deep2:#e2eaf2;--c-border:#64748b;--c-border-sub:#718096;--c-text-sub:#172033;--c-text:#070d1a;--c-text2:#111827;--c-text3:#1f2937;--c-text4:#27364a;--c-text5:#17253a;--c-text-ghost:#374151}[data-theme="light"] input::placeholder,[data-theme="light"] textarea::placeholder{color:#4b5563;opacity:1}[data-theme="light"] button:disabled{color:#4b5563}`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700&display=swap');*{box-sizing:border-box;margin:0;padding:0}input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}input[type=number]{-moz-appearance:textfield}::-webkit-scrollbar{width:0;height:0}@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}@keyframes flash{0%,100%{background:#2a0808}50%{background:#7f1d1d}}:root{--c-surface:#0d1120;--c-surface-open:#141c2e;--c-nav:#0a0f1c;--c-input:#090e1c;--c-deep:#080c18;--c-deep2:#0d1525;--c-border:#2c3c5c;--c-border-sub:#283752;--c-text-sub:#8a9dc0;--c-text:#e2e8f0;--c-text2:#c0cfe8;--c-text3:#a0b4d0;--c-text4:#6b82a8;--c-text5:#7a90b0;--c-text-ghost:#4a5d80}[data-theme="light"]{--c-surface:#e1e9f1;--c-surface-open:#d2dde8;--c-nav:#d7e0e9;--c-input:#f7f9fb;--c-deep:#d8e2ec;--c-deep2:#e2eaf2;--c-border:#64748b;--c-border-sub:#718096;--c-text-sub:#172033;--c-text:#070d1a;--c-text2:#111827;--c-text3:#1f2937;--c-text4:#27364a;--c-text5:#17253a;--c-text-ghost:#374151}[data-theme="light"] input::placeholder,[data-theme="light"] textarea::placeholder{color:#4b5563;opacity:1}[data-theme="light"] button:disabled{color:#4b5563}`}</style>
 
       <div style={{minHeight:"100vh",background:isDarkMode?"#060a15":"#f4efe7",fontFamily:"'DM Sans',sans-serif",maxWidth:480,margin:"0 auto",padding:"14px 11px 60px",transition:"background-color 0.3s",zoom:{sm:0.9,md:1,lg:1.15,xl:1.3}[fontSize]||1}}>
 
@@ -10657,6 +11060,7 @@ export default function App(){
 
                 ["assessments","🩺 Assess",isDarkMode?"#071a1a":"#cff9fd",isDarkMode?"#22d3ee":"#0e7490"],
                 ["ref","📚 Drug Reference",isDarkMode?"#0a1628":"#dbeafe",isDarkMode?"#38bdf8":"#075985"],
+                ["callhx","🗂️ Call Hx",isDarkMode?"#14200a":"#d9f99d",isDarkMode?"#bef264":"#365314"],
               ];
               const cur=NAV.find(([s])=>s===screen)||NAV[0];
               const [,curL,curBg,curFg]=cur;
@@ -10848,6 +11252,7 @@ export default function App(){
                   Cancel
                 </button>
                 <button onClick={()=>{
+                  archiveCallRef.current?.();
                   Object.keys(adminLog).forEach(name=>swCancel(`drug-bg-${name}`));
                   swCancel('cpr-cycle');
                   swCancel('epi-due');
@@ -11057,6 +11462,11 @@ export default function App(){
           />
         )}
 
+
+        {/* CALL HISTORY SCREEN */}
+        {screen==="callhx"&&(
+          <CallHistoryScreen isDarkMode={isDarkMode} history={callHistory} onDelete={deleteCallHx} onClearAll={clearCallHx}/>
+        )}
 
         {/* REFERENCE SCREEN */}
         {screen==="ref"&&(
@@ -11337,6 +11747,18 @@ export default function App(){
           </>
         );
       })()}
+
+      {/* ＋ DRUG SHORTCUT — every screen */}
+      {!showQuickAdd&&!showQuickIntake&&!showEndCallModal&&!showTour&&(
+        <button onClick={()=>setShowQuickAdd(true)} aria-label="Add drug"
+          style={{position:"fixed",right:16,bottom:"calc(18px + env(safe-area-inset-bottom, 0px))",zIndex:200,height:48,padding:"0 16px",borderRadius:24,border:"2px solid #38bdf8",background:isDarkMode?"#0b1f2e":"#0369a1",color:isDarkMode?"#7dd3fc":"#ffffff",fontFamily:"'IBM Plex Mono',monospace",fontSize:13,fontWeight:800,letterSpacing:"0.04em",cursor:"pointer",boxShadow:"0 6px 18px rgba(0,0,0,.45)"}}>
+          ＋ Drug
+        </button>
+      )}
+      {showQuickAdd&&(
+        <QuickAddDrugSheet isDarkMode={isDarkMode} mode={mode} certScopeKey={certScopeKey} inCall={!!callStartTs} callDrugs={callAllowedDrugs}
+          onPick={handleQuickAddPick} onClose={()=>setShowQuickAdd(false)}/>
+      )}
 
       {/* APP TOUR OVERLAY */}
       {showTour&&(()=>{
