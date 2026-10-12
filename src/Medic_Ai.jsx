@@ -2167,7 +2167,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
     return (
       <div style={{ paddingBottom: 20 }}>
         <div style={{ textAlign: "center", padding: "28px 16px 16px" }}>
-          <div style={{ fontSize: 42, marginBottom: 10 }}>❤</div>
+          <div style={{ fontSize: 42, marginBottom: 10 }}>❤️</div>
           <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:15, fontWeight:700, color:"var(--c-text)", marginBottom:4 }}>
             Cardiac Arrest Tracker
           </div>
@@ -3568,7 +3568,7 @@ function MedLog({ adminLog, findDrugLocation, onJump, onClearAll, onResetDrug, w
   if (events.length === 0) {
     return (
       <div style={{ padding:"60px 20px", textAlign:"center", color:"var(--c-text4)" }}>
-        <div style={{ fontSize:32, marginBottom:10, opacity:0.4 }}>⏱</div>
+        <div style={{ fontSize:32, marginBottom:10, opacity:0.4 }}>⏱️</div>
         <div style={{ fontFamily:"'IBM Plex Mono',monospace", color:"var(--c-text-sub)", fontSize:13, fontWeight:700, marginBottom:6 }}>No medications given yet</div>
         <div style={{ fontSize:11, color:"#3a4f70", lineHeight:1.6 }}>
           Open a drug → complete pre-check →<br/>tap <span style={{ color:"#4ade80", fontFamily:"'IBM Plex Mono',monospace" }}>✓ MARK AS GIVEN</span>
@@ -8465,7 +8465,7 @@ const TOUR_STEPS = [
     body:"The Med Log tracks every drug given this call with exact timestamps and doses. Tap any active drug pill in the banner to jump back to that card instantly." },
   { icon:"📈", title:"Vitals Tracking", tag:"Vitals", levels:["AEMT","Medic"],
     body:"Log BP, HR, RR, SpO₂, BGL, and GCS at any time from the Arrest / Vitals tab. Vitals entered during drug pre-checks are captured automatically — nothing gets lost." },
-  { icon:"❤", title:"Cardiac Arrest Tracker", tag:"CPR", levels:["AEMT","Medic"],
+  { icon:"❤️", title:"Cardiac Arrest Tracker", tag:"CPR", levels:["AEMT","Medic"],
     body:"The CPR tab runs a full arrest timer — 2-minute cycle tracking, epinephrine intervals, ROSC detection, airway management, and H's & T's documentation." },
   { icon:"📖", title:"Clinical Protocols", tag:"Protocols", levels:["AEMT","Medic"],
     body:"Step-by-step decision trees for ACS, burns, OB emergencies, and more. Your answers update the 'Next Action' card in real time to guide your treatment." },
@@ -9746,15 +9746,15 @@ function ShiftHomeScreen({ authUser, isDarkMode, onNewPatient, onNavigate, callS
     { label:"Drugs",      icon:"💊", s:"drugs",       color:"#60a5fa" },
     { label:"Protocols",  icon:"📋", s:"protocols",   color:"#c084fc" },
     { label:"Assess",     icon:"🩺", s:"assessments", color:"#22d3ee" },
-    { label:"Arrest",     icon:"❤", s:"arrest",      color:"#f87171" },
-    { label:"Med Log",    icon:"⏱", s:"medlog",      color:"#fb923c" },
+    { label:"Arrest",     icon:"❤️", s:"arrest",      color:"#f87171" },
+    { label:"Med Log",    icon:"⏱️", s:"medlog",      color:"#fb923c" },
     ...(AI_NARRATIVE_ENABLED?[{ label:"Narrative",icon:"✨",s:"epcr",color:"#a78bfa" }]:[]),
     { label:"Drug Ref",   icon:"📚", s:"ref",         color:"#38bdf8" },
   ];
 
   const SPOTLIGHTS = [
     { cc:"Chest Pain / ACS",               icon:"💙", color:"#3b82f6" },
-    { cc:"Cardiac Arrest",                  icon:"❤",  color:"#ef4444" },
+    { cc:"Cardiac Arrest",                  icon:"❤️",  color:"#ef4444" },
     { cc:"Shortness of Breath",             icon:"🫁", color:"#22c55e" },
     { cc:"Altered Mental Status",           icon:"🧠", color:"#a855f7" },
     { cc:"Seizure",                         icon:"⚡", color:"#a855f7" },
@@ -10651,8 +10651,8 @@ export default function App(){
                 ["home","🏠 Home",isDarkMode?"#0a1628":"#e2e8f0",isDarkMode?"#e2e8f0":"#0f172a"],
                 ["drugs","💊 Drugs",isDarkMode?"#0d1f3a":"#9fbce2",isDarkMode?"#93c5fd":"#172554"],
                 ["protocols","Protocols",isDarkMode?"#1a0e28":"#c7a4e6",isDarkMode?"#c084fc":"#4c1d95"],
-                ["arrest","❤ Arrest",isDarkMode?"#2a0808":"#e5a2a2",isDarkMode?"#fca5a5":"#7f1d1d"],
-                ["medlog","⏱ Log",isDarkMode?"#1a0a18":"#e4b07e",isDarkMode?"#fb923c":"#7c2d12"],
+                ["arrest","❤️ Arrest",isDarkMode?"#2a0808":"#e5a2a2",isDarkMode?"#fca5a5":"#7f1d1d"],
+                ["medlog","⏱️ Log",isDarkMode?"#1a0a18":"#e4b07e",isDarkMode?"#fb923c":"#7c2d12"],
                 ...(AI_NARRATIVE_ENABLED?[["epcr","✨ Narrative",isDarkMode?"#1a0e28":"#c7a4e6",isDarkMode?"#c084fc":"#4c1d95"]]:[]),
 
                 ["assessments","🩺 Assess",isDarkMode?"#071a1a":"#cff9fd",isDarkMode?"#22d3ee":"#0e7490"],
