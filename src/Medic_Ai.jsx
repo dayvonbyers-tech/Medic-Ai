@@ -578,6 +578,10 @@ function getRedoseMins(name, { peds = false, maxDoses } = {}) {
   _redoseCache.set(cacheKey, mins);
   return mins;
 }
+// adminLog entries are { times:[ts…], max? } — max is the strictest dose limit of wherever the drug was given,
+// so the drug card, CPR list, Med Log and due alerts all agree on "max reached".
+const minDefined = (a, b) => a == null ? (b ?? null) : b == null ? a : Math.min(a, b);
+const logMaxReached = log => log?.max != null && (log.times?.length || 0) >= log.max;
 const fmtCountdown = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
 function calcDose(d,wt){if(!d.wt||!d.mpk||!wt||wt<=0)return null;let mg=d.mpk*wt;if(d.maxd!=null&&mg>d.maxd)mg=d.maxd;if(d.mind!=null&&mg<d.mind)mg=d.mind;const display=parseFloat(((d.dmult||1)*mg).toFixed(2));const mL=d.cmpml?parseFloat((mg/d.cmpml).toFixed(2)):null;return{display,unit:d.unit||"mg",mL};}
@@ -779,7 +783,8 @@ const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,
   const doseCount=log?.times?.length||0;
   const lastAt=doseCount>0?log.times[doseCount-1]:null;
   const hasActivity=doseCount>0;
-  const maxReached=drug.maxDoses!=null&&doseCount>=drug.maxDoses;
+  const doseCap=minDefined(drug.maxDoses,log?.max);
+  const maxReached=doseCap!=null&&doseCount>=doseCap;
   const isMultiDose=!maxReached&&drug.maxDoses!==1;
   const now=Date.now();
   const elapsedSecs=lastAt?Math.floor((now-lastAt)/1000):null;
@@ -1034,7 +1039,7 @@ const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,
                 {/* MAIN BUTTON */}
                 <div style={{display:"flex",gap:7}}>
                   <button
-                    onClick={e=>{e.stopPropagation();if(canGive){onGive(drug.name);if(needsRe)onClearRe(drug.name);}}}
+                    onClick={e=>{e.stopPropagation();if(canGive){onGive(drug.name,{maxDoses:drug.maxDoses});if(needsRe)onClearRe(drug.name);}}}
                     disabled={!canGive}
                     style={{
                       flex:1,padding:"10px 0",borderRadius:7,border:"none",
@@ -2410,7 +2415,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
         const doseLabel = amioCount === 0 ? "300 mg IVP" : "150 mg IVP";
         addEvent("amio", doseLabel);
       }
-      if (onLogMed) onLogMed("Amiodarone");
+      if (onLogMed) onLogMed("Amiodarone", { maxDoses: DRUG_MENU.arrest.find(d => d.k === "amio")?.maxDoses });
     } else if (medType === "lido") {
       if (isPeds && wkg === 0) return;
       if (isPeds) {
@@ -2421,7 +2426,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
       } else {
         addEvent("lido", "1–1.5 mg/kg IV/IO");
       }
-      if (onLogMed) onLogMed("Lidocaine");
+      if (onLogMed) onLogMed("Lidocaine", { maxDoses: DRUG_MENU.arrest.find(d => d.k === "lido")?.maxDoses });
     }
   };
 
@@ -2483,7 +2488,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
     }
 
     addEvent(drug.eventType, detail);
-    if (onLogMed) onLogMed(drug.medLogName);
+    if (onLogMed) onLogMed(drug.medLogName, { maxDoses: cumInfo.maxDoses });
   };
 
   const toggleHT = (k) => {
@@ -4018,10 +4023,11 @@ function MedLog({ adminLog, findDrugLocation, onJump, onClearAll, onResetDrug, w
     byDrug[e.drug].first = Math.min(byDrug[e.drug].first, e.ts);
   });
 
-  // Re-dose countdowns for repeatable drugs, soonest first
+  // Re-dose countdowns for repeatable drugs, soonest first; drugs at their dose limit go last as "Max reached"
   const timers = Object.entries(byDrug).map(([drug, info]) => {
     const mins = getRedoseMins(drug, { peds: findDrugLocation(drug)?.mode === "peds" });
     if (!mins) return null;
+    if (logMaxReached(adminLog[drug])) return { drug, mins, maxed: true, remain: Infinity };
     return { drug, mins, remain: Math.max(0, mins * 60 - Math.floor((now - info.last) / 1000)) };
   }).filter(Boolean).sort((a, b) => a.remain - b.remain);
 
@@ -4059,12 +4065,12 @@ function MedLog({ adminLog, findDrugLocation, onJump, onClearAll, onResetDrug, w
               return (
                 <button key={t.drug} onClick={() => onJump(t.drug)} style={{
                   display:"flex", alignItems:"center", gap:8, padding:"7px 9px", borderRadius:6, cursor:"pointer", textAlign:"left",
-                  background:"var(--c-surface)", border:`1px solid ${ready ? "#16a34a" : "#ca8a04"}`
+                  background:"var(--c-surface)", border:`1px solid ${t.maxed ? "#dc2626" : ready ? "#16a34a" : "#ca8a04"}`
                 }}>
                   <span style={{ flex:1, minWidth:0, color:"var(--c-text)", fontSize:11.5, fontWeight:700, fontFamily:"'IBM Plex Mono',monospace", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{t.drug}</span>
-                  <span style={{ color:"var(--c-text4)", fontSize:9.5, fontFamily:"'IBM Plex Mono',monospace" }}>q{t.mins} min</span>
-                  <span style={{ minWidth:78, textAlign:"right", fontFamily:"'IBM Plex Mono',monospace", fontSize:13, fontWeight:800, color: ready ? "#22c55e" : "#facc15" }}>
-                    {ready ? "Repeat OK" : fmtCountdown(t.remain)}
+                  {!t.maxed && <span style={{ color:"var(--c-text4)", fontSize:9.5, fontFamily:"'IBM Plex Mono',monospace" }}>q{t.mins} min</span>}
+                  <span style={{ minWidth:78, textAlign:"right", fontFamily:"'IBM Plex Mono',monospace", fontSize: t.maxed ? 11 : 13, fontWeight:800, color: t.maxed ? "#f87171" : ready ? "#22c55e" : "#facc15" }}>
+                    {t.maxed ? "🛑 Max reached" : ready ? "Repeat OK" : fmtCountdown(t.remain)}
                   </span>
                 </button>
               );
@@ -11198,7 +11204,7 @@ export default function App(){
     }
     // Drug redose sounds
     if(callStartTs) Object.entries(adminLog).forEach(([name,log])=>{
-      const times=log?.times||[];if(!times.length)return;
+      const times=log?.times||[];if(!times.length||logMaxReached(log))return;
       const lastAt=times[times.length-1];
       let redoseMins=null;
       redoseMins=getRedoseMins(name);
@@ -11266,9 +11272,9 @@ export default function App(){
     }
   },[setMode,setProtocolInitSys,setPedsWkg,setPedsWlb]);
 
-  const handleGive=useCallback((name)=>{
+  const handleGive=useCallback((name,{maxDoses}={})=>{
     const ts=Date.now();
-    setAdminLog(p=>{const e=p[name]||{times:[]};return{...p,[name]:{times:[...e.times,ts]}};});
+    setAdminLog(p=>{const e=p[name]||{times:[]};return{...p,[name]:{times:[...e.times,ts],max:minDefined(e.max,maxDoses)}};});
     const PRE_CHECK_VITALS=['sbp','dbp','hr','rr','spo2','bgl'];
     const drugChecks=initChecks[name]||{};
     const captured={};
@@ -11279,11 +11285,13 @@ export default function App(){
     // Schedule background redose notification via service worker
     let redoseMins=null;
     redoseMins=getRedoseMins(name);
+    const prior=adminLog[name];
+    if(logMaxReached({times:[...(prior?.times||[]),ts],max:minDefined(prior?.max,maxDoses)})) redoseMins=null;
+    swCancel(`drug-bg-${name}`);
     if(redoseMins){
-      swCancel(`drug-bg-${name}`);
       swNotify(`${name} Due`,`Reassess and re-administer if indicated`,`drug-bg-${name}`,redoseMins*60000,false);
     }
-  },[initChecks]);
+  },[initChecks,adminLog]);
 
   const handleReset=useCallback(name=>{setAdminLog(p=>{const n={...p};delete n[name];return n;});setInitChecks(p=>{const n={...p};delete n[name];return n;});setReChecks(p=>{const n={...p};delete n[name];return n;});},[]);
   const syncPrecheckVital=useCallback((id,v,drugName)=>{
