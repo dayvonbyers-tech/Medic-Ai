@@ -73,7 +73,7 @@ const LIGHT_TEXT_REMAP = [
   // blues
   ["56, 189, 248", "#0369a1"], ["147, 197, 253", "#1d4ed8"], ["96, 165, 250", "#1d4ed8"],
   // oranges / ambers
-  ["253, 186, 116", "#c2410c"], ["251, 146, 60", "#c2410c"], ["249, 115, 22", "#9a3412"], ["245, 158, 11", "#b45309"], ["252, 211, 77", "#92400e"],
+  ["253, 186, 116", "#c2410c"], ["251, 146, 60", "#c2410c"], ["249, 115, 22", "#9a3412"], ["245, 158, 11", "#b45309"], ["252, 211, 77", "#92400e"], ["250, 204, 21", "#a16207"],
   // reds / pinks
   ["252, 165, 165", "#b91c1c"], ["248, 113, 113", "#b91c1c"], ["239, 68, 68", "#b91c1c"],
   // purples
@@ -2858,14 +2858,15 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
               Epi #{epiCount} · {fmtClock(lastEpiTs)}
             </div>
             <div style={{ fontSize:10.5, color: epiDue ? ac("#fca5a5","#b91c1c") : subTxt, marginTop:1 }}>
-              {epiDue ? "⚠ Re-dose overdue" : epiWarn ? "⚠ Window open (3–5 min)" : `Elapsed: ${fmtArrestTime(epiSecs)}`}
+              {epiDue ? "⚠ Re-dose overdue" : epiWarn ? "⚠ Window open — give within" : "Next epi window in"}
             </div>
           </div>
+          {/* Counts down to the 3-min window, then to the 5-min deadline; past 5 min shows how overdue. */}
           <div style={{
-            fontFamily:"'IBM Plex Mono',monospace", fontSize:14, fontWeight:700,
-            color: epiDue ? "#f87171" : epiWarn ? "#facc15" : "#4ade80"
+            fontFamily:"'IBM Plex Mono',monospace", fontSize:16, fontWeight:800,
+            color: epiDue ? "#f87171" : epiWarn ? ac("#facc15","#a16207") : "#4ade80"
           }}>
-            {fmtArrestTime(epiSecs)}
+            {epiDue ? `+${fmtArrestTime(epiSecs - 300)}` : fmtArrestTime((epiWarn ? 300 : 180) - epiSecs)}
           </div>
         </div>
       )}
@@ -3515,8 +3516,8 @@ function NextActionCard({ epiWarn, epiDue, epiWindowOpen, epiSecs, cycleRemain, 
   } else if (epiDue) {
     msg = "Epi Overdue";
     sub = isPeds && wkg > 0
-      ? `${fmtArrestTime(epiSecs)} elapsed · give ${Math.min(0.01 * wkg, 1).toFixed(2)} mg IV/IO`
-      : `${fmtArrestTime(epiSecs)} elapsed · give 1 mg IV/IO`;
+      ? `Overdue +${fmtArrestTime(epiSecs - 300)} · give ${Math.min(0.01 * wkg, 1).toFixed(2)} mg IV/IO`
+      : `Overdue +${fmtArrestTime(epiSecs - 300)} · give 1 mg IV/IO`;
     color = "#f87171"; bg = a("#2a0808","#fee2e2"); bd = "#ef4444"; icon = "💉";
   } else if (epiCount === 0 && rhythm === "PEA/Asystole") {
     msg = isPeds && wkg > 0
@@ -3532,7 +3533,7 @@ function NextActionCard({ epiWarn, epiDue, epiWindowOpen, epiSecs, cycleRemain, 
     color = a("#93c5fd","#1d4ed8"); bg = a("#0d1f3a","#dbeafe"); bd = a("#1e3a8a","#2563eb"); icon = "💉";
   } else if (epiWarn) {
     msg = "Epi Window Open";
-    sub = `3–5 min interval · ${fmtArrestTime(epiSecs)} elapsed`;
+    sub = `Give within ${fmtArrestTime(300 - epiSecs)} (3–5 min interval)`;
     color = a("#fcd34d","#a16207"); bg = a("#1a1408","#fef9c3"); bd = a("#f59e0b","#d97706"); icon = "💉";
   } else if (rhythm === "VF/pVT" && shockCount === 0) {
     msg = "Deliver Shock";
@@ -11445,7 +11446,7 @@ export default function App(){
 
   return(
     <>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700&display=swap');*{box-sizing:border-box;margin:0;padding:0}input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}input[type=number]{-moz-appearance:textfield}::-webkit-scrollbar{width:0;height:0}@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}@keyframes flash{0%,100%{background:#2a0808}50%{background:#7f1d1d}}:root{--c-surface:#0d1120;--c-surface-open:#141c2e;--c-nav:#0a0f1c;--c-input:#090e1c;--c-deep:#080c18;--c-deep2:#0d1525;--c-border:#2c3c5c;--c-border-sub:#283752;--c-text-sub:#8a9dc0;--c-text:#e2e8f0;--c-text2:#c0cfe8;--c-text3:#a0b4d0;--c-text4:#6b82a8;--c-text5:#7a90b0;--c-text-ghost:#4a5d80}[data-theme="light"]{--c-surface:#e1e9f1;--c-surface-open:#d2dde8;--c-nav:#d7e0e9;--c-input:#f7f9fb;--c-deep:#d8e2ec;--c-deep2:#e2eaf2;--c-border:#64748b;--c-border-sub:#718096;--c-text-sub:#172033;--c-text:#070d1a;--c-text2:#111827;--c-text3:#1f2937;--c-text4:#27364a;--c-text5:#17253a;--c-text-ghost:#374151}[data-theme="light"] input::placeholder,[data-theme="light"] textarea::placeholder{color:#4b5563;opacity:1}[data-theme="light"] button:disabled{color:#4b5563}`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700&display=swap');*{box-sizing:border-box;margin:0;padding:0}input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}input[type=number]{-moz-appearance:textfield}::-webkit-scrollbar{width:0;height:0}@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}@keyframes flash{0%,100%{background:var(--c-flash-a)}50%{background:var(--c-flash-b)}}:root{--c-flash-a:#2a0808;--c-flash-b:#7f1d1d;--c-surface:#0d1120;--c-surface-open:#141c2e;--c-nav:#0a0f1c;--c-input:#090e1c;--c-deep:#080c18;--c-deep2:#0d1525;--c-border:#2c3c5c;--c-border-sub:#283752;--c-text-sub:#8a9dc0;--c-text:#e2e8f0;--c-text2:#c0cfe8;--c-text3:#a0b4d0;--c-text4:#6b82a8;--c-text5:#7a90b0;--c-text-ghost:#4a5d80}[data-theme="light"]{--c-flash-a:#fee2e2;--c-flash-b:#fca5a5;--c-surface:#e1e9f1;--c-surface-open:#d2dde8;--c-nav:#d7e0e9;--c-input:#f7f9fb;--c-deep:#d8e2ec;--c-deep2:#e2eaf2;--c-border:#64748b;--c-border-sub:#718096;--c-text-sub:#172033;--c-text:#070d1a;--c-text2:#111827;--c-text3:#1f2937;--c-text4:#27364a;--c-text5:#17253a;--c-text-ghost:#374151}[data-theme="light"] input::placeholder,[data-theme="light"] textarea::placeholder{color:#4b5563;opacity:1}[data-theme="light"] button:disabled{color:#4b5563}`}</style>
 
       <div style={{minHeight:"100vh",background:isDarkMode?"#060a15":"#f4efe7",fontFamily:"'DM Sans',sans-serif",maxWidth:480,margin:"0 auto",padding:"14px 11px 60px",transition:"background-color 0.3s",zoom:{sm:0.9,md:1,lg:1.15,xl:1.3}[fontSize]||1}}>
 
