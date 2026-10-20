@@ -5977,7 +5977,7 @@ function PedsProtocolWeightGate({ wkg, wlb, setWkg, setWlb, isDarkMode }) {
     <section style={{background:isDarkMode?"#1a1000":"#fff7ed",border:"1px solid #f59e0b",borderRadius:8,padding:12}}>
       <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,color:"#f59e0b",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:5}}>Pediatric weight required</div>
       <div style={{fontSize:12,color:"var(--c-text2)",lineHeight:1.45,marginBottom:10}}>
-        Enter weight in pounds before starting Active Call, selecting medications, or using dose timers in pediatric protocol mode. The app converts it to kg for dosing.
+        Enter weight in pounds before {ACTIVE_CALL_WORKSPACE_ENABLED ? "starting Active Call, " : ""}selecting medications or using dose timers in pediatric protocol mode. The app converts it to kg for dosing.
       </div>
       <div style={{display:"flex",alignItems:"center",gap:8}}>
         <input type="number" min="0" step="0.1" value={wlb || ""} onChange={e=>setLbs(e.target.value)} placeholder="lbs" style={{width:96,background:"var(--c-input)",border:"1px solid #f59e0b",borderRadius:6,padding:"8px 9px",color:"var(--c-text)",fontSize:13,fontFamily:"'IBM Plex Mono',monospace",outline:"none"}}/>
@@ -7187,7 +7187,9 @@ function ProtocolsScreen({ mode, setMode, isDarkMode, burnMaps, setBurnMaps, onJ
       </div>
 
       <div style={{background:"var(--c-input)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:10,color:"var(--c-text4)",fontSize:10.5,lineHeight:1.45}}>
-        Select a body system, start a protocol, then use the active-call panel to capture vitals, decisions, interventions, and medications without leaving the guided workflow.
+        {ACTIVE_CALL_WORKSPACE_ENABLED
+          ? "Select a body system, start a protocol, then use the active-call panel to capture vitals, decisions, interventions, and medications without leaving the guided workflow."
+          : "Select a body system, then start a protocol to work through its decision points, steps, and medications."}
       </div>
     </section>
   );
