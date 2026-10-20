@@ -548,6 +548,38 @@ Object.entries(PEDS).forEach(([sys,drugs])=>drugs.forEach(d=>DRUG_LOC_PEDS.set(d
 // Combined fallback for contexts that don't know the mode (e.g. med log)
 const DRUG_LOCATION_MAP = new Map([...DRUG_LOC_ADULT,...DRUG_LOC_PEDS]);
 
+/* ── Re-dose intervals (shared by drug cards, CPR drug list, Med Log, due alerts) ──
+   Source of truth is each drug's `redoseMins`. Repeatable drugs that had none get an AHA default
+   below — CONFIRM WITH MEDICAL DIRECTOR. Drips / infusions / fluid boluses never count down. */
+const REDOSE_DEFAULT_MINS = {
+  "Lidocaine": 5,               // AHA ACLS: 0.5–0.75 mg/kg q5–10 min (max 3 mg/kg)
+  "Calcium Chloride 10%": 10,   // repeat q10 min PRN
+  "Sodium Bicarbonate": 10,     // 0.5 mEq/kg q10 min PRN
+  "Glucagon": 15,               // hypoglycemia: repeat in 15 min if no response
+  "Ketamine": 10,
+};
+const REDOSE_NAME_ALIASES = { "Dextrose 10%":"Dextrose 10% (D10)", "Dextrose 25%":"Dextrose 25% (D25)" };
+const NO_COUNTDOWN_RE = /drip|infusion|bolus|normal saline|lactated|parkland|dopamine/i;
+const _redoseCache = new Map();
+function getRedoseMins(name, { peds = false, maxDoses } = {}) {
+  if (!name || maxDoses === 1 || NO_COUNTDOWN_RE.test(name)) return null;
+  const key = REDOSE_NAME_ALIASES[name] || name;
+  const cacheKey = `${peds ? "p" : "a"}:${key}`;
+  if (_redoseCache.has(cacheKey)) return _redoseCache.get(cacheKey);
+  let mins = null;
+  for (const db of peds ? [PEDS, ADULT] : [ADULT, PEDS]) {
+    for (const drugs of Object.values(db)) {
+      const d = drugs.find(x => x.name === key && x.redoseMins);
+      if (d) { mins = d.redoseMins; break; }
+    }
+    if (mins) break;
+  }
+  mins = mins ?? REDOSE_DEFAULT_MINS[key] ?? null;
+  _redoseCache.set(cacheKey, mins);
+  return mins;
+}
+const fmtCountdown = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+
 function calcDose(d,wt){if(!d.wt||!d.mpk||!wt||wt<=0)return null;let mg=d.mpk*wt;if(d.maxd!=null&&mg>d.maxd)mg=d.maxd;if(d.mind!=null&&mg<d.mind)mg=d.mind;const display=parseFloat(((d.dmult||1)*mg).toFixed(2));const mL=d.cmpml?parseFloat((mg/d.cmpml).toFixed(2)):null;return{display,unit:d.unit||"mg",mL};}
 
 function getMaxDoseDisplay(drug) {
@@ -751,7 +783,9 @@ const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,
   const isMultiDose=!maxReached&&drug.maxDoses!==1;
   const now=Date.now();
   const elapsedSecs=lastAt?Math.floor((now-lastAt)/1000):null;
-  const redoseSecs=drug.redoseMins?drug.redoseMins*60:null;
+  // Card value wins (same-named drugs can differ by system); AHA default only fills gaps.
+  const redoseMins=drug.redoseMins??(drug.maxDoses===1?null:REDOSE_DEFAULT_MINS[drug.name]??null);
+  const redoseSecs=redoseMins?redoseMins*60:null;
   const remainSecs=(redoseSecs&&elapsedSecs!=null)?Math.max(0,redoseSecs-elapsedSecs):null;
   const isDue=remainSecs===0;
   const warnAt=WARN_AT[drug.name]||60;
@@ -945,7 +979,7 @@ const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,
                       vals={reVals}
                       onUpdate={(id,v)=>onReUpdate(drug.name,id,v)}
                       label={`Dose ${doseCount+1} Vital Reassessment`}
-                      subtitle={`${drug.redoseMins} min interval elapsed — re-enter current vitals`}
+                      subtitle={`${redoseMins} min interval elapsed — re-enter current vitals`}
                       accentColor="#f97316"
                       isDarkMode={isDarkMode}
                     />
@@ -1017,8 +1051,8 @@ const DrugCard=React.memo(function DrugCard({drug,wt,color,tick,adminLog,onGive,
                   {hasActivity&&<button onClick={e=>{e.stopPropagation();onReset(drug.name);onClearRe(drug.name);}} style={{padding:"10px 12px",borderRadius:7,border:"1px solid #1a2540",background:"transparent",color:"#3a4f70",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontSize:11}}>↺</button>}
                 </div>
 
-                {drug.redoseMins&&!maxReached&&<div style={{color:"var(--c-text4)",fontSize:10,marginTop:7,textAlign:"center"}}>Re-dose interval: {drug.redoseMins} min{drug.maxDoses?` · Max ${drug.maxDoses} doses`:" · No dose limit"}</div>}
-                {!drug.redoseMins&&drug.maxDoses===1&&<div style={{color:"var(--c-text4)",fontSize:10,marginTop:7,textAlign:"center"}}>Single dose only</div>}
+                {redoseMins&&!maxReached&&<div style={{color:"var(--c-text4)",fontSize:10,marginTop:7,textAlign:"center"}}>Re-dose interval: {redoseMins} min{drug.maxDoses?` · Max ${drug.maxDoses} doses`:" · No dose limit"}</div>}
+                {!redoseMins&&drug.maxDoses===1&&<div style={{color:"var(--c-text4)",fontSize:10,marginTop:7,textAlign:"center"}}>Single dose only</div>}
               </div>
             )}
           </div>
@@ -1571,7 +1605,7 @@ const ARREST_DRUG_MENU = {
     {
       k: "amio_post", name: "Amiodarone Drip (post-ROSC)", sub: "Recurrent VF/VT",
       dose: "1 mg/min × 6 hr, then 0.5 mg/min", volume: "IV pump",
-      eventType: "amio", medLogName: "Amiodarone",
+      eventType: "amio_drip", medLogName: "Amiodarone Drip",
       notes: "Continue per ROSC protocol if VF/VT was the arrest rhythm.",
     },
   ],
@@ -1715,7 +1749,7 @@ const PEDS_ARREST_DRUG_MENU = {
     {
       k: "epi_drip", name: "Epinephrine Infusion", sub: "Post-ROSC hypotension",
       dose: "0.1–1 mcg/kg/min IV infusion",
-      eventType: "dopamine", medLogName: "Epinephrine",
+      eventType: "epi_drip", medLogName: "Epinephrine Infusion",
       notes: "Preferred over dopamine in peds per PALS. Start 0.1 mcg/kg/min, titrate to MAP per age.",
     },
     {
@@ -1818,6 +1852,8 @@ const ARREST_EVENT_COLORS = {
   atropine:      { bg:"#7c2d12", fg:"#fdba74", icon:"💉", label:"Atropine" },
   adenosine:     { bg:"#7c2d12", fg:"#fdba74", icon:"💉", label:"Adenosine" },
   dopamine:      { bg:"#1a0e28", fg:"#c084fc", icon:"💉", label:"Dopamine Drip" },
+  epi_drip:      { bg:"#1a0e28", fg:"#c084fc", icon:"💉", label:"Epinephrine Infusion" },
+  amio_drip:     { bg:"#1a0e28", fg:"#c084fc", icon:"💉", label:"Amiodarone Drip" },
   versed:        { bg:"#1a0e28", fg:"#c084fc", icon:"💉", label:"Midazolam" },
   fentanyl:      { bg:"#1a0e28", fg:"#c084fc", icon:"💉", label:"Fentanyl" },
   airway:        { bg:"#0a2318", fg:"#4ade80", icon:"🫁", label:"Airway" },
@@ -2238,6 +2274,15 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
 
   // Amiodarone/Lidocaine become relevant after 2nd shock in VF/pVT
   const showAntiarrhythmic = rhythm === "VF/pVT" && shockCount >= 2;
+
+  // " · next 1:45" / " · repeat OK" suffix for quick-action buttons (null if never given or no interval)
+  const redoseSuffix = (eventType, medName) => {
+    const last = events.find(e => e.type === eventType)?.ts;
+    const mins = last ? getRedoseMins(medName, { peds: isPeds }) : null;
+    if (!mins) return "";
+    const remain = Math.max(0, mins * 60 - Math.floor((now - last) / 1000));
+    return remain === 0 ? " · repeat OK" : ` · next ${fmtCountdown(remain)}`;
+  };
 
   useEffect(()=>{
     if (!active) return;
@@ -3067,6 +3112,12 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
                 const disabled = needsWeight || maxReached;
                 const hasDarkCardBg = maxReached || count > 0 || needsWeight;
 
+                // Re-dose countdown (epi has its own strip above)
+                const lastGivenTs = count > 0 ? events.find(e => e.type === drug.eventType)?.ts : null;
+                const redoseMins = drug.k === "epi" ? null : getRedoseMins(drug.medLogName, { peds: isPeds, maxDoses: drug.maxDoses });
+                const redoseRemain = lastGivenTs && redoseMins && !maxReached
+                  ? Math.max(0, redoseMins * 60 - Math.floor((now - lastGivenTs) / 1000)) : null;
+
                 return (
                   <div key={drug.k} style={{
                     background: maxReached ? ac("#0a0f18","#fee2e2")
@@ -3099,12 +3150,22 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
                               {drug.name}
                             </span>
                             {count > 0 && !maxReached && (
-                              <span style={{ background:"#0f5a3a", color:"#4ade80", border:"1px solid #14532d", borderRadius:3, padding:"1px 5px", fontSize:9, fontFamily:"'IBM Plex Mono',monospace", fontWeight:700 }}>
+                              <span style={{ background:ac("#0f5a3a","#bbf7d0"), color:ac("#4ade80","#14532d"), border:`1px solid ${ac("#14532d","#16a34a")}`, borderRadius:3, padding:"1px 5px", fontSize:9, fontFamily:"'IBM Plex Mono',monospace", fontWeight:700 }}>
                                 ✓ ×{count}
                               </span>
                             )}
+                            {redoseRemain != null && (
+                              <span style={{
+                                background: redoseRemain === 0 ? ac("#052e16","#dcfce7") : ac("#1a1408","#fef9c3"),
+                                color: redoseRemain === 0 ? ac("#86efac","#14532d") : ac("#fcd34d","#854d0e"),
+                                border: `1px solid ${redoseRemain === 0 ? ac("#16a34a","#16a34a") : ac("#92400e","#ca8a04")}`,
+                                borderRadius:3, padding:"1px 5px", fontSize:9.5, fontFamily:"'IBM Plex Mono',monospace", fontWeight:800
+                              }}>
+                                {redoseRemain === 0 ? "✓ Repeat OK" : `⏱ Next ${fmtCountdown(redoseRemain)}`}
+                              </span>
+                            )}
                             {maxReached && (
-                              <span style={{ background:"#5a1010", color:"#fca5a5", border:"1px solid #7f1d1d", borderRadius:3, padding:"1px 5px", fontSize:9, fontFamily:"'IBM Plex Mono',monospace", fontWeight:700, letterSpacing:"0.04em" }}>
+                              <span style={{ background:ac("#5a1010","#fecaca"), color:ac("#fca5a5","#7f1d1d"), border:`1px solid ${ac("#7f1d1d","#dc2626")}`, borderRadius:3, padding:"1px 5px", fontSize:9, fontFamily:"'IBM Plex Mono',monospace", fontWeight:700, letterSpacing:"0.04em" }}>
                                 🛑 MAX REACHED
                               </span>
                             )}
@@ -3189,11 +3250,12 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
             <ActionBtn
               icon="💉" label={amioCount === 0 ? "Amiodarone" : amioCount === 1 ? "Amio #2" : amioCount === 2 ? "Amio #3" : `Amio ×${amioCount}`}
               sub={
-                isPeds
+                (isPeds
                   ? (wkg > 0
                       ? `${Math.min(5 * wkg, 300).toFixed(0)} mg (5 mg/kg) IVP`
                       : "⚠ Weight required")
-                  : (amioCount === 0 ? "300 mg IVP" : "150 mg IVP")
+                  : (amioCount === 0 ? "300 mg IVP" : "150 mg IVP"))
+                + redoseSuffix("amio", "Amiodarone")
               }
               onClick={() => recordMed("amio")}
               bg={ac("#0d1f3a","#dbeafe")} bd={ac("#1e3a8a","#2563eb")} fg={ac("#93c5fd","#1d4ed8")}
@@ -3207,9 +3269,10 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
             <ActionBtn
               icon="💉" label={`Lidocaine${lidoCount > 0 ? ` ×${lidoCount}` : ""}`}
               sub={
-                isPeds
+                (isPeds
                   ? (wkg > 0 ? `${(1 * wkg).toFixed(0)} mg (1 mg/kg) IV/IO` : "⚠ Weight required")
-                  : (wkg > 0 ? `${(1.5 * wkg).toFixed(0)} mg (1.5 mg/kg)` : "1–1.5 mg/kg")
+                  : (wkg > 0 ? `${(1.5 * wkg).toFixed(0)} mg (1.5 mg/kg)` : "1–1.5 mg/kg"))
+                + redoseSuffix("lido", "Lidocaine")
               }
               onClick={() => recordMed("lido")}
               bg={ac("#0d1f3a","#dbeafe")} bd={ac("#1e3a8a","#2563eb")} fg={ac("#93c5fd","#1d4ed8")}
@@ -3912,6 +3975,8 @@ function AccessAttemptModal({ onClose, onSubmit, existingAttempts }) {
 ������������������������������������������������������� */
 function MedLog({ adminLog, findDrugLocation, onJump, onClearAll, onResetDrug, wkg }) {
   const [confirmClear, setConfirmClear] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id); }, []);
   // Flatten { drugName: { times: [t1,t2] } } into individual dose events
   const events = [];
   Object.entries(adminLog).forEach(([drugName, data]) => {
@@ -3953,6 +4018,13 @@ function MedLog({ adminLog, findDrugLocation, onJump, onClearAll, onResetDrug, w
     byDrug[e.drug].first = Math.min(byDrug[e.drug].first, e.ts);
   });
 
+  // Re-dose countdowns for repeatable drugs, soonest first
+  const timers = Object.entries(byDrug).map(([drug, info]) => {
+    const mins = getRedoseMins(drug, { peds: findDrugLocation(drug)?.mode === "peds" });
+    if (!mins) return null;
+    return { drug, mins, remain: Math.max(0, mins * 60 - Math.floor((now - info.last) / 1000)) };
+  }).filter(Boolean).sort((a, b) => a.remain - b.remain);
+
   return (
     <div style={{ paddingBottom:20 }}>
       {/* Header */}
@@ -3976,6 +4048,30 @@ function MedLog({ adminLog, findDrugLocation, onJump, onClearAll, onResetDrug, w
           )}
         </div>
       </div>
+
+      {/* Re-dose countdowns */}
+      {timers.length > 0 && (
+        <div style={{ background:"var(--c-input)", border:"1px solid var(--c-border-sub)", borderRadius:8, padding:"8px 10px", marginBottom:10 }}>
+          <div style={{ color:"var(--c-text4)", fontSize:9, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6, fontFamily:"'IBM Plex Mono',monospace" }}>Next Doses</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
+            {timers.map(t => {
+              const ready = t.remain === 0;
+              return (
+                <button key={t.drug} onClick={() => onJump(t.drug)} style={{
+                  display:"flex", alignItems:"center", gap:8, padding:"7px 9px", borderRadius:6, cursor:"pointer", textAlign:"left",
+                  background:"var(--c-surface)", border:`1px solid ${ready ? "#16a34a" : "#ca8a04"}`
+                }}>
+                  <span style={{ flex:1, minWidth:0, color:"var(--c-text)", fontSize:11.5, fontWeight:700, fontFamily:"'IBM Plex Mono',monospace", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{t.drug}</span>
+                  <span style={{ color:"var(--c-text4)", fontSize:9.5, fontFamily:"'IBM Plex Mono',monospace" }}>q{t.mins} min</span>
+                  <span style={{ minWidth:78, textAlign:"right", fontFamily:"'IBM Plex Mono',monospace", fontSize:13, fontWeight:800, color: ready ? "#22c55e" : "#facc15" }}>
+                    {ready ? "Repeat OK" : fmtCountdown(t.remain)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Drug summary pills */}
       <div style={{ background:"var(--c-input)", border:"1px solid var(--c-border-sub)", borderRadius:8, padding:"8px 10px", marginBottom:10 }}>
@@ -11105,7 +11201,7 @@ export default function App(){
       const times=log?.times||[];if(!times.length)return;
       const lastAt=times[times.length-1];
       let redoseMins=null;
-      for(const drugs of Object.values(ADULT)){const d=drugs.find(d=>d.name===name);if(d?.redoseMins){redoseMins=d.redoseMins;break;}}
+      redoseMins=getRedoseMins(name);
       if(!redoseMins)return;
       const elapsed=now-lastAt;
       const key=`drug-${name}-${times.length}`;
@@ -11182,7 +11278,7 @@ export default function App(){
     }
     // Schedule background redose notification via service worker
     let redoseMins=null;
-    for(const drugs of Object.values(ADULT)){const d=drugs.find(d=>d.name===name);if(d?.redoseMins){redoseMins=d.redoseMins;break;}}
+    redoseMins=getRedoseMins(name);
     if(redoseMins){
       swCancel(`drug-bg-${name}`);
       swNotify(`${name} Due`,`Reassess and re-administer if indicated`,`drug-bg-${name}`,redoseMins*60000,false);
