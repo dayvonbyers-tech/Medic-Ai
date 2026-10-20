@@ -59,6 +59,47 @@ function swCancel(tag) {
   navigator.serviceWorker?.controller?.postMessage({ type: 'CANCEL', tag });
 }
 
+/* Light-mode text color remap.
+   Many inline text colors are bright accents tuned for the dark theme (e.g. #4ade80) and wash out on
+   the light background. In light mode, swap each one for a darker shade of the same hue. Only the
+   `color` / SVG `fill` of text is touched — backgrounds and borders keep their colors. Inline hex
+   values are serialized by the browser as rgb(), which is what the selectors match. SVG `fill`
+   attributes are not covered — pick theme-aware fills there directly. */
+const LIGHT_TEXT_REMAP = [
+  // greens
+  ["134, 239, 172", "#15803d"], ["74, 222, 128", "#15803d"], ["34, 197, 94", "#15803d"], ["163, 230, 53", "#4d7c0f"],
+  // cyans / teals
+  ["103, 232, 249", "#0e7490"], ["34, 211, 238", "#0e7490"], ["20, 184, 166", "#0f766e"], ["94, 234, 212", "#0f766e"],
+  // blues
+  ["56, 189, 248", "#0369a1"], ["147, 197, 253", "#1d4ed8"], ["96, 165, 250", "#1d4ed8"],
+  // oranges / ambers
+  ["253, 186, 116", "#c2410c"], ["251, 146, 60", "#c2410c"], ["249, 115, 22", "#9a3412"], ["245, 158, 11", "#b45309"], ["252, 211, 77", "#92400e"],
+  // reds / pinks
+  ["252, 165, 165", "#b91c1c"], ["248, 113, 113", "#b91c1c"], ["239, 68, 68", "#b91c1c"],
+  // purples
+  ["192, 132, 252", "#7e22ce"], ["168, 85, 247", "#7e22ce"], ["216, 180, 254", "#7e22ce"],
+];
+// Dark tinted chip/button backgrounds that were hardcoded without a light pair — give them the same
+// light tints the theme-aware code uses (e.g. ac("#052e16","#dcfce7")) so remapped text stays readable.
+const LIGHT_BG_REMAP = [
+  ["5, 46, 22", "#dcfce7"], ["10, 35, 24", "#dcfce7"], ["15, 58, 31", "#dcfce7"],
+  ["30, 58, 95", "#dbeafe"], ["59, 26, 106", "#f3e8ff"], ["26, 18, 8", "#fef3c7"],
+];
+const LIGHT_TEXT_REMAP_CSS =
+  LIGHT_TEXT_REMAP.map(([rgb, to]) =>
+    `[data-theme="light"] [style^="color: rgb(${rgb})"],[data-theme="light"] [style*="; color: rgb(${rgb})"]{color:${to}!important}`
+  ).join("") +
+  LIGHT_BG_REMAP.map(([rgb, to]) =>
+    `[data-theme="light"] [style*="background: rgb(${rgb})"],[data-theme="light"] [style*="background-color: rgb(${rgb})"]{background:${to}!important}`
+  ).join("");
+function ensureLightTextRemap() {
+  if (typeof document === "undefined" || document.getElementById("light-text-remap")) return;
+  const el = document.createElement("style");
+  el.id = "light-text-remap";
+  el.textContent = LIGHT_TEXT_REMAP_CSS;
+  document.head.appendChild(el);
+}
+
 /* �������������������������������������������������������
    CHECK BUILDING BLOCKS
 ������������������������������������������������������� */
@@ -1872,7 +1913,7 @@ function pacerStep(mode, elapsed, periodMs, compMs, beatMs) {
 }
 
 function BreathPacer({ mode="rescue", patientType="adult", autoStart=false, externalPaused=false, isDarkMode=true,
-                       showReassess=true, allowPatientChange=false, title, note, onRunningChange, onSummary }) {
+                       showReassess=true, allowPatientChange=false, compact=false, title, note, onRunningChange, onSummary }) {
   const ac = (d, l) => isDarkMode ? d : l;
   const [pt, setPt] = useState(patientType);
   useEffect(() => { setPt(patientType); }, [patientType]);
@@ -1989,6 +2030,68 @@ function BreathPacer({ mode="rescue", patientType="adult", autoStart=false, exte
       fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,cursor:"pointer"}}>{label}</button>
   );
 
+  // Compact layout (CPR screen): one slim bar when idle, one short row while running.
+  if (compact) {
+    const mono = {fontFamily:"'IBM Plex Mono',monospace"};
+    const iconBtn = (onClick, label, color, title) => (
+      <button onClick={onClick} title={title} aria-label={title} style={{...mono,width:34,height:34,flexShrink:0,borderRadius:7,border:`1px solid ${color}`,
+        background:"var(--c-input)",color,fontSize:12,fontWeight:800,cursor:"pointer"}}>{label}</button>
+    );
+    const r = 21, c = 2 * Math.PI * r;
+    const label = title || (mode === "rescue" ? "Rescue Breathing" : "CPR Breaths");
+    const short = mode === "rescue" ? `q${periodMs/1000}s · ${Math.round(60000/periodMs)}/min` : `${ratio}:2`;
+    const settings = isPeds && (
+      <div style={{display:"flex",gap:5,marginTop:6}}>
+        {mode === "rescue"
+          ? <>{chip(pedsInterval===3, () => changeSetting(setPedsInterval, 3), "q3s · 20/min")}{chip(pedsInterval===2, () => changeSetting(setPedsInterval, 2), "q2s · 30/min")}</>
+          : <>{chip(pedsRatio===15, () => changeSetting(setPedsRatio, 15), "15:2 · 2 rescuers")}{chip(pedsRatio===30, () => changeSetting(setPedsRatio, 30), "30:2 · solo")}</>}
+      </div>
+    );
+    if (!run) return (
+      <div style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:"7px 9px",marginBottom:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:16}}>🫁</span>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{...mono,fontSize:9.5,fontWeight:800,color:accent,letterSpacing:"0.06em",textTransform:"uppercase",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{label} · {ptLabel} · {short}</div>
+            {note && <div style={{fontSize:9.5,color:"var(--c-text4)",marginTop:1,lineHeight:1.3}}>{note}</div>}
+          </div>
+          <button onClick={start} style={{...mono,flexShrink:0,padding:"8px 11px",borderRadius:7,border:"1px solid rgba(125,249,255,.6)",background:"linear-gradient(135deg,#0f766e,#0284c7)",color:"#fff",fontSize:10.5,fontWeight:800,cursor:"pointer"}}>▶ Start</button>
+        </div>
+        {settings}
+      </div>
+    );
+    return (
+      <div style={{background:squeeze?ac("#052e16","#dcfce7"):"var(--c-surface)",border:`1px solid ${squeeze?"#22c55e":accent}`,borderRadius:8,padding:"7px 9px",marginBottom:8,transition:"background 0.12s"}}>
+        {reassess && (
+          <button onClick={() => setReassess(false)} style={{...mono,width:"100%",marginBottom:6,padding:"6px",borderRadius:6,border:"1px solid #f59e0b",background:ac("#2a1a05","#fef3c7"),color:ac("#fcd34d","#92400e"),fontSize:10,fontWeight:800,cursor:"pointer"}}>
+            ⏱ 2 MIN — CHECK PULSE / REASSESS · tap to dismiss
+          </button>
+        )}
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <svg width="52" height="52" viewBox="0 0 52 52" style={{flexShrink:0}}>
+            <circle cx="26" cy="26" r={r} fill="none" stroke="var(--c-border-sub)" strokeWidth="4"/>
+            <circle cx="26" cy="26" r={r} fill="none" stroke={ringColor} strokeWidth="4" strokeLinecap="round"
+              strokeDasharray={c} strokeDashoffset={c * (1 - (step.progress || 0))} transform="rotate(-90 26 26)"/>
+            <text x="26" y={typeof center === "number" ? 32 : 30} textAnchor="middle" fill={squeeze?ac("#22c55e","#15803d"):"var(--c-text)"}
+              style={{...mono,fontWeight:800,fontSize:typeof center === "number" ? 18 : 9}}>{center === "SQUEEZE" ? "🫁" : center === "release" ? "…" : center}</text>
+          </svg>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{...mono,fontSize:squeeze?14:10,fontWeight:800,color:squeeze?"#22c55e":paused?"#f59e0b":accent,letterSpacing:"0.05em",textTransform:"uppercase",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+              {squeeze ? `Squeeze${mode === "cpr" ? ` ${step.breathNo}/2` : ""}` : paused ? "Paused" : `${short} · ${ptLabel}`}
+            </div>
+            <div style={{...mono,fontSize:10.5,color:"var(--c-text3)",marginTop:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+              {fmtArrestTime(Math.floor(totalMs/1000))} · <b style={{color:"#4ade80"}}>{totalBreaths}</b> br{mode === "cpr" ? <> · <b style={{color:"#93c5fd"}}>{totalCycles}</b> cyc</> : null}
+            </div>
+          </div>
+          {iconBtn(() => setMuteTicks(v => !v), muteTicks ? "🔇" : "🔈", "var(--c-border-sub)", muteTicks ? "Ticks off" : "Ticks on")}
+          {iconBtn(togglePause, paused ? "▶" : "Ⅱ", paused ? "#22c55e" : "#3b82f6", paused ? "Resume" : "Pause")}
+          {iconBtn(stop, "■", "#ef4444", "Stop")}
+        </div>
+        {settings}
+      </div>
+    );
+  }
+
   return (
     <div style={{background:squeeze?ac("#052e16","#dcfce7"):"var(--c-surface)",border:`1px solid ${squeeze?"#22c55e":run?accent:"var(--c-border-sub)"}`,
       borderRadius:10,padding:"10px 11px",marginBottom:8,transition:"background 0.12s"}}>
@@ -2011,7 +2114,7 @@ function BreathPacer({ mode="rescue", patientType="adult", autoStart=false, exte
           <circle cx="62" cy="62" r={R} fill="none" stroke="var(--c-border-sub)" strokeWidth="8"/>
           <circle cx="62" cy="62" r={R} fill="none" stroke={ringColor} strokeWidth="8" strokeLinecap="round"
             strokeDasharray={C} strokeDashoffset={run ? C * (1 - (step.progress || 0)) : C} transform="rotate(-90 62 62)"/>
-          <text x="62" y={typeof center === "number" ? 70 : 66} textAnchor="middle" fill={squeeze?"#22c55e":"var(--c-text)"}
+          <text x="62" y={typeof center === "number" ? 70 : 66} textAnchor="middle" fill={squeeze?ac("#22c55e","#15803d"):"var(--c-text)"}
             style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:800,fontSize:typeof center === "number" ? 34 : center === "SQUEEZE" ? 15 : 14}}>{center}</text>
           <text x="62" y="88" textAnchor="middle" fill="var(--c-text4)" style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5}}>{sub}</text>
         </svg>
@@ -2609,7 +2712,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
               {[["bp","Blood pressure"],["spo2","SpO₂ / oxygen"],["etco2","ETCO₂"],["ecg","12-lead ECG"],["bgl","Blood glucose"],["temp","Temperature"],["airway","Airway / ventilation"],["transport","Transport plan"]].map(([key,label])=><button key={key} onClick={()=>setRoscChecks(p=>({...p,[key]:!p[key]}))} style={{padding:"7px 8px",borderRadius:6,border:`1px solid ${roscChecks[key]?"#16a34a":"var(--c-border-sub)"}`,background:roscChecks[key]?ac("#052e16","#dcfce7"):"var(--c-input)",color:roscChecks[key]?ac("#86efac","#166534"):"var(--c-text3)",fontSize:10.5,fontWeight:700,cursor:"pointer",textAlign:"left"}}>{roscChecks[key]?"✓ ":"○ "}{label}</button>)}
             </div>
             <BreathPacer key={`rosc-${pacerPatient}`} mode="rescue" patientType={pacerPatient} autoStart={ventilationOn}
-              isDarkMode={isDarkMode} title="Post-ROSC Ventilation"
+              isDarkMode={isDarkMode} compact title="Post-ROSC Ventilation"
               note={airway ? `Airway: ${airway}. Confirm pulse — ventilate only if breathing is absent or inadequate.` : "Ventilate only if breathing is absent or inadequate."}
               onRunningChange={setVentilationOn} onSummary={logPacer}/>
             <button onClick={resumeForRearrest} style={{width:"100%",padding:"10px",borderRadius:7,border:"1px solid #ef4444",background:ac("#2a0808","#fee2e2"),color:ac("#fca5a5","#b91c1c"),fontFamily:"'IBM Plex Mono',monospace",fontSize:10.5,fontWeight:800,cursor:"pointer"}}>↻ Re-arrest — Resume CPR</button>
@@ -2736,7 +2839,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
       </div>
       {/* BREATH PACER — starts when an airway is recorded */}
       <BreathPacer key={`${pacerMode}-${pacerPatient}`} mode={pacerMode} patientType={pacerPatient} autoStart={ventilationOn}
-        externalPaused={pacerMode==="cpr"&&!!pauseStartTs} showReassess={false} isDarkMode={isDarkMode}
+        externalPaused={pacerMode==="cpr"&&!!pauseStartTs} showReassess={false} isDarkMode={isDarkMode} compact
         title={pacerMode==="rescue"?`Vent Pacer · ${airway}`:airway?`CPR Breaths · ${airway}`:"CPR Breaths"}
         note={pacerMode==="rescue"?"Advanced airway: continuous breaths — do not pause compressions.":airway?"No advanced airway: pause compressions for 2 breaths.":"Starts automatically when an airway is recorded."}
         onRunningChange={setVentilationOn} onSummary={logPacer}/>
@@ -2975,7 +3078,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
                                          : "var(--c-border)"}`,
                     borderRadius: 7,
                     overflow: "hidden",
-                    opacity: disabled ? 0.55 : 1
+                    opacity: disabled ? (isDarkMode ? 0.55 : 0.75) : 1
                   }}>
                     <div style={{ display:"flex", alignItems:"stretch" }}>
                       <button
@@ -2991,7 +3094,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
                         <span style={{ fontSize:14, flexShrink:0, filter: disabled ? "grayscale(1)" : "none" }}>💉</span>
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
-                            <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11.5, fontWeight:700, color: hasDarkCardBg ? "#e2e8f0" : "var(--c-text)" }}>
+                            <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11.5, fontWeight:700, color: hasDarkCardBg && isDarkMode ? "#e2e8f0" : "var(--c-text)" }}>
                               {drug.name}
                             </span>
                             {count > 0 && !maxReached && (
@@ -3010,7 +3113,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
                               </span>
                             )}
                           </div>
-                          <div style={{ color: hasDarkCardBg ? "#8aa0c2" : "var(--c-text-sub)", fontSize:10, marginTop:1, lineHeight:1.3 }}>
+                          <div style={{ color: hasDarkCardBg && isDarkMode ? "#8aa0c2" : "var(--c-text-sub)", fontSize:10, marginTop:1, lineHeight:1.3 }}>
                             {drug.sub}
                           </div>
                           <div style={{ fontFamily:"'IBM Plex Mono',monospace", color: needsWeight ? "#fcd34d" : maxReached ? "#fca5a5" : "#60a5fa", fontSize:10.5, marginTop:2, fontWeight:600 }}>
@@ -3018,7 +3121,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
                           </div>
                           {/* Cumulative progress bar */}
                           {cumInfo.maxCumulative && count > 0 && wkg > 0 && (
-                            <div style={{ marginTop:4, fontSize:9, color: hasDarkCardBg ? "#8aa0c2" : "var(--c-text4)", fontFamily:"'IBM Plex Mono',monospace" }}>
+                            <div style={{ marginTop:4, fontSize:9, color: hasDarkCardBg && isDarkMode ? "#8aa0c2" : "var(--c-text4)", fontFamily:"'IBM Plex Mono',monospace" }}>
                               Cumulative: {cumInfo.cumulative.toFixed(2)} / {cumInfo.maxCumulative.toFixed(1)} {drug.unit || "mg"}
                               <div style={{ marginTop:2, height:3, background:"var(--c-border)", borderRadius:2, overflow:"hidden" }}>
                                 <div style={{
@@ -3030,7 +3133,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
                             </div>
                           )}
                           {cumInfo.maxDoses && count > 0 && !cumInfo.maxCumulative && (
-                            <div style={{ marginTop:3, fontSize:9, color: hasDarkCardBg ? "#8aa0c2" : "var(--c-text4)", fontFamily:"'IBM Plex Mono',monospace" }}>
+                            <div style={{ marginTop:3, fontSize:9, color: hasDarkCardBg && isDarkMode ? "#8aa0c2" : "var(--c-text4)", fontFamily:"'IBM Plex Mono',monospace" }}>
                               Dose {count} of {cumInfo.maxDoses} max
                             </div>
                           )}
@@ -6322,7 +6425,7 @@ function GenericProtocolAlgorithm({ protocol, values, setValues, onBack, isDarkM
           {(protocol.questions || []).map(([id,label], index) => {
             const isFuture = firstUnansweredIndex >= 0 && index > firstUnansweredIndex;
             return (
-            <div key={id} style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,alignItems:"center",background:"var(--c-input)",border:index===firstUnansweredIndex?`1px solid ${system.color}`:"1px solid var(--c-border-sub)",borderRadius:7,padding:9,opacity:isFuture?0.48:1}}>
+            <div key={id} style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,alignItems:"center",background:"var(--c-input)",border:index===firstUnansweredIndex?`1px solid ${system.color}`:"1px solid var(--c-border-sub)",borderRadius:7,padding:9,opacity:isFuture?0.6:1}}>
               <div>
                 <div style={{fontSize:12,fontWeight:800,color:"var(--c-text)",lineHeight:1.35}}>{label}</div>
                 {inheritedProtoIds.has(id)&&<span style={{display:"inline-block",marginTop:3,fontSize:8,fontWeight:800,letterSpacing:"0.04em",textTransform:"uppercase",padding:"1px 5px",borderRadius:3,background:isDarkMode?"#0d1f3a":"#dbeafe",color:isDarkMode?"#93c5fd":"#1d4ed8",border:`1px solid ${isDarkMode?"#1e3a8a":"#93c5fd"}`}}>🔗 auto — tap to confirm</span>}
@@ -6842,16 +6945,17 @@ function BurnProtocolAlgorithm({ patientType, totals, active, values, setValues,
         </div>
       </div>
 
-      <div style={{background:consultRecommended?(isDarkMode?"#160b0b":"#f5d2d2"):(isDarkMode?"#071a0e":"#d9eadf"),border:`1px solid ${consultRecommended?(isDarkMode?"#7f1d1d":"#b91c1c"):(isDarkMode?"#14532d":"#15803d")}`,borderRadius:8,padding:12}}>
-        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,color:consultRecommended?(isDarkMode?"#fca5a5":"#7f1d1d"):(isDarkMode?"#86efac":"#064e3b"),letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:5}}>
-          {consultRecommended ? "Burn center consult / transfer trigger" : "No major transfer trigger selected"}
+      {/* Only the transfer-trigger alert shows — the green "no trigger" state was removed as repetitive. */}
+      {consultRecommended && (
+        <div style={{background:isDarkMode?"#160b0b":"#f5d2d2",border:`1px solid ${isDarkMode?"#7f1d1d":"#b91c1c"}`,borderRadius:8,padding:12}}>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,color:isDarkMode?"#fca5a5":"#7f1d1d",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:5}}>
+            Burn center consult / transfer trigger
+          </div>
+          <div style={{fontSize:12,lineHeight:1.45,color:isDarkMode?"var(--c-text2)":"#111827"}}>
+            Notify medical control and receiving facility early. Use local destination rules and transport to the appropriate burn or trauma center.
+          </div>
         </div>
-        <div style={{fontSize:12,lineHeight:1.45,color:isDarkMode?"var(--c-text2)":"#111827"}}>
-          {consultRecommended
-            ? "Notify medical control and receiving facility early. Use local destination rules and transport to the appropriate burn or trauma center."
-            : "Continue local protocol, wound care, pain control, and reassessment. Recheck destination if findings change."}
-        </div>
-      </div>
+      )}
 
       {pedsWeightBlocked && <PedsProtocolWeightGate wkg={wkg} wlb={wlb} setWkg={setWkg} setWlb={setWlb} isDarkMode={isDarkMode}/>}
 
@@ -10903,6 +11007,7 @@ export default function App(){
 
   useEffect(()=>{
     const theme=isDarkMode?"dark":"light";
+    ensureLightTextRemap();
     document.documentElement.setAttribute("data-theme",theme);
     localStorage.setItem("medic-ai-theme",theme);
   },[isDarkMode]);
@@ -11678,14 +11783,15 @@ export default function App(){
         {screen==="arrest"&&(
           <>
             <ArrestTracker arrestState={arrestState} setArrestState={setArrestState} tick={tick} onLogMed={handleGive} wkg={wkg} setWkg={setWkg} setWlb={setWlb} mode={mode} isDarkMode={isDarkMode} patient={patient}/>
-            <VitalsLog initChecks={initChecks} reChecks={reChecks} entries={vitalsEntries} setEntries={setVitalsEntries} onClearCall={()=>{
+            {/* Keep the CPR screen uncluttered — vitals only matter once there's a pulse. */}
+            {arrestState.endReason==="ROSC"&&<VitalsLog initChecks={initChecks} reChecks={reChecks} entries={vitalsEntries} setEntries={setVitalsEntries} onClearCall={()=>{
               setAdminLog({});setInitChecks({});setReChecks({});setVitalsEntries([]);
               setCallFacts({});setActiveProtocol(null);setProtocolValues({});setProtocolEvents([]);setProtocolVitalsDraft({});setProtocolMedLog({});setProtocolActiveMeds([]);
               setPatient({age:"",sex:"",cc:""});
               setCallCcList([]);
               setCallStartTs(null);
               setCallPhase(null);
-            }}/>
+            }}/>}
           </>
         )}
 
