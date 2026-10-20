@@ -1833,6 +1833,247 @@ const fmtClock = ts => {
   return d.toTimeString().slice(0,8);
 };
 
+/* ── Breath pacer (BVM metronome) ──
+   Rates per AHA 2020/2025 BLS/PALS (followed by GA OEMS protocols):
+   • rescue / advanced airway: adult 1 breath q6s; child/infant 1 breath q2–3s
+   • CPR without advanced airway: 30:2 adult, 15:2 two-rescuer peds; compressions 100–120/min
+   The app cannot sense breaths — counts are cue-based. */
+const PACER_COMPRESSION_RATE = 110;
+const PACER_BREATH_PHASE_MS = 4000; // 2 breaths, ~1 s squeeze each, keeps the pause well under 10 s
+const PACER_REASSESS_MS = 120000;
+const pacerSounds = {
+  tick:   () => playTone(1250, 35, 0.12, 'square'),
+  comp:   () => playTone(950, 40, 0.16, 'square'),
+  breath: () => { playTone(620, 450, 0.55, 'triangle'); playTone(930, 300, 0.3, 'sine', 0.05); },
+};
+const pacerVibrate = ms => { try { navigator.vibrate?.(ms); } catch(_) {} };
+
+function pacerStep(mode, elapsed, periodMs, compMs, beatMs) {
+  if (mode === "rescue") {
+    const inPeriod = elapsed % periodMs;
+    const sec = Math.floor(inPeriod / 1000);
+    const breaths = Math.floor(elapsed / periodMs) + 1;
+    return { key:`s${Math.floor(elapsed/1000)}`, kind: sec === 0 ? "breath" : "tick",
+             squeeze: sec === 0, display: sec === 0 ? null : Math.round(periodMs/1000) - sec,
+             progress: inPeriod / periodMs, breaths, cycles: 0 };
+  }
+  const cycleMs = compMs + PACER_BREATH_PHASE_MS;
+  const cycleIdx = Math.floor(elapsed / cycleMs);
+  const c = elapsed % cycleMs;
+  if (c < compMs) {
+    const n = Math.floor(c / beatMs) + 1;
+    return { key:`c${cycleIdx}-${n}`, kind:"comp", squeeze:false, compressions:n,
+             progress: c / compMs, breaths: cycleIdx * 2, cycles: cycleIdx };
+  }
+  const b = c - compMs;
+  const breathNo = b < PACER_BREATH_PHASE_MS / 2 ? 1 : 2;
+  return { key:`b${cycleIdx}-${breathNo}`, kind:"breath", squeeze: (b % (PACER_BREATH_PHASE_MS/2)) < 1000,
+           breathNo, progress: 1, breaths: cycleIdx * 2 + breathNo, cycles: cycleIdx };
+}
+
+function BreathPacer({ mode="rescue", patientType="adult", autoStart=false, externalPaused=false, isDarkMode=true,
+                       showReassess=true, allowPatientChange=false, title, note, onRunningChange, onSummary }) {
+  const ac = (d, l) => isDarkMode ? d : l;
+  const [pt, setPt] = useState(patientType);
+  useEffect(() => { setPt(patientType); }, [patientType]);
+  const isPeds = pt === "child" || pt === "infant";
+  const [pedsInterval, setPedsInterval] = useState(3);
+  const [pedsRatio, setPedsRatio] = useState(15);
+  const [muteTicks, setMuteTicks] = useState(false);
+  // run = { startTs, pausedAt, pausedMs, baseBreaths, baseMs, baseCycles } — base* carry totals across setting changes
+  const [run, setRun] = useState(null);
+  const [now, setNow] = useState(() => Date.now());
+  const [reassess, setReassess] = useState(false);
+  const lastKeyRef = useRef(null);
+  const lastBlockRef = useRef(0);
+
+  const periodMs = (isPeds ? pedsInterval : 6) * 1000;
+  const ratio = isPeds ? pedsRatio : 30;
+  const beatMs = 60000 / PACER_COMPRESSION_RATE;
+  const compMs = ratio * beatMs;
+
+  const segElapsed = run ? Math.max(0, (run.pausedAt || now) - run.startTs - run.pausedMs) : 0;
+  const step = run ? pacerStep(mode, segElapsed, periodMs, compMs, beatMs) : null;
+  const totalMs = run ? run.baseMs + segElapsed : 0;
+  const totalBreaths = run ? run.baseBreaths + step.breaths : 0;
+  const totalCycles = run ? run.baseCycles + step.cycles : 0;
+  const paused = !!run?.pausedAt;
+
+  const start = () => {
+    _unlockAudio();
+    lastKeyRef.current = null; lastBlockRef.current = 0; setReassess(false);
+    setRun({ startTs: Date.now(), pausedAt: null, pausedMs: 0, baseBreaths: 0, baseMs: 0, baseCycles: 0 });
+    onRunningChange?.(true);
+  };
+  const togglePause = () => setRun(r => {
+    if (!r) return r;
+    if (r.pausedAt) return { ...r, pausedMs: r.pausedMs + (Date.now() - r.pausedAt), pausedAt: null };
+    return { ...r, pausedAt: Date.now() };
+  });
+  const stop = () => {
+    if (run) onSummary?.({ mode, patientType: pt, breaths: totalBreaths, cycles: totalCycles, durationSec: Math.round(totalMs/1000),
+                           rateLabel: mode === "rescue" ? `1 breath q${periodMs/1000}s` : `${ratio}:2` });
+    setRun(null); setReassess(false);
+    onRunningChange?.(false);
+  };
+  // Changing rate/ratio/patient mid-run re-anchors the cycle but keeps the running totals.
+  const reanchor = () => setRun(r => r && ({
+    startTs: Date.now(), pausedAt: r.pausedAt ? Date.now() : null, pausedMs: 0,
+    baseBreaths: totalBreaths, baseMs: totalMs, baseCycles: totalCycles,
+  }));
+  const changeSetting = (setter, value) => { setter(value); reanchor(); lastKeyRef.current = null; };
+
+  // Start on mount, or later when the parent flips autoStart on (e.g. an airway is recorded).
+  useEffect(() => { if (autoStart && !run) start(); }, [autoStart]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!run) return;
+    setRun(r => {
+      if (!r) return r;
+      if (externalPaused && !r.pausedAt) return { ...r, pausedAt: Date.now() };
+      if (!externalPaused && r.pausedAt) return { ...r, pausedMs: r.pausedMs + (Date.now() - r.pausedAt), pausedAt: null };
+      return r;
+    });
+  }, [externalPaused]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Drift-free clock: phase is derived from elapsed time, the interval only refreshes it.
+  useEffect(() => {
+    if (!run || run.pausedAt) return;
+    const id = setInterval(() => setNow(Date.now()), 40);
+    return () => clearInterval(id);
+  }, [run]);
+
+  // Keep the screen awake while pacing.
+  useEffect(() => {
+    if (!run || run.pausedAt || !navigator.wakeLock) return;
+    let lock = null, cancelled = false;
+    navigator.wakeLock.request("screen").then(l => { if (cancelled) l.release(); else lock = l; }).catch(() => {});
+    return () => { cancelled = true; lock?.release().catch(() => {}); };
+  }, [run]);
+
+  // Fire the cue once per step.
+  useEffect(() => {
+    if (!step || paused || step.key === lastKeyRef.current) return;
+    lastKeyRef.current = step.key;
+    if (step.kind === "breath") { pacerSounds.breath(); pacerVibrate(300); }
+    else if (!muteTicks) (step.kind === "comp" ? pacerSounds.comp : pacerSounds.tick)();
+    if (showReassess) {
+      const block = Math.floor(totalMs / PACER_REASSESS_MS);
+      if (block > lastBlockRef.current) {
+        lastBlockRef.current = block;
+        setReassess(true);
+        SOUNDS.cprCycle(); pacerVibrate([200,100,200]);
+      }
+    }
+  });
+
+  const squeeze = !!step?.squeeze && !paused;
+  const accent = "#14b8a6";
+  const ptLabel = pt === "infant" ? "Infant" : pt === "child" ? "Child" : "Adult";
+  const rateText = mode === "rescue"
+    ? `1 breath every ${periodMs/1000} s · ${Math.round(60000/periodMs)}/min`
+    : `${ratio}:2 · compressions ${PACER_COMPRESSION_RATE}/min`;
+  const R = 52, C = 2 * Math.PI * R;
+  const ringColor = squeeze ? "#22c55e" : step?.kind === "comp" ? "#3b82f6" : accent;
+
+  let center, sub;
+  if (!run) { center = "—"; sub = "Ready"; }
+  else if (paused) { center = "Ⅱ"; sub = "Paused"; }
+  else if (mode === "rescue") { center = squeeze ? "SQUEEZE" : step.display; sub = squeeze ? "~1 sec · chest rise" : "next breath"; }
+  else if (step.kind === "comp") { center = step.compressions; sub = `of ${ratio} compressions`; }
+  else { center = squeeze ? "SQUEEZE" : "release"; sub = `breath ${step.breathNo} of 2`; }
+
+  const chip = (active, onClick, label, key) => (
+    <button key={key ?? label} onClick={onClick} style={{flex:1,padding:"7px 6px",borderRadius:6,border:`1px solid ${active?accent:"var(--c-border-sub)"}`,
+      background:active?ac("#042f2e","#ccfbf1"):"var(--c-input)",color:active?ac("#5eead4","#115e59"):"var(--c-text4)",
+      fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,cursor:"pointer"}}>{label}</button>
+  );
+
+  return (
+    <div style={{background:squeeze?ac("#052e16","#dcfce7"):"var(--c-surface)",border:`1px solid ${squeeze?"#22c55e":run?accent:"var(--c-border-sub)"}`,
+      borderRadius:10,padding:"10px 11px",marginBottom:8,transition:"background 0.12s"}}>
+      <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:8}}>
+        <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9.5,fontWeight:800,color:accent,letterSpacing:"0.08em",textTransform:"uppercase"}}>
+          🫁 {title || (mode === "rescue" ? "Rescue Breathing" : "CPR Breaths")} · {ptLabel}
+        </span>
+        <span style={{marginLeft:"auto",fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:"var(--c-text4)"}}>{rateText}</span>
+      </div>
+
+      {reassess && (
+        <button onClick={() => setReassess(false)} style={{width:"100%",marginBottom:8,padding:"9px",borderRadius:7,border:"1px solid #f59e0b",
+          background:ac("#2a1a05","#fef3c7"),color:ac("#fcd34d","#92400e"),fontFamily:"'IBM Plex Mono',monospace",fontSize:10.5,fontWeight:800,cursor:"pointer"}}>
+          ⏱ 2 MIN — CHECK PULSE / REASSESS · tap to dismiss
+        </button>
+      )}
+
+      <div style={{display:"flex",alignItems:"center",gap:12}}>
+        <svg width="124" height="124" viewBox="0 0 124 124" style={{flexShrink:0}}>
+          <circle cx="62" cy="62" r={R} fill="none" stroke="var(--c-border-sub)" strokeWidth="8"/>
+          <circle cx="62" cy="62" r={R} fill="none" stroke={ringColor} strokeWidth="8" strokeLinecap="round"
+            strokeDasharray={C} strokeDashoffset={run ? C * (1 - (step.progress || 0)) : C} transform="rotate(-90 62 62)"/>
+          <text x="62" y={typeof center === "number" ? 70 : 66} textAnchor="middle" fill={squeeze?"#22c55e":"var(--c-text)"}
+            style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:800,fontSize:typeof center === "number" ? 34 : center === "SQUEEZE" ? 15 : 14}}>{center}</text>
+          <text x="62" y="88" textAnchor="middle" fill="var(--c-text4)" style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8.5}}>{sub}</text>
+        </svg>
+        <div style={{flex:1,display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+          <SumStat label="Time" value={fmtArrestTime(Math.floor(totalMs/1000))} color="#67e8f9"/>
+          <SumStat label="Breaths" value={totalBreaths} color="#4ade80"/>
+          {mode === "cpr"
+            ? <SumStat label="Cycles" value={totalCycles} color="#93c5fd"/>
+            : <SumStat label="Rate" value={`${Math.round(60000/periodMs)}/m`} color="#93c5fd"/>}
+          <button onClick={() => setMuteTicks(v => !v)} style={{borderRadius:6,border:"1px solid var(--c-border-sub)",background:"var(--c-input)",
+            color:muteTicks?"#f59e0b":"var(--c-text4)",fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,cursor:"pointer"}}>
+            {muteTicks ? "🔇 Ticks off" : "🔈 Ticks on"}
+          </button>
+        </div>
+      </div>
+
+      {(allowPatientChange || isPeds) && (
+        <div style={{display:"flex",flexDirection:"column",gap:5,marginTop:8}}>
+          {allowPatientChange && (
+            <div style={{display:"flex",gap:5}}>
+              {[["adult","Adult"],["child","Child"],["infant","Infant"]].map(([v,l]) => chip(pt===v, () => changeSetting(setPt, v), l, v))}
+            </div>
+          )}
+          {isPeds && mode === "rescue" && (
+            <div style={{display:"flex",gap:5}}>
+              {chip(pedsInterval===3, () => changeSetting(setPedsInterval, 3), "q3s · 20/min")}
+              {chip(pedsInterval===2, () => changeSetting(setPedsInterval, 2), "q2s · 30/min")}
+            </div>
+          )}
+          {isPeds && mode === "cpr" && (
+            <div style={{display:"flex",gap:5}}>
+              {chip(pedsRatio===15, () => changeSetting(setPedsRatio, 15), "15:2 · 2 rescuers")}
+              {chip(pedsRatio===30, () => changeSetting(setPedsRatio, 30), "30:2 · solo")}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{display:"grid",gridTemplateColumns:run?"1fr 1fr":"1fr",gap:6,marginTop:8}}>
+        {!run ? (
+          <button onClick={start} style={{padding:"11px",borderRadius:8,border:"1px solid rgba(125,249,255,.6)",background:"linear-gradient(135deg,#0f766e,#0284c7)",
+            color:"#fff",fontFamily:"'IBM Plex Mono',monospace",fontSize:11.5,fontWeight:800,cursor:"pointer"}}>
+            ▶ Start {mode === "rescue" ? "Breath Pacer" : `${ratio}:2 Pacer`}
+          </button>
+        ) : (<>
+          <button onClick={togglePause} style={{padding:"10px",borderRadius:8,border:`1px solid ${paused?"#22c55e":"#3b82f6"}`,background:paused?ac("#052e16","#dcfce7"):ac("#0d1f3a","#dbeafe"),
+            color:paused?ac("#86efac","#166534"):ac("#93c5fd","#1d4ed8"),fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,cursor:"pointer"}}>
+            {paused ? "▶ Resume" : "Ⅱ Pause"}
+          </button>
+          <button onClick={stop} style={{padding:"10px",borderRadius:8,border:"1px solid #ef4444",background:ac("#2a0808","#fee2e2"),
+            color:ac("#fca5a5","#b91c1c"),fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:800,cursor:"pointer"}}>■ Stop</button>
+        </>)}
+      </div>
+
+      <div style={{fontSize:10,color:"var(--c-text4)",lineHeight:1.45,marginTop:8}}>
+        {note && <div style={{marginBottom:3}}>{note}</div>}
+        Squeeze ~1 sec — only enough for visible chest rise. Avoid hyperventilation. Counts are cue-based. Ref: AHA BLS/PALS · follow local protocol.
+      </div>
+    </div>
+  );
+}
+
 function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWkg, setWlb, mode, isDarkMode=true, patient={} }) {
   const alarmRef = useRef({ epiWarn: false, epiDue: false, cycleEnd: false, lastCycleStart: null });
   const [showHT, setShowHT] = useState(false);
@@ -1915,12 +2156,12 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
     }
   },[active,epiWarn,epiDue,cycleEnded,cycleStartTs]);
 
-  useEffect(()=>{
-    if(!active||!advancedAirway||!ventilationOn) return;
-    arrestBeep("vent");
-    const interval=setInterval(()=>arrestBeep("vent"),isPeds?2500:6000);
-    return()=>clearInterval(interval);
-  },[active,advancedAirway,ventilationOn,isPeds]);
+  // Breath pacer: BVM/OPA/NPA (or no airway yet) → 30:2 / 15:2; advanced airway → continuous q6s / q2–3s.
+  // ventilationOn = pacer running; recording an airway starts it, switching airway type remounts it in the new mode.
+  const pacerMode = advancedAirway ? "rescue" : "cpr";
+  const pacerPatient = patientType === "infant" || patientType === "child" ? patientType : "adult";
+  const logPacer = ({ breaths, cycles, durationSec, rateLabel }) =>
+    addEvent("airway", `Breath pacer stopped · ${rateLabel} · ${breaths} breaths${cycles ? ` / ${cycles} cycles` : ""} over ${fmtArrestTime(durationSec)}`);
 
   // Helpers
   const addEvent = useCallback((type, detail = "", extra = {}) => {
@@ -2040,6 +2281,7 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
     addEvent("airway", `${a} placed`);
     setArrestState(s => ({ ...s, airway: a }));
     setShowAirwayMenu(false);
+    setVentilationOn(true); // airway established → breath pacer starts
   };
 
   // ── IV/IO access handlers ──
@@ -2144,14 +2386,15 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
       return { ...s, endTs: ts, endReason: reason, events: finalEvents };
     });
     setConfirmEnd(false);
-    setVentilationOn(false);
+    // ROSC: keep the pacer running — it switches to rescue-breathing rates on the summary screen.
+    if (reason !== "ROSC") setVentilationOn(false);
   };
 
   const resumeForRearrest=()=>{
     const ts=Date.now();
     setArrestState(s=>({...s,endTs:null,endReason:null,rhythm:null,cycleStartTs:ts,lastEpiTs:null,events:[{id:ts,ts,type:"rearrest",detail:"Re-arrest — CPR resumed"},...s.events]}));
     setPauseStartTs(null);
-    setVentilationOn(false);
+    // Pacer state carries over; it remounts in CPR mode for the current airway.
     alarmRef.current={epiWarn:false,epiDue:false,cycleEnd:false,lastCycleStart:ts};
   };
 
@@ -2365,6 +2608,10 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:9}}>
               {[["bp","Blood pressure"],["spo2","SpO₂ / oxygen"],["etco2","ETCO₂"],["ecg","12-lead ECG"],["bgl","Blood glucose"],["temp","Temperature"],["airway","Airway / ventilation"],["transport","Transport plan"]].map(([key,label])=><button key={key} onClick={()=>setRoscChecks(p=>({...p,[key]:!p[key]}))} style={{padding:"7px 8px",borderRadius:6,border:`1px solid ${roscChecks[key]?"#16a34a":"var(--c-border-sub)"}`,background:roscChecks[key]?ac("#052e16","#dcfce7"):"var(--c-input)",color:roscChecks[key]?ac("#86efac","#166534"):"var(--c-text3)",fontSize:10.5,fontWeight:700,cursor:"pointer",textAlign:"left"}}>{roscChecks[key]?"✓ ":"○ "}{label}</button>)}
             </div>
+            <BreathPacer key={`rosc-${pacerPatient}`} mode="rescue" patientType={pacerPatient} autoStart={ventilationOn}
+              isDarkMode={isDarkMode} title="Post-ROSC Ventilation"
+              note={airway ? `Airway: ${airway}. Confirm pulse — ventilate only if breathing is absent or inadequate.` : "Ventilate only if breathing is absent or inadequate."}
+              onRunningChange={setVentilationOn} onSummary={logPacer}/>
             <button onClick={resumeForRearrest} style={{width:"100%",padding:"10px",borderRadius:7,border:"1px solid #ef4444",background:ac("#2a0808","#fee2e2"),color:ac("#fca5a5","#b91c1c"),fontFamily:"'IBM Plex Mono',monospace",fontSize:10.5,fontWeight:800,cursor:"pointer"}}>↻ Re-arrest — Resume CPR</button>
           </div>
         )}
@@ -2476,9 +2723,8 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
           <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:pauseStartTs?"#ef4444":"#22d3ee",letterSpacing:"0.08em",textTransform:"uppercase"}}>{patientType === "infant" ? "Infant CPR Quality" : patientType === "child" ? "Child CPR Quality" : "CPR Quality"}</span>
           <span style={{marginLeft:"auto",fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:compressionFraction>=80?"#4ade80":"#f59e0b"}}>CCF ~{compressionFraction.toFixed(0)}%</span>
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:7}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr",gap:6,marginBottom:7}}>
           <button onClick={()=>pauseStartTs?endPause():startPause("Manual CPR pause")} style={{padding:"9px 7px",borderRadius:7,border:`1px solid ${pauseStartTs?"#ef4444":"#3b82f6"}`,background:pauseStartTs?ac("#7f1d1d","#fee2e2"):ac("#0d1f3a","#dbeafe"),color:pauseStartTs?ac("#fff","#b91c1c"):ac("#93c5fd","#1d4ed8"),fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:800,cursor:"pointer"}}>{pauseStartTs?`▶ Resume · ${pauseSecs}s`:"Ⅱ Pause CPR"}</button>
-          <button disabled={!advancedAirway} onClick={()=>advancedAirway&&setVentilationOn(v=>!v)} style={{padding:"9px 7px",borderRadius:7,border:`1px solid ${ventilationOn?"#22c55e":"var(--c-border-sub)"}`,background:ventilationOn?ac("#052e16","#dcfce7"):"var(--c-input)",color:ventilationOn?ac("#86efac","#166534"):"var(--c-text4)",fontFamily:"'IBM Plex Mono',monospace",fontSize:9.5,fontWeight:800,cursor:advancedAirway?"pointer":"not-allowed",opacity:advancedAirway?1:0.55}}>🫁 {ventilationOn?`${patientType === "infant" ? "Infant" : patientType === "child" ? "Child" : "Adult"} · ${isPeds?"q2.5s":"q6s"}`:advancedAirway?"Start Vent Pacer":"Adv airway needed"}</button>
         </div>
         <div style={{display:"flex",gap:6,alignItems:"stretch"}}>
           <input type="number" value={etco2Input} onChange={e=>setEtco2Input(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")recordEtco2();}} placeholder="ETCO₂ mmHg" min="0" max="150" style={{width:105,padding:"7px 8px",borderRadius:6,border:"1px solid var(--c-border-sub)",background:"var(--c-input)",color:"var(--c-text)",fontSize:11,fontFamily:"'IBM Plex Mono',monospace",outline:"none"}}/>
@@ -2488,6 +2734,12 @@ function ArrestTracker({ arrestState, setArrestState, tick, onLogMed, wkg, setWk
         {currentEtco2!=null&&currentEtco2<10&&<div style={{marginTop:6,color:"#f59e0b",fontSize:9.5,fontWeight:700}}>Low ETCO₂ — reassess compression quality and ventilation. Do not use ETCO₂ alone to terminate.</div>}
         {currentEtco2!=null&&priorEtco2!=null&&currentEtco2-priorEtco2>=10&&<div style={{marginTop:6,color:"#4ade80",fontSize:9.5,fontWeight:700}}>Sudden ETCO₂ rise — assess for possible ROSC without prolonging interruption.</div>}
       </div>
+      {/* BREATH PACER — starts when an airway is recorded */}
+      <BreathPacer key={`${pacerMode}-${pacerPatient}`} mode={pacerMode} patientType={pacerPatient} autoStart={ventilationOn}
+        externalPaused={pacerMode==="cpr"&&!!pauseStartTs} showReassess={false} isDarkMode={isDarkMode}
+        title={pacerMode==="rescue"?`Vent Pacer · ${airway}`:airway?`CPR Breaths · ${airway}`:"CPR Breaths"}
+        note={pacerMode==="rescue"?"Advanced airway: continuous breaths — do not pause compressions.":airway?"No advanced airway: pause compressions for 2 breaths.":"Starts automatically when an airway is recorded."}
+        onRunningChange={setVentilationOn} onSummary={logPacer}/>
 
       {/* Epi timer strip */}
       {epiCount > 0 && (
@@ -3729,6 +3981,12 @@ const CC_OPTIONS = Object.keys(CC_DRUG_MAP);
 // workflow is ready; the implementation below remains intact for reactivation.
 const AI_NARRATIVE_ENABLED = false;
 const AI_NARRATIVE_PAUSED = true;
+// Protocol "Intervention shortcuts" (Record — Oxygen / BVM / CPAP …) — hidden until ePCR integration
+// to avoid double documentation. Code is intact; flip to true to bring it back.
+const INTERVENTION_SHORTCUTS_ENABLED = false;
+// Protocol "Active Call" box (vitals entry, log note, quick events, call events list) — same reason.
+// Dose timers still render when it is off.
+const ACTIVE_CALL_WORKSPACE_ENABLED = false;
 
 // Protocols relevant to each intake complaint. During an active call these are
 // combined across every selected complaint, keeping the working screens focused.
@@ -5642,6 +5900,16 @@ function ActiveCallWorkspace({ protocolTitle, events, vitalsDraft, setVitalsDraf
     ["Notify","Receiving facility / med control notified"],
     ["Transport","Transport decision documented"],
   ];
+  const doseTimers = activeMeds.length>0&&(
+    <div style={{background:"var(--c-input)",border:"1px solid var(--c-border-sub)",borderRadius:7,padding:8}}>
+      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"var(--c-text4)",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:7}}>Dose Timers</div>
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {activeMeds.map(name => <ProtocolMedTimer key={name} name={name} activeCall={{ medLog, onLogMed, now }} isDarkMode={isDarkMode}/>)}
+      </div>
+    </div>
+  );
+  // Documentation part (vitals / notes / call events) is parked until ePCR integration; dose timers stay.
+  if(!ACTIVE_CALL_WORKSPACE_ENABLED) return doseTimers || null;
   return (
     <section style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:10,display:"flex",flexDirection:"column",gap:9}}>
       <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -5694,14 +5962,7 @@ function ActiveCallWorkspace({ protocolTitle, events, vitalsDraft, setVitalsDraf
         )}
       </div>
 
-      {activeMeds.length>0&&(
-        <div style={{background:"var(--c-input)",border:"1px solid var(--c-border-sub)",borderRadius:7,padding:8}}>
-          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"var(--c-text4)",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:7}}>Dose Timers</div>
-          <div style={{display:"flex",flexDirection:"column",gap:6}}>
-            {activeMeds.map(name => <ProtocolMedTimer key={name} name={name} activeCall={{ medLog, onLogMed, now }} isDarkMode={isDarkMode}/>)}
-          </div>
-        </div>
-      )}
+      {doseTimers}
     </section>
   );
 }
@@ -5928,6 +6189,20 @@ function PainAssessmentPanel({ protocol, values, setValues, activeCall, patientT
   );
 }
 
+function ProtocolTip() {
+  return (
+    <div style={{fontSize:11,color:"var(--c-text4)",lineHeight:1.45,padding:"0 2px"}}>
+      <span style={{fontWeight:800}}>Tip:</span> Answer decision points, complete steps, and document interventions/vitals as the call progresses.
+    </div>
+  );
+}
+
+// Protocols where a patient with a pulse may need BVM rescue breathing → default pacer patient type.
+const RESCUE_BREATHING_PROTOCOLS = {
+  "overdose":"adult", "resp-distress":"adult", "organophosphate":"adult",
+  "peds-overdose":"child", "peds-resp":"child",
+};
+
 function GenericProtocolAlgorithm({ protocol, values, setValues, onBack, isDarkMode, onJumpDrug, findDrugLocation, activeCall, patientType, wkg, wlb, setWkg, setWlb, callFacts={}, onFactAnswered }) {
   const setAnswer = (id, value) => {
     setValues(prev => ({ ...prev, [protocol.id]: { ...(prev[protocol.id] || {}), [id]: value } }));
@@ -5948,7 +6223,6 @@ function GenericProtocolAlgorithm({ protocol, values, setValues, onBack, isDarkM
   const activeTriggers = (protocol.triggers || []).filter(id => answers[id] === "yes");
   const system = PROTOCOL_SYSTEMS.find(s => s.id === protocol.system) || PROTOCOL_SYSTEMS[0];
   const firstUnansweredIndex = (protocol.questions || []).findIndex(([id]) => !answers[id]);
-  const nextQuestion = firstUnansweredIndex >= 0 ? protocol.questions[firstUnansweredIndex] : null;
   const stopRule = (PROTOCOL_STOP_RULES[protocol.id] || []).find(rule => matchesAnswers(answers, rule.when));
   // Keep conditional safety rules where they exist, then fill in every remaining
   // medication declared by the protocol so the shortcut panel is never silently
@@ -5984,10 +6258,12 @@ function GenericProtocolAlgorithm({ protocol, values, setValues, onBack, isDarkM
   };
   const pedsWeightBlocked = patientType === "peds" && (!wkg || wkg <= 0);
   const [stepsDone, setStepsDone] = React.useState({});
-  React.useEffect(() => { setStepsDone({}); }, [protocol.id]);
+  const [showPacer, setShowPacer] = React.useState(false);
+  React.useEffect(() => { setStepsDone({}); setShowPacer(false); }, [protocol.id]);
   const toggleStep = i => setStepsDone(p => ({...p,[i]:!p[i]}));
   return (
     <section style={{display:"flex",flexDirection:"column",gap:10}}>
+      <ProtocolTip/>
       <div style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:12}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           <button onClick={onBack} style={{width:34,height:34,borderRadius:8,border:"1px solid var(--c-border)",background:"var(--c-input)",color:"var(--c-text)",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontWeight:800}}>Back</button>
@@ -5998,25 +6274,45 @@ function GenericProtocolAlgorithm({ protocol, values, setValues, onBack, isDarkM
         </div>
       </div>
 
-      <div style={{background:activeTriggers.length?(isDarkMode?"#160b0b":"#f5d2d2"):"var(--c-input)",border:`1px solid ${activeTriggers.length?"#ef4444":"var(--c-border-sub)"}`,borderRadius:8,padding:10}}>
-        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:activeTriggers.length?"#ef4444":"var(--c-text4)",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:5}}>
-          {activeTriggers.length ? "High-priority finding selected" : "Protocol guidance"}
+      {activeTriggers.length > 0 && (
+        <div style={{background:isDarkMode?"#160b0b":"#f5d2d2",border:"1px solid #ef4444",borderRadius:8,padding:10}}>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#ef4444",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:5}}>
+            High-priority finding selected
+          </div>
+          <div style={{fontSize:12,color:"var(--c-text2)",lineHeight:1.45}}>
+            Expedite treatment, reassessment, transport decision, and receiving-facility notification per local protocol.
+          </div>
         </div>
-        <div style={{fontSize:12,color:"var(--c-text2)",lineHeight:1.45}}>
-          {activeTriggers.length ? "Expedite treatment, reassessment, transport decision, and receiving-facility notification per local protocol." : "Answer decision points, complete steps, and document interventions/vitals as the call progresses."}
-        </div>
-      </div>
+      )}
 
-      <div style={{background:stopRule?(isDarkMode?"#2a0808":"#fee2e2"):(isDarkMode?"#071a0e":"#dcfce7"),border:`1px solid ${stopRule?"#ef4444":"#22c55e"}`,borderRadius:8,padding:10}}>
-        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:stopRule?"#ef4444":"#16a34a",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:5}}>
-          {stopRule ? stopRule.label : nextQuestion ? "Next decision" : "Algorithm path complete"}
+      {/* Only safety stop rules show here — "next decision" / "path complete" were repetitive. */}
+      {stopRule && (
+        <div style={{background:isDarkMode?"#2a0808":"#fee2e2",border:"1px solid #ef4444",borderRadius:8,padding:10}}>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#ef4444",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:5}}>
+            {stopRule.label}
+          </div>
+          <div style={{fontSize:12,color:isDarkMode?"var(--c-text2)":"#111827",lineHeight:1.45}}>
+            {stopRule.detail}
+          </div>
         </div>
-        <div style={{fontSize:12,color:isDarkMode?"var(--c-text2)":"#111827",lineHeight:1.45}}>
-          {stopRule ? stopRule.detail : nextQuestion ? `Answer: ${nextQuestion[1]}` : "All decision points have been answered. Continue reassessment, documentation, and transport decision per protocol."}
-        </div>
-      </div>
+      )}
 
       {pedsWeightBlocked && <PedsProtocolWeightGate wkg={wkg} wlb={wlb} setWkg={setWkg} setWlb={setWlb} isDarkMode={isDarkMode}/>}
+
+      {RESCUE_BREATHING_PROTOCOLS[protocol.id] && (showPacer ? (
+        <div>
+          <BreathPacer key={protocol.id} mode="rescue" patientType={RESCUE_BREATHING_PROTOCOLS[protocol.id]} autoStart allowPatientChange
+            isDarkMode={isDarkMode} note="Pulse present, breathing absent or inadequate. No pulse → start CPR / Arrest tool."
+            onSummary={({ breaths, durationSec, rateLabel, patientType: pt }) =>
+              activeCall?.onLogEvent("BVM", `Rescue breathing (${pt}) ${rateLabel} · ${breaths} breaths over ${fmtArrestTime(durationSec)}`)}/>
+          <button onClick={() => setShowPacer(false)} style={{width:"100%",padding:"6px",borderRadius:6,border:"1px solid var(--c-border-sub)",background:"transparent",color:"var(--c-text4)",fontFamily:"'IBM Plex Mono',monospace",fontSize:9.5,fontWeight:800,cursor:"pointer"}}>Hide breath pacer</button>
+        </div>
+      ) : (
+        <button onClick={() => setShowPacer(true)} style={{width:"100%",padding:"12px",borderRadius:8,border:"1px solid #14b8a6",background:isDarkMode?"#042f2e":"#ccfbf1",color:isDarkMode?"#5eead4":"#115e59",fontFamily:"'IBM Plex Mono',monospace",fontSize:12,fontWeight:800,cursor:"pointer",textAlign:"left"}}>
+          🫁 Start Rescue Breathing (BVM)
+          <div style={{fontSize:9.5,fontWeight:600,marginTop:3,color:"var(--c-text4)"}}>Metronome breath pacer · adult q6s · child/infant q2–3s</div>
+        </button>
+      ))}
 
       {protocol.painAssess && <PainAssessmentPanel protocol={protocol} values={values} setValues={setValues} activeCall={activeCall} patientType={patientType} color={isDarkMode?system.color:system.lightColor}/>}
 
@@ -6132,7 +6428,7 @@ function GenericProtocolAlgorithm({ protocol, values, setValues, onBack, isDarkM
         </div>
       </div>
 
-      <InterventionShortcuts protocol={protocol} onLogEvent={activeCall?.onLogEvent} isDarkMode={isDarkMode}/>
+      {INTERVENTION_SHORTCUTS_ENABLED && <InterventionShortcuts protocol={protocol} onLogEvent={activeCall?.onLogEvent} isDarkMode={isDarkMode}/>}
 
       <ActiveCallWorkspace
         protocolTitle={protocol.title}
@@ -6221,6 +6517,7 @@ function ApgarAlgorithm({ onBack, isDarkMode }) {
 
   return (
     <section style={{display:"flex",flexDirection:"column",gap:10,paddingBottom:40}}>
+      <ProtocolTip/>
       {/* Header */}
       <div style={{background:su,border:`1px solid ${bd}`,borderRadius:8,padding:12,display:"flex",alignItems:"center",gap:10}}>
         <button onClick={onBack} style={{width:34,height:34,borderRadius:8,border:`1px solid ${bd}`,background:inp,color:t,cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontWeight:800,flexShrink:0}}>←</button>
@@ -6530,6 +6827,7 @@ function BurnProtocolAlgorithm({ patientType, totals, active, values, setValues,
 
   return (
     <section style={{display:"flex",flexDirection:"column",gap:10}}>
+      <ProtocolTip/>
       <div style={{background:"var(--c-surface)",border:"1px solid var(--c-border-sub)",borderRadius:8,padding:12}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           <button onClick={onBack} style={{width:34,height:34,borderRadius:8,border:"1px solid var(--c-border)",background:"var(--c-input)",color:"var(--c-text)",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontWeight:800}}>←</button>
@@ -7316,6 +7614,12 @@ function PermissionScreen({ isDarkMode, onDone }) {
     typeof Notification !== "undefined" ? Notification.permission : "unsupported"
   );
   const [requesting, setRequesting] = useState(false);
+  const bg     = isDarkMode ? "#060a15" : "#f4efe7";
+  const text   = isDarkMode ? "#e2e8f0" : "#0f172a";
+  const muted  = isDarkMode ? "#8aa0c2" : "#374151";
+  const card   = isDarkMode ? "#0d1120" : "#ede7dc";
+  const cardBorder = isDarkMode ? "#1a2338" : "#c5b9a8";
+  const granted = notifStatus === "granted";
 
   async function handleAllow() {
     setRequesting(true);
@@ -7330,29 +7634,30 @@ function PermissionScreen({ isDarkMode, onDone }) {
 
   return (
     <>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&family=DM+Sans:wght@400;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}body{background:#020617}button{font:inherit}`}</style>
-      <main style={{ minHeight:"100vh", background:"#020617", color:"#e2e8f0", fontFamily:"'DM Sans',sans-serif", display:"flex", justifyContent:"center", alignItems:"center", padding:"24px 16px" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&family=DM+Sans:wght@400;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}body{background:${bg}}button{font:inherit}`}</style>
+      <main style={{ minHeight:"100vh", background:bg, color:text, fontFamily:"'DM Sans',sans-serif", display:"flex", justifyContent:"center", alignItems:"center", padding:"24px 16px" }}>
         <div style={{ width:"100%", maxWidth:430, display:"flex", flexDirection:"column", gap:24 }}>
 
           <div style={{ textAlign:"center" }}>
             <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11, fontWeight:700, letterSpacing:"0.12em", textTransform:"uppercase", color:"#14b8a6", marginBottom:10 }}>R.O.M.A.N.</div>
-            <div style={{ fontSize:28, fontWeight:800, color:"#f1f5f9", lineHeight:1.15, marginBottom:10 }}>Before we get started</div>
-            <div style={{ fontSize:14, color:"#7a90b0", lineHeight:1.6 }}>
+            <div style={{ fontSize:28, fontWeight:800, color:text, lineHeight:1.15, marginBottom:10 }}>Before we get started</div>
+            <div style={{ fontSize:14, color:muted, lineHeight:1.6 }}>
               R.O.M.A.N. needs one permission to alert you during a cardiac arrest even when you switch screens.
             </div>
           </div>
 
-          <div style={{ display:"flex", alignItems:"flex-start", gap:14, background:"#0d1829", border:"1px solid #1a2e4a", borderRadius:12, padding:"16px" }}>
+          <div style={{ display:"flex", alignItems:"flex-start", gap:14, background:card, border:`1px solid ${cardBorder}`, borderRadius:12, padding:"16px" }}>
             <div style={{ fontSize:30, lineHeight:1, flexShrink:0, marginTop:2 }}>🔔</div>
             <div style={{ flex:1 }}>
-              <div style={{ fontWeight:700, fontSize:15, color:"#e2e8f0", marginBottom:4 }}>Push Notifications</div>
-              <div style={{ fontSize:13, color:"#7a90b0", lineHeight:1.5 }}>CPR cycle alerts and epinephrine reminders. Nothing else — no marketing, no tracking.</div>
+              <div style={{ fontWeight:700, fontSize:15, color:text, marginBottom:4 }}>Push Notifications</div>
+              <div style={{ fontSize:13, color:muted, lineHeight:1.5 }}>CPR cycle alerts and epinephrine reminders. Nothing else — no marketing, no tracking.</div>
             </div>
             <div style={{
               alignSelf:"center", flexShrink:0, fontSize:11, fontWeight:700, padding:"3px 9px",
-              borderRadius:20, background: notifStatus === "granted" ? "#052e16" : "#0d1525",
-              color: notifStatus === "granted" ? "#4ade80" : "#64748b",
-              border: `1px solid ${notifStatus === "granted" ? "#166534" : "#1e2d42"}`
+              borderRadius:20,
+              background: granted ? (isDarkMode ? "#052e16" : "#dcfce7") : (isDarkMode ? "#0d1525" : "#f0e9df"),
+              color: granted ? (isDarkMode ? "#4ade80" : "#166534") : muted,
+              border: `1px solid ${granted ? (isDarkMode ? "#166534" : "#86efac") : cardBorder}`
             }}>
               {notifStatus === "granted" ? "✓ Allowed" : "Pending"}
             </div>
@@ -7365,7 +7670,7 @@ function PermissionScreen({ isDarkMode, onDone }) {
             {requesting ? "Enabling…" : "Allow Notifications & Continue"}
           </button>
 
-          <button onClick={onDone} style={{ background:"none", border:"none", color:"#334155", fontSize:13, fontWeight:600, cursor:"pointer", textAlign:"center", paddingBottom:8 }}>
+          <button onClick={onDone} style={{ background:"none", border:"none", color:muted, fontSize:13, fontWeight:600, cursor:"pointer", textAlign:"center", paddingBottom:8 }}>
             Skip for now
           </button>
 
@@ -10371,8 +10676,6 @@ export default function App(){
     if(paid) return paid.certLevel ? "app" : "purchase24hr";
     const saved=localStorage.getItem("medic-ai-user");
     try { if(saved && JSON.parse(saved)) return "app"; } catch {}
-    // Show permission screen on very first launch only
-    if(!localStorage.getItem("roman-perms-asked")) return "permissions";
     return "home";
   });
   const[authUser,setAuthUser]=useState(()=>{
@@ -10485,11 +10788,9 @@ export default function App(){
     const noSave=["Guest","Student","PaidGuest"];
     if(!noSave.includes(user.role)) localStorage.setItem("medic-ai-user", JSON.stringify(user));
     if(user.certLevel) setScope(CERT_SCOPE_MAP[user.certLevel] || "all");
-    // Ask for notification permission + unlock audio — login button tap is the required user gesture on iOS
+    // Unlock audio — login button tap is the required user gesture on iOS.
+    // Notification permission is requested on the permissions screen after T&C.
     _unlockAudio();
-    if('Notification' in window && Notification.permission==='default'){
-      Notification.requestPermission();
-    }
     setAppView("welcome");
   },[]);
 
@@ -10988,8 +11289,15 @@ export default function App(){
     </div>
   );
 
+  // Final step before entering the app: login → T&C (welcome) → permissions → app
+  const finishEntry=()=>{
+    setScreen("home");
+    setAppView("app");
+    if(!localStorage.getItem("roman-tour-done")){setTimeout(()=>{setTourStep(0);setShowTour(true);},400);}
+  };
+
   if(appView==="permissions"){
-    return <PermissionScreen isDarkMode={isDarkMode} onDone={()=>{ localStorage.setItem("roman-perms-asked","1"); setAppView("home"); }} />;
+    return <PermissionScreen isDarkMode={isDarkMode} onDone={()=>{ localStorage.setItem("roman-perms-asked","1"); finishEntry(); }} />;
   }
 
   if(appView==="home"){
@@ -11013,7 +11321,7 @@ export default function App(){
   }
 
   if(appView==="welcome"){
-    return <WelcomeScreen isDarkMode={isDarkMode} authUser={authUser} onContinue={()=>{logTCAcceptance(authUser);setScreen("home");setAppView("app");if(!localStorage.getItem("roman-tour-done")){setTimeout(()=>{setTourStep(0);setShowTour(true);},400);}}} />;
+    return <WelcomeScreen isDarkMode={isDarkMode} authUser={authUser} onContinue={()=>{logTCAcceptance(authUser);setAppView("permissions");}} />;
   }
 
   if(appView==="profilesetup"){
